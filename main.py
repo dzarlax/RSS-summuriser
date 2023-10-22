@@ -1,15 +1,19 @@
-import jwt
+# Стандартные библиотеки
 import json
+import os
 import time
-import trafilatura
-import feedparser
-import requests
-from bs4 import BeautifulSoup
-from feedgenerator import DefaultFeed, Enclosure
 from datetime import datetime, timedelta
+
+# Сторонние библиотеки
 import boto3
 from botocore.client import Config
-import os
+import feedparser
+from bs4 import BeautifulSoup
+import jwt
+from feedgenerator import DefaultFeed, Enclosure
+import requests
+import trafilatura
+
 
 # Загрузка конфигурации из JSON-файла
 with open('config.json', 'r') as file:
@@ -20,59 +24,20 @@ with open('config.json', 'r') as file:
 iam_url = config["iam_url"]
 service_account_id = config["service_account_id"]
 key_id = config["key_id"]
-
-#YandexGPT
-API_URL = config["API_URL"]
-folder_id = config["x-folder-id"]
-tokenize_url = config["tokenize_url"]
-
-#S3
-ENDPOINT_URL = config["ENDPOINT_URL"]
-ACCESS_KEY = config["ACCESS_KEY"]
-SECRET_KEY = config["SECRET_KEY"]
-BUCKET_NAME = config["BUCKET_NAME"]
-
-#links
-rss_url = config["rss_url"]
-logo = config["logo_url"]
-
-
 with open("authorized_key.json", 'r') as private:
     data = json.load(private)
     private_key = data['private_key']
 
-now = int(time.time())
-payload = {
-    'aud': iam_url,
-    'iss': service_account_id,
-    'iat': now,
-    'exp': now + 360}
+# YandexGPT
+API_URL = config["API_URL"]
+folder_id = config["x-folder-id"]
+tokenize_url = config["tokenize_url"]
 
-# Формирование JWT.
-encoded_token = jwt.encode(
-    payload,
-    private_key,
-    algorithm='PS256',
-    headers={'kid': key_id})
-
-url = iam_url
-
-headers = {
-    "Content-Type": "application/json"
-}
-
-data = {
-    "jwt": encoded_token
-}
-
-response = requests.post(url, headers=headers, json=data)
-
-if response.status_code == 200:
-    result = response.json()
-    # Доступ к результату
-    api_key = result['iamToken']
-else:
-    print("Ошибка при выполнении запроса:", response.status_code, response.text)
+# S3
+ENDPOINT_URL = config["ENDPOINT_URL"]
+ACCESS_KEY = config["ACCESS_KEY"]
+SECRET_KEY = config["SECRET_KEY"]
+BUCKET_NAME = config["BUCKET_NAME"]
 
 # Инициализация S3 клиента
 s3 = boto3.client('s3',
@@ -81,8 +46,48 @@ s3 = boto3.client('s3',
                   aws_secret_access_key=SECRET_KEY,
                   config=Config(signature_version='s3v4'))
 
+# links
+rss_url = config["rss_url"]
+logo = config["logo_url"]
 
-def count_tokens(text, model="general"):
+
+def get_iam_api_token(service_account_id, key_id, iam_url, private_key):
+    now = int(time.time())
+    payload = {
+        'aud': iam_url,
+        'iss': service_account_id,
+        'iat': now,
+        'exp': now + 360
+    }
+
+    # Формирование JWT.
+    encoded_token = jwt.encode(
+        payload,
+        private_key,
+        algorithm='PS256',
+        headers={'kid': key_id}
+    )
+
+    headers = {
+        "Content-Type": "application/json"
+    }
+
+    data = {
+        "jwt": encoded_token
+    }
+
+    response = requests.post(iam_url, headers=headers, json=data)
+
+    if response.status_code == 200:
+        result = response.json()
+        # Доступ к результату
+        return result['iamToken']
+    else:
+        print("Ошибка при выполнении запроса:", response.status_code, response.text)
+        return None
+
+
+def count_tokens(text, api_key, model="general"):
     url = tokenize_url
     headers = {
         "Content-Type": "application/json",
@@ -99,6 +104,8 @@ def count_tokens(text, model="general"):
 
     tokens = response_data.get("tokens", [])
     return len(tokens)
+
+
 def upload_file_to_yandex(file_name, bucket, object_name=None):
     if object_name is None:
         object_name = file_name
@@ -110,15 +117,12 @@ def upload_file_to_yandex(file_name, bucket, object_name=None):
         print(f"An error occurred: {e}")
 
 
-headers = {
-    "Content-Type": "application/json",
-    "Authorization": f"Bearer {api_key}",
-    "x-folder-id": folder_id
-}
-
-
-
-def query(payload):
+def query(payload, api_key):
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+        "x-folder-id": folder_id
+    }
     response = requests.post(API_URL, headers=headers, json=payload)
     if response.status_code != 200:
         print(f"Error with Yandex API: {response.text}")
@@ -126,7 +130,7 @@ def query(payload):
     return response.json()
 
 
-def summarize(text, original_link):
+def summarize(text, api_key, original_link):
     if text is None:
         return None
 
@@ -164,17 +168,14 @@ def extract_image_url(downloaded):
     im = soup.find("meta", property="og:image")
     return im['content'] if im else logo
 
+
 def process_entry(entry, two_days_ago):
     pub_date = datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z').replace(tzinfo=None)
     if pub_date < two_days_ago:
         return None
-
     im_url = logo
-
-
     downloaded = trafilatura.fetch_url(entry['link'])
     text = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
-
     summary = None
     if entry['link'].startswith("https://t.me"):
         summary = f"{entry['summary']} <a href='{entry['link']}'>Читать оригинал</a>"
@@ -210,6 +211,11 @@ def process_entry(entry, two_days_ago):
 
 
 def main():
+    api_key = get_iam_api_token(service_account_id, key_id, iam_url, private_key)
+
+    if api_key is None:
+        print("Couldn't get the IAM API token. Exiting.")
+        return
     IN_Feed = fetch_and_parse_feed(rss_url)
     Out_Feed = DefaultFeed(
         title="Dzarlax Feed",
