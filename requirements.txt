@@ -6,7 +6,7 @@ certifi==2023.7.22
 cffi==1.15.1
 charset-normalizer==3.0.1
 courlan==0.9.4
-cryptography==41.0.4
+cryptography==40.0.2
 dateparser==1.1.8
 feedgenerator==2.1.0
 feedparser==6.0.10
