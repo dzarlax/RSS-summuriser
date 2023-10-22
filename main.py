@@ -116,7 +116,7 @@ def upload_file_to_yandex(file_name, bucket, object_name="feed.xml"):
         object_name = file_name
 
     try:
-        s3.upload_file(bucket, object_name, Key=object_name)
+        s3.upload_file(file_name, bucket, object_name)
         print(f"File {object_name} uploaded to {bucket}/{object_name}.")
     except Exception as e:
         print(f"An error occurred: {e}")
