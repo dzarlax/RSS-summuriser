@@ -148,7 +148,7 @@ def summarize(text, original_link, api_key):
     }
 
     time.sleep(1)
-    output = query(payload)
+    output = query(payload, api_key)
 
     if not output or 'error' in output:
         return None
