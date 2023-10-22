@@ -130,7 +130,7 @@ def query(payload, api_key):
     return response.json()
 
 
-def summarize(text, api_key, original_link):
+def summarize(text, original_link):
     if text is None:
         return None
 
