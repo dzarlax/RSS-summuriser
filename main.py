@@ -125,10 +125,12 @@ def fetch_and_parse_feed(url):
 
 
 def extract_image_url(downloaded):
+    if downloaded is None:
+        print("Error: No content downloaded")
+        return logo
     soup = BeautifulSoup(downloaded, 'html.parser')
     im = soup.find("meta", property="og:image")
     return im['content'] if im else logo
-
 
 def process_entry(entry, two_days_ago):
     pub_date = datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z').replace(tzinfo=None)
