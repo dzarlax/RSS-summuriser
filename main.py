@@ -227,7 +227,7 @@ def main():
     two_days_ago = datetime.now().replace(tzinfo=None) - timedelta(days=2)
 
     for entry in IN_Feed.entries:
-        processed = process_entry(entry, two_days_ago)
+        processed = process_entry(entry, two_days_ago, api_key)
         if processed:
             Out_Feed.add_item(**processed)
 
