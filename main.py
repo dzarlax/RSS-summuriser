@@ -112,13 +112,13 @@ def count_tokens(text, api_key, model="general"):
     return len(tokens)
 
 
-def upload_file_to_yandex(file_name, bucket, object_name=None):
+def upload_file_to_yandex(file_name, bucket, object_name="feed.xml"):
     if object_name is None:
         object_name = file_name
 
     try:
-        s3.upload_file(file_name, bucket, object_name)
-        print(f"File {file_name} uploaded to {bucket}/{object_name}.")
+        s3.upload_file(bucket, object_name)
+        print(f"File {object_name} uploaded to {bucket}/{object_name}.")
     except Exception as e:
         print(f"An error occurred: {e}")
 
@@ -230,8 +230,12 @@ def main():
     )
 
     two_days_ago = datetime.now().replace(tzinfo=None) - timedelta(days=2)
+    # Сортировка записей по времени публикации
+    sorted_entries = sorted(IN_Feed.entries,
+                            key=lambda entry: datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z'),
+                            reverse=True)
 
-    for entry in IN_Feed.entries:
+    for entry in sorted_entries:
         processed = process_entry(entry, two_days_ago, api_key)
         if processed:
             Out_Feed.add_item(**processed)
@@ -239,12 +243,9 @@ def main():
     rss = Out_Feed.writeString('utf-8')
 
     # Используйте временный файл
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".xml") as temp:
+    with tempfile.NamedTemporaryFile(delete=True, suffix=".xml") as temp:
         temp.write(rss.encode('utf-8'))
-        temp_path = temp.name  # Сохраните путь к временному файлу
-
-    upload_file_to_yandex(temp_path, BUCKET_NAME)
-    os.remove(temp_path)  # Удаляйте временный файл после использования
+        upload_file_to_yandex(temp.name, BUCKET_NAME)
 
 
 if __name__ == "__main__":
