@@ -27,6 +27,7 @@ rss_url = config["rss_url"]
 iam_url = config["iam_url"]
 folder_id = config["x-folder-id"]
 logo = config["logo_url"]
+tokenize_url = config["tokenize_url"]
 
 with open("authorized_key.json", 'r') as private:
     data = json.load(private)
@@ -73,6 +74,23 @@ s3 = boto3.client('s3',
                   config=Config(signature_version='s3v4'))
 
 
+def count_tokens(text, model="general"):
+    url = tokenize_url
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+        "x-folder-id": folder_id
+    }
+    data = {
+        "model": model,
+        "text": text
+    }
+
+    response = requests.post(url, headers=headers, json=data)
+    response_data = response.json()
+
+    tokens = response_data.get("tokens", [])
+    return len(tokens)
 def upload_file_to_yandex(file_name, bucket, object_name=None):
     if object_name is None:
         object_name = file_name
@@ -103,6 +121,12 @@ def query(payload):
 def summarize(text, original_link):
     if text is None:
         return None
+
+    token_count = count_tokens(text)
+
+    # Если количество токенов >= 7400, возвращаем оригинальный текст
+    if token_count >= 7400:
+        return f"{text} <a href='{original_link}'>Читать оригинал</a>"
 
     payload = {
         "model": "general",
@@ -139,8 +163,6 @@ def process_entry(entry, two_days_ago):
 
     im_url = logo
 
-    if 'ycombinator' in entry['link']:
-        im_url = 'https://news.ycombinator.com/favicon.ico'
 
     downloaded = trafilatura.fetch_url(entry['link'])
     text = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
