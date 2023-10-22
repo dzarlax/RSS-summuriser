@@ -1,19 +1,23 @@
 # Стандартные библиотеки
 import json
+import logging
 import time
-from datetime import datetime, timedelta
 import tempfile
+from datetime import datetime, timedelta
 
 # Сторонние библиотеки
 import boto3
-from botocore.client import Config
 import feedparser
-from bs4 import BeautifulSoup
 import jwt
-from feedgenerator import DefaultFeed, Enclosure
-from ratelimiter import RateLimiter
 import requests
 import trafilatura
+from botocore.client import Config
+from bs4 import BeautifulSoup
+from feedgenerator import DefaultFeed, Enclosure
+from ratelimiter import RateLimiter
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 # Загрузка конфигурации из JSON-файла
@@ -72,30 +76,25 @@ def get_iam_api_token(service_account_id, key_id, iam_url, private_key):
         algorithm='PS256',
         headers={'kid': key_id}
     )
-
-    headers = {
-        "Content-Type": "application/json"
-    }
-
     data = {
         "jwt": encoded_token
     }
 
-    response = requests.post(iam_url, headers=headers, json=data)
+    response = requests.post(iam_url, json=data)
 
-    if response.status_code == 200:
+    try:
+        response.raise_for_status()
         result = response.json()
         # Доступ к результату
         return result['iamToken']
-    else:
-        print("Ошибка при выполнении запроса:", response.status_code, response.text)
-        return None
+    except requests.RequestException:
+        LOGGER.error(f'Error occurred while requesting an IAM token: {response.status_code}, {response.text}')
+        raise
 
 
 def count_tokens(text, api_key, model="general"):
     url = tokenize_url
     headers = {
-        "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
         "x-folder-id": folder_id
     }
@@ -115,25 +114,22 @@ def upload_file_to_yandex(file_name, bucket, object_name="feed.xml"):
     if object_name is None:
         object_name = file_name
 
-    try:
-        s3.upload_file(file_name, bucket, object_name)
-        print(f"File {object_name} uploaded to {bucket}/{object_name}.")
-    except Exception as e:
-        print(f"An error occurred: {e}")
+    s3.upload_file(file_name, bucket, object_name)
+    LOGGER.info(f"File {object_name} uploaded to {bucket}/{object_name}.")
 
 
 def query(payload, api_key):
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "x-folder-id": folder_id
+    }
+
     with rate_limiter:
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}",
-            "x-folder-id": folder_id
-        }
         response = requests.post(API_URL, headers=headers, json=payload)
-        if response.status_code != 200:
-            print(f"Error with Yandex API: {response.text}")
-            return {'error': 'API error'}
-        return response.json()
+    if response.status_code != 200:
+        LOGGER.error(f"Error with Yandex API: {response.text}")
+        return {'error': response.text}
+    return response.json()
 
 
 def summarize(text, original_link, api_key):
@@ -161,13 +157,9 @@ def summarize(text, original_link, api_key):
     return f"{output['result']['alternatives'][0]['text']} <a href='{original_link}'>Читать оригинал</a>"
 
 
-def fetch_and_parse_feed(url):
-    return feedparser.parse(url)
-
-
 def extract_image_url(downloaded):
     if downloaded is None:
-        print("Error: No content downloaded")
+        LOGGER.error("Error: No content downloaded")
         return logo
     soup = BeautifulSoup(downloaded, 'html.parser')
     im = soup.find("meta", property="og:image")
@@ -181,7 +173,6 @@ def process_entry(entry, two_days_ago, api_key):
     im_url = logo
     downloaded = trafilatura.fetch_url(entry['link'])
     text = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
-    summary = None
     if entry['link'].startswith("https://t.me"):
         summary = f"{entry['summary']} <a href='{entry['link']}'>Читать оригинал</a>"
         im_url = extract_image_url(downloaded)
@@ -218,11 +209,8 @@ def process_entry(entry, two_days_ago, api_key):
 def main():
     api_key = get_iam_api_token(service_account_id, key_id, iam_url, private_key)
 
-    if api_key is None:
-        print("Couldn't get the IAM API token. Exiting.")
-        return
-    IN_Feed = fetch_and_parse_feed(rss_url)
-    Out_Feed = DefaultFeed(
+    in_feed = feedparser.parse(rss_url)
+    out_feed = DefaultFeed(
         title="Dzarlax Feed",
         link="http://example.com/rss",
         description="Front Page articles from Dzarlax, summarized with AI"
@@ -230,19 +218,19 @@ def main():
 
     two_days_ago = datetime.now().replace(tzinfo=None) - timedelta(days=2)
     # Сортировка записей по времени публикации
-    sorted_entries = sorted(IN_Feed.entries,
+    sorted_entries = sorted(in_feed.entries,
                             key=lambda entry: datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z'),
                             reverse=True)
 
     for entry in sorted_entries:
         processed = process_entry(entry, two_days_ago, api_key)
         if processed:
-            Out_Feed.add_item(**processed)
+            in_feed.add_item(**processed)
 
-    rss = Out_Feed.writeString('utf-8')
+    rss = out_feed.writeString('utf-8')
 
     # Используйте временный файл
-    with tempfile.NamedTemporaryFile(delete=True, suffix=".xml") as temp:
+    with tempfile.NamedTemporaryFile(suffix=".xml") as temp:
         temp.write(rss.encode('utf-8'))
         upload_file_to_yandex(temp.name, BUCKET_NAME)
 
