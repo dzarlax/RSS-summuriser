@@ -10,7 +10,7 @@ cryptography==41.0.4
 dateparser==1.1.8
 feedgenerator==2.1.0
 feedparser==6.0.10
-htmldate==1.5.2
+htmldate==1.5.1
 idna==3.4
 jmespath==1.0.1
 jusText==3.0.0
