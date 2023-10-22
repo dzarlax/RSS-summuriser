@@ -16,7 +16,7 @@ cd RSS-summuriser
 2. Установите зависимости:
 
 ```bash
-pip install -r requirements.txt
+pip3 install -r requirements.txt
 ```
 
 ## Конфигурация
@@ -26,7 +26,7 @@ pip install -r requirements.txt
 ## Запуск
 
 ```bash
-python main.py
+python3 main.py
 ```
 
 После выполнения скрипта результат будет загружен на Yandex Cloud Storage.
