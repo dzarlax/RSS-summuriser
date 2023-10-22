@@ -3,6 +3,7 @@ import json
 import os
 import time
 from datetime import datetime, timedelta
+import tempfile
 
 # Сторонние библиотеки
 import boto3
@@ -226,17 +227,19 @@ def main():
     two_days_ago = datetime.now().replace(tzinfo=None) - timedelta(days=2)
 
     for entry in IN_Feed.entries:
-        processed = process_entry(entry, two_days_ago, api_key)
+        processed = process_entry(entry, two_days_ago)
         if processed:
             Out_Feed.add_item(**processed)
 
     rss = Out_Feed.writeString('utf-8')
 
-    with open('feed.xml', 'w') as f:
-        f.write(rss)
+    # Используйте временный файл
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".xml") as temp:
+        temp.write(rss.encode('utf-8'))
+        temp_path = temp.name  # Сохраните путь к временному файлу
 
-    upload_file_to_yandex('feed.xml', BUCKET_NAME)
-    os.remove('feed.xml')
+    upload_file_to_yandex(temp_path, BUCKET_NAME)
+    os.remove(temp_path)  # Удаляйте временный файл после использования
 
 
 if __name__ == "__main__":
