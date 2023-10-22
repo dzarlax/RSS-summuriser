@@ -16,18 +16,26 @@ with open('config.json', 'r') as file:
     config = json.load(file)
 
 # Настройте параметры
+# iam token
+iam_url = config["iam_url"]
 service_account_id = config["service_account_id"]
 key_id = config["key_id"]
+
+#YandexGPT
+API_URL = config["API_URL"]
+folder_id = config["x-folder-id"]
+tokenize_url = config["tokenize_url"]
+
+#S3
 ENDPOINT_URL = config["ENDPOINT_URL"]
 ACCESS_KEY = config["ACCESS_KEY"]
 SECRET_KEY = config["SECRET_KEY"]
 BUCKET_NAME = config["BUCKET_NAME"]
-API_URL = config["API_URL"]
+
+#links
 rss_url = config["rss_url"]
-iam_url = config["iam_url"]
-folder_id = config["x-folder-id"]
 logo = config["logo_url"]
-tokenize_url = config["tokenize_url"]
+
 
 with open("authorized_key.json", 'r') as private:
     data = json.load(private)
