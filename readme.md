@@ -13,7 +13,14 @@ git clone https://github.com/dzarlax/RSS-summuriser.git
 cd RSS-summuriser
 ```
 
-2. Установите зависимости:
+2. Создайте и активируйте виртуальное окружение:
+
+```bash
+python3 -m venv rss
+source rss/bin/activate  # Для Windows: .\rss\Scripts\activate
+ ```
+
+3. Установите зависимости:
 
 ```bash
 pip3 install -r requirements.txt
