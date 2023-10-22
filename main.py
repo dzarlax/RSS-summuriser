@@ -12,6 +12,7 @@ import feedparser
 from bs4 import BeautifulSoup
 import jwt
 from feedgenerator import DefaultFeed, Enclosure
+from ratelimiter import RateLimiter
 import requests
 import trafilatura
 
@@ -39,6 +40,10 @@ ENDPOINT_URL = config["ENDPOINT_URL"]
 ACCESS_KEY = config["ACCESS_KEY"]
 SECRET_KEY = config["SECRET_KEY"]
 BUCKET_NAME = config["BUCKET_NAME"]
+
+# Определите максимальное количество запросов, которое вы хотите выполнять в секунду.
+# Например, если API позволяет делать 10 запросов в секунду:
+rate_limiter = RateLimiter(max_calls=1, period=1)  # 10 вызовов в 1 секунду
 
 # Инициализация S3 клиента
 s3 = boto3.client('s3',
@@ -119,16 +124,17 @@ def upload_file_to_yandex(file_name, bucket, object_name=None):
 
 
 def query(payload, api_key):
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}",
-        "x-folder-id": folder_id
-    }
-    response = requests.post(API_URL, headers=headers, json=payload)
-    if response.status_code != 200:
-        print(f"Error with Yandex API: {response.text}")
-        return {'error': 'API error'}
-    return response.json()
+    with rate_limiter:
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+            "x-folder-id": folder_id
+        }
+        response = requests.post(API_URL, headers=headers, json=payload)
+        if response.status_code != 200:
+            print(f"Error with Yandex API: {response.text}")
+            return {'error': 'API error'}
+        return response.json()
 
 
 def summarize(text, original_link, api_key):
@@ -148,7 +154,6 @@ def summarize(text, original_link, api_key):
         "language": "ru"
     }
 
-    time.sleep(1)
     output = query(payload, api_key)
 
     if not output or 'error' in output:
