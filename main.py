@@ -19,6 +19,11 @@ from ratelimiter import RateLimiter
 
 LOGGER = logging.getLogger(__name__)
 
+# Настройка логгера
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s',
+                    handlers=[logging.FileHandler("output.log"), logging.StreamHandler()])
+
 
 # Загрузка конфигурации из JSON-файла
 with open('config.json', 'r') as file:
