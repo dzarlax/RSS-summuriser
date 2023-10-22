@@ -4,7 +4,7 @@ botocore==1.26.10
 bs4==0.0.1
 certifi==2023.7.22
 cffi==1.15.1
-charset-normalizer==3.3.0
+charset-normalizer==3.0.1
 courlan==0.9.4
 cryptography==41.0.4
 dateparser==1.1.8
