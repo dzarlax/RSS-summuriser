@@ -30,3 +30,4 @@ tld==0.13
 trafilatura==1.6.2
 tzlocal==5.1
 urllib3==1.26.18
+PyJWT
