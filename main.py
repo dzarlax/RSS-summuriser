@@ -230,7 +230,7 @@ def main():
     for entry in sorted_entries:
         processed = process_entry(entry, two_days_ago, api_key)
         if processed:
-            in_feed.add_item(**processed)
+            out_feed.add_item(**processed)
 
     rss = out_feed.writeString('utf-8')
 
