@@ -130,11 +130,11 @@ def query(payload, api_key):
     return response.json()
 
 
-def summarize(text, original_link):
+def summarize(text, original_link, api_key):
     if text is None:
         return None
 
-    token_count = count_tokens(text)
+    token_count = count_tokens(text, api_key)
 
     # Если количество токенов >= 7400, возвращаем оригинальный текст
     if token_count >= 7400:
@@ -169,7 +169,7 @@ def extract_image_url(downloaded):
     return im['content'] if im else logo
 
 
-def process_entry(entry, two_days_ago):
+def process_entry(entry, two_days_ago, api_key):
     pub_date = datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z').replace(tzinfo=None)
     if pub_date < two_days_ago:
         return None
@@ -183,7 +183,7 @@ def process_entry(entry, two_days_ago):
     elif not downloaded:
         summary = f"{entry['summary']} <a href='{entry['link']}'>Читать оригинал</a>"
     else:
-        summary = summarize(text, entry['link'])
+        summary = summarize(text, entry['link'], api_key)
 
         if summary is None:
             summary = f"{entry['summary']} <a href='{entry['link']}'>Читать оригинал</a>"
@@ -226,7 +226,7 @@ def main():
     two_days_ago = datetime.now().replace(tzinfo=None) - timedelta(days=2)
 
     for entry in IN_Feed.entries:
-        processed = process_entry(entry, two_days_ago)
+        processed = process_entry(entry, two_days_ago, api_key)
         if processed:
             Out_Feed.add_item(**processed)
 
