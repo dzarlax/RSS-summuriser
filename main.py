@@ -104,7 +104,7 @@ def get_iam_api_token(service_account_id: str, key_id: str, iam_url: str, privat
         raise
 
 
-def count_tokens(text: str, api_key: str, model: str = "general") -> int:
+def count_tokens(text: str, api_key: str, tokenize_url: str, model: str = "general") -> int:
     url = tokenize_url
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -122,7 +122,7 @@ def count_tokens(text: str, api_key: str, model: str = "general") -> int:
     return len(tokens)
 
 
-def get_previous_feed_and_links(bucket_name: str, object_name: str = "feed.xml") -> Tuple[feedparser.FeedParserDict, List[str]]:
+def get_previous_feed_and_links(bucket_name: str, s3, object_name: str = "feed.xml") -> Tuple[feedparser.FeedParserDict, List[str]]:
     # Загрузите XML из S3
     obj = s3.get_object(Bucket=bucket_name, Key=object_name)
     previous_rss_content = obj['Body'].read().decode('utf-8')
@@ -132,7 +132,7 @@ def get_previous_feed_and_links(bucket_name: str, object_name: str = "feed.xml")
     return parsed_rss, [entry.link for entry in parsed_rss.entries]
 
 
-def upload_file_to_yandex(file_name: str, bucket: str, object_name: str = "feed.xml") -> None:
+def upload_file_to_yandex(file_name: str, bucket: str, s3, object_name: str = "feed.xml") -> None:
     if object_name is None:
         object_name = file_name
 
@@ -154,11 +154,11 @@ def query(payload: Dict[str, Any], api_key: str) -> Dict[str, Any]:
     return response.json()
 
 
-def summarize(text: Optional[str], original_link: str, api_key: str) -> Optional[str]:
+def summarize(text: Optional[str], original_link: str, api_key: str, tokenize_url: str) -> Optional[str]:
     if text is None:
         return None
 
-    token_count = count_tokens(text, api_key)
+    token_count = count_tokens(text, api_key, tokenize_url)
 
     # Если количество токенов >= 7400, возвращаем оригинальный текст
     if token_count >= 7400:
@@ -191,7 +191,7 @@ def extract_image_url(downloaded: Optional[str]) -> str:
     return im['content'] if im else logo
 
 
-def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, api_key: str, previous_links: List[str]) -> Optional[Dict[str, Union[str, Enclosure]]]:
+def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, api_key: str, previous_links: List[str], logo: str, tokenize_url: str) -> Optional[Dict[str, Union[str, Enclosure]]]:
     pub_date = datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z').replace(tzinfo=None)
     if pub_date < two_days_ago:
         return None
@@ -206,7 +206,7 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, api_
     elif not downloaded:
         summary = f"{entry['summary']} <a href='{entry['link']}'>Читать оригинал</a>"
     else:
-        summary = summarize(text, entry['link'], api_key)
+        summary = summarize(text, entry['link'], api_key, tokenize_url)
 
         if summary is None:
             summary = f"{entry['summary']} <a href='{entry['link']}'>Читать оригинал</a>"
@@ -223,7 +223,7 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, api_
 
 def main() -> None:
     api_key = get_iam_api_token(service_account_id, key_id, iam_url, private_key)
-    previous_feed, previous_links = get_previous_feed_and_links(BUCKET_NAME)
+    previous_feed, previous_links = get_previous_feed_and_links(BUCKET_NAME, s3)
     in_feed = feedparser.parse(rss_url)
     out_feed = DefaultFeed(
         title="Dzarlax Feed",
@@ -244,7 +244,7 @@ def main() -> None:
                             reverse=True)
 
     for entry in sorted_entries:
-        processed = process_entry(entry, two_days_ago, api_key, previous_links)
+        processed = process_entry(entry, two_days_ago, api_key, previous_links, logo, tokenize_url)
         if processed:
             out_feed.add_item(**processed)
 
@@ -253,7 +253,7 @@ def main() -> None:
     # Используйте временный файл
     with tempfile.NamedTemporaryFile(suffix=".xml") as temp:
         temp.write(rss.encode('utf-8'))
-        upload_file_to_yandex(temp.name, BUCKET_NAME)
+        upload_file_to_yandex(temp.name, BUCKET_NAME, s3)
 
 
 if __name__ == "__main__":
