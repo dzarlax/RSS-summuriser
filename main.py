@@ -120,6 +120,17 @@ def count_tokens(text, api_key, model="general"):
     return len(tokens)
 
 
+def get_previous_feed_and_links(bucket_name, object_name="feed.xml"):
+    # Загрузите XML из S3
+    obj = s3.get_object(Bucket=bucket_name, Key=object_name)
+    previous_rss_content = obj['Body'].read().decode('utf-8')
+    parsed_rss = feedparser.parse(previous_rss_content)
+
+    # Верните разобранный RSS и список ссылок
+    return parsed_rss, [entry.link for entry in parsed_rss.entries]
+
+
+
 def upload_file_to_yandex(file_name, bucket, object_name="feed.xml"):
     if object_name is None:
         object_name = file_name
@@ -176,13 +187,15 @@ def extract_image_url(downloaded):
     return im['content'] if im else logo
 
 
-def process_entry(entry, two_days_ago, api_key):
+def process_entry(entry, two_days_ago, api_key, previous_links):
     pub_date = datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z').replace(tzinfo=None)
     if pub_date < two_days_ago:
         return None
     im_url = logo
     downloaded = trafilatura.fetch_url(entry['link'])
     text = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
+    if entry['link'] in previous_links:
+        return None
     if entry['link'].startswith("https://t.me"):
         summary = f"{entry['summary']} <a href='{entry['link']}'>Читать оригинал</a>"
         im_url = extract_image_url(downloaded)
@@ -218,14 +231,20 @@ def process_entry(entry, two_days_ago, api_key):
 
 def main():
     api_key = get_iam_api_token(service_account_id, key_id, iam_url, private_key)
-
+    previous_feed, previous_links = get_previous_feed_and_links(BUCKET_NAME)
     in_feed = feedparser.parse(rss_url)
     out_feed = DefaultFeed(
         title="Dzarlax Feed",
         link="http://example.com/rss",
         description="Front Page articles from Dzarlax, summarized with AI"
     )
-
+    for entry in previous_feed.entries:
+        out_feed.add_item(
+            title=entry.title,
+            link=entry.link,
+            description=entry.description,
+            enclosure=Enclosure(entry.enclosures[0].href, '1234', 'image/jpeg')
+        )
     two_days_ago = datetime.now().replace(tzinfo=None) - timedelta(days=2)
     # Сортировка записей по времени публикации
     sorted_entries = sorted(in_feed.entries,
@@ -233,7 +252,7 @@ def main():
                             reverse=True)
 
     for entry in sorted_entries:
-        processed = process_entry(entry, two_days_ago, api_key)
+        processed = process_entry(entry, two_days_ago, api_key, previous_links)
         if processed:
             out_feed.add_item(**processed)
 
