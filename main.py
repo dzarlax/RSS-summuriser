@@ -1,6 +1,7 @@
 # Стандартные библиотеки
 import json
 import logging
+import os
 import time
 import tempfile
 from datetime import datetime, timedelta
@@ -26,7 +27,11 @@ logging.basicConfig(level=logging.INFO,
 
 
 # Загрузка конфигурации из JSON-файла
-with open('config.json', 'r') as file:
+# Получение абсолютного пути к директории, где находится main.py
+current_directory = os.path.dirname(os.path.abspath(__file__))
+# Объединение этого пути с именем файла, который вы хотите открыть
+file_path = os.path.join(current_directory, "config.json")
+with open('file_path', 'r') as file:
     config = json.load(file)
 
 # Настройте параметры
