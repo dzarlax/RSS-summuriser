@@ -232,8 +232,16 @@ def main() -> None:
         description="Front Page articles from Dzarlax, summarized with AI"
     )
     for entry in previous_feed.entries:
-        pub_date_str = getattr(entry, 'published', getattr(entry, 'pubDate', datetime.now().strftime('%a, %d %b %Y %H:%M:%S %z')))
-        pub_date_dt = datetime.strptime(pub_date_str, '%a, %d %b %Y %H:%M:%S %z')
+        # Попытка извлечь дату публикации
+        pub_date_str = entry.get("published", None)
+        if pub_date_str:
+            try:
+                pub_date_dt = datetime.strptime(pub_date_str, '%a, %d %b %Y %H:%M:%S %z')
+            except ValueError:
+                pub_date_dt = datetime.strptime(pub_date_str, '%a, %d %b %Y %H:%M:%S')
+        else:
+            pub_date_dt = None  # или другое значение по умолчанию
+
         out_feed.add_item(
             title=entry.title,
             link=entry.link,
