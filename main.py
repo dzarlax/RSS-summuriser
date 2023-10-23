@@ -232,14 +232,15 @@ def main() -> None:
         description="Front Page articles from Dzarlax, summarized with AI"
     )
     for entry in previous_feed.entries:
-        pub_date_dt = datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z')
+        pub_date_str = getattr(entry, 'published', getattr(entry, 'pubDate', datetime.now().strftime('%a, %d %b %Y %H:%M:%S %z')))
+        pub_date_dt = datetime.strptime(pub_date_str, '%a, %d %b %Y %H:%M:%S %z')
         out_feed.add_item(
             title=entry.title,
             link=entry.link,
             description=entry.description,
             enclosure=Enclosure(entry.enclosures[0].href, '1234', 'image/jpeg'),
             pubdate=pub_date_dt
-    )
+        )
     two_days_ago = datetime.now().replace(tzinfo=None) - timedelta(days=2)
     # Сортировка записей по времени публикации
     sorted_entries = sorted(in_feed.entries,
