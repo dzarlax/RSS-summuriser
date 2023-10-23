@@ -217,7 +217,8 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, api_
         'title': entry['title'],
         'link': entry['link'],
         'description': summary,
-        'enclosure': Enclosure(im_url, '1234', 'image/jpeg')
+        'enclosure': Enclosure(im_url, '1234', 'image/jpeg'),
+        'pubdate': pub_date
     }
 
 
@@ -248,7 +249,6 @@ def main() -> None:
         processed = process_entry(entry, two_days_ago, api_key, previous_links, logo, tokenize_url)
         if processed:
             out_feed.add_item(
-            pubdate=pub_date,
             **processed)
 
     rss = out_feed.writeString('utf-8')
