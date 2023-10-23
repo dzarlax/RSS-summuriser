@@ -178,6 +178,7 @@ def summarize(text: Optional[str], original_link: str, api_key: str) -> Optional
         # Добавим проверку на тип перед обращением к элементам словаря
     if isinstance(output, dict) and 'result' in output and 'alternatives' in output['result']:
         return f"{output['result']['alternatives'][0]['text']} <a href='{original_link}'>Читать оригинал</a>"
+    return None
 
 
 def extract_image_url(downloaded: Optional[str]) -> str:
@@ -193,7 +194,7 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, api_
     pub_date = datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z').replace(tzinfo=None)
     if pub_date < two_days_ago:
         return None
-    im_url: Union[str, None] = logo
+    im_url: str = logo
     downloaded = trafilatura.fetch_url(entry['link'])
     text = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
     if entry['link'] in previous_links:
