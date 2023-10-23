@@ -5,6 +5,7 @@ import os
 import time
 import tempfile
 from datetime import datetime, timedelta
+from typing import Dict, Tuple, List, Optional, Union
 
 # Сторонние библиотеки
 import boto3
@@ -56,7 +57,7 @@ BUCKET_NAME = config["BUCKET_NAME"]
 
 # Определите максимальное количество запросов, которое вы хотите выполнять в секунду.
 # Например, если API позволяет делать 10 запросов в секунду:
-rate_limiter = RateLimiter(max_calls=1, period=1)  # 10 вызовов в 1 секунду
+rate_limiter = RateLimiter(max_calls=1, period=1)  # 1 вызов в 1 секунду
 
 # Инициализация S3 клиента
 s3 = boto3.client('s3',
@@ -70,7 +71,7 @@ rss_url = config["rss_url"]
 logo = config["logo_url"]
 
 
-def get_iam_api_token(service_account_id, key_id, iam_url, private_key):
+def get_iam_api_token(service_account_id: str, key_id: str, iam_url: str, private_key: str) -> str:
     now = int(time.time())
     payload = {
         'aud': iam_url,
@@ -102,7 +103,7 @@ def get_iam_api_token(service_account_id, key_id, iam_url, private_key):
         raise
 
 
-def count_tokens(text, api_key, model="general"):
+def count_tokens(text: str, api_key: str, model: str = "general") -> int:
     url = tokenize_url
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -120,7 +121,7 @@ def count_tokens(text, api_key, model="general"):
     return len(tokens)
 
 
-def get_previous_feed_and_links(bucket_name, object_name="feed.xml"):
+def get_previous_feed_and_links(bucket_name: str, object_name: str = "feed.xml") -> Tuple[feedparser.FeedParserDict, List[str]]:
     # Загрузите XML из S3
     obj = s3.get_object(Bucket=bucket_name, Key=object_name)
     previous_rss_content = obj['Body'].read().decode('utf-8')
@@ -130,8 +131,7 @@ def get_previous_feed_and_links(bucket_name, object_name="feed.xml"):
     return parsed_rss, [entry.link for entry in parsed_rss.entries]
 
 
-
-def upload_file_to_yandex(file_name, bucket, object_name="feed.xml"):
+def upload_file_to_yandex(file_name: str, bucket: str, object_name: str = "feed.xml") -> None:
     if object_name is None:
         object_name = file_name
 
@@ -139,7 +139,7 @@ def upload_file_to_yandex(file_name, bucket, object_name="feed.xml"):
     LOGGER.info(f"File {object_name} uploaded to {bucket}/{object_name}.")
 
 
-def query(payload, api_key):
+def query(payload: Dict[str, Union[str, Dict[str, str]]], api_key: str) -> Dict[str, Union[str, Dict[str, List[Dict[str, str]]]]]:
     headers = {
         "Authorization": f"Bearer {api_key}",
         "x-folder-id": folder_id
@@ -153,7 +153,7 @@ def query(payload, api_key):
     return response.json()
 
 
-def summarize(text, original_link, api_key):
+def summarize(text: Optional[str], original_link: str, api_key: str) -> Optional[str]:
     if text is None:
         return None
 
@@ -178,7 +178,7 @@ def summarize(text, original_link, api_key):
     return f"{output['result']['alternatives'][0]['text']} <a href='{original_link}'>Читать оригинал</a>"
 
 
-def extract_image_url(downloaded):
+def extract_image_url(downloaded: Optional[str]) -> str:
     if downloaded is None:
         LOGGER.error("Error: No content downloaded")
         return logo
@@ -187,7 +187,7 @@ def extract_image_url(downloaded):
     return im['content'] if im else logo
 
 
-def process_entry(entry, two_days_ago, api_key, previous_links):
+def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, api_key: str, previous_links: List[str]) -> Optional[Dict[str, Union[str, Enclosure]]]:
     pub_date = datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z').replace(tzinfo=None)
     if pub_date < two_days_ago:
         return None
@@ -229,7 +229,7 @@ def process_entry(entry, two_days_ago, api_key, previous_links):
     }
 
 
-def main():
+def main() -> None:
     api_key = get_iam_api_token(service_account_id, key_id, iam_url, private_key)
     previous_feed, previous_links = get_previous_feed_and_links(BUCKET_NAME)
     in_feed = feedparser.parse(rss_url)
