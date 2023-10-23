@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import patch, MagicMock
 from main import get_iam_api_token, count_tokens, process_entry
+from datetime import datetime
 
 def test_get_iam_api_token():
     # Имитируем успешный ответ от IAM
