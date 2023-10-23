@@ -212,18 +212,6 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, api_
 
         im_url = extract_image_url(downloaded)
 
-    if 'youtube' in entry['link']:
-        summary = "YouTube Video: " + entry['link']
-        im_url = 'None'
-
-    if 'mastodon' in entry['link'] or 'mastadon' in entry.summary:
-        summary = "Mastadon Post: " + entry['link']
-        im_url = 'None'
-
-    if 'twitter' in entry['link']:
-        summary = "Twitter Post: " + entry['link']
-        im_url = 'None'
-
     return {
         'title': entry['title'],
         'link': entry['link'],
