@@ -235,7 +235,8 @@ def main() -> None:
             title=entry.title,
             link=entry.link,
             description=entry.description,
-            enclosure=Enclosure(entry.enclosures[0].href, '1234', 'image/jpeg')
+            enclosure=Enclosure(entry.enclosures[0].href, '1234', 'image/jpeg'),
+            pubdate=pub_date
         )
     two_days_ago = datetime.now().replace(tzinfo=None) - timedelta(days=2)
     # Сортировка записей по времени публикации
@@ -246,7 +247,9 @@ def main() -> None:
     for entry in sorted_entries:
         processed = process_entry(entry, two_days_ago, api_key, previous_links, logo, tokenize_url)
         if processed:
-            out_feed.add_item(**processed)
+            out_feed.add_item(
+            pubdate=pub_date,
+            **processed)
 
     rss = out_feed.writeString('utf-8')
 
