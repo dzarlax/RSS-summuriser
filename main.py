@@ -5,7 +5,7 @@ import os
 import time
 import tempfile
 from datetime import datetime, timedelta
-from typing import Dict, Tuple, List, Optional, Union
+from typing import Dict, Tuple, List, Optional, Union, Any
 
 # Сторонние библиотеки
 import boto3
@@ -139,7 +139,7 @@ def upload_file_to_yandex(file_name: str, bucket: str, object_name: str = "feed.
     LOGGER.info(f"File {object_name} uploaded to {bucket}/{object_name}.")
 
 
-def query(payload: Dict[str, Union[str, Dict[str, str]]], api_key: str) -> Dict[str, Union[str, Dict[str, List[Dict[str, str]]]]]:
+def query(payload: Dict[str, Any], api_key: str) -> Dict[str, Any]:
     headers = {
         "Authorization": f"Bearer {api_key}",
         "x-folder-id": folder_id
@@ -175,7 +175,9 @@ def summarize(text: Optional[str], original_link: str, api_key: str) -> Optional
     if not output or 'error' in output:
         return None
 
-    return f"{output['result']['alternatives'][0]['text']} <a href='{original_link}'>Читать оригинал</a>"
+        # Добавим проверку на тип перед обращением к элементам словаря
+    if isinstance(output, dict) and 'result' in output and 'alternatives' in output['result']:
+        return f"{output['result']['alternatives'][0]['text']} <a href='{original_link}'>Читать оригинал</a>"
 
 
 def extract_image_url(downloaded: Optional[str]) -> str:
@@ -191,7 +193,7 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, api_
     pub_date = datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z').replace(tzinfo=None)
     if pub_date < two_days_ago:
         return None
-    im_url = logo
+    im_url: Union[str, None] = logo
     downloaded = trafilatura.fetch_url(entry['link'])
     text = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
     if entry['link'] in previous_links:
