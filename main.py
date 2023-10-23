@@ -237,7 +237,7 @@ def main() -> None:
             link=entry.link,
             description=entry.description,
             enclosure=Enclosure(entry.enclosures[0].href, '1234', 'image/jpeg'),
-            pubdate=pub_date
+            pubdate=entry.published
         )
     two_days_ago = datetime.now().replace(tzinfo=None) - timedelta(days=2)
     # Сортировка записей по времени публикации
