@@ -40,7 +40,8 @@ with open(file_path, 'r') as file:
 iam_url = config["iam_url"]
 service_account_id = config["service_account_id"]
 key_id = config["key_id"]
-with open("authorized_key.json", 'r') as private:
+file_path_authorized_key = os.path.join(current_directory, "authorized_key.json")
+with open(file_path_authorized_key, 'r') as private:
     data = json.load(private)
     private_key = data['private_key']
 
