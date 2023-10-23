@@ -31,7 +31,7 @@ logging.basicConfig(level=logging.INFO,
 current_directory = os.path.dirname(os.path.abspath(__file__))
 # Объединение этого пути с именем файла, который вы хотите открыть
 file_path = os.path.join(current_directory, "config.json")
-with open('file_path', 'r') as file:
+with open(file_path, 'r') as file:
     config = json.load(file)
 
 # Настройте параметры
