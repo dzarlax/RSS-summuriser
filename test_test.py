@@ -31,17 +31,16 @@ def test_process_entry():
     entry.title = 'Sample title'
     entry.summary = 'Sample summary'
     
-    with patch(‘trafilatura.fetch_url’) as mocked_fetch, \
-         patch(‘trafilatura.extract’) as mocked_extract, \
-         patch(‘main.summarize’) as mocked_summarize:
-
+    with patch('trafilatura.fetch_url') as mocked_fetch, \
+     patch('trafilatura.extract') as mocked_extract, \
+     patch('main.summarize') as mocked_summarize:
         mocked_fetch.return_value = None
-        mocked_extract.return_value = ‘Extracted text’
-        mocked_summarize.return_value = ‘Summarized text’
+        mocked_extract.return_value = 'Extracted text'
+        mocked_summarize.return_value = 'Summarized text'
         
-        two_days_ago = datetime.strptime(‘Mon, 18 Oct 2023 12:00:00 +0000’, ‘%a, %d %b %Y %H:%M:%S %z’).replace(tzinfo=None)
-        result = process_entry(entry, two_days_ago, ‘api_key’, [])
-        
-        assert result is not None
-        assert result[‘description’] == ‘Summarized text’
-        assert result[‘title’] == ‘Sample title’
+        two_days_ago = datetime.strptime('Mon, 18 Oct 2023 12:00:00 +0000', '%a, %d %b %Y %H:%M:%S %z').replace(tzinfo=None)
+    result = process_entry(entry, two_days_ago, 'api_key', [])
+    
+    assert result is not None
+    assert result['description'] == 'Summarized text'
+    assert result['title'] == 'Sample title'
