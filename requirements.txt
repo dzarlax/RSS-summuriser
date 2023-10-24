@@ -35,3 +35,4 @@ ratelimiter
 pytz
 flask
 flask-login
+Werkzeug==2.3.0
