@@ -1,5 +1,4 @@
 import pytest
-import pytest-mock
 # Стандартные библиотеки
 import json
 import logging
