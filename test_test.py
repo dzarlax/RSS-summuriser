@@ -1,4 +1,5 @@
 import pytest
+import pytest-mock
 # Стандартные библиотеки
 import json
 import logging
@@ -25,16 +26,55 @@ from main import (load_config, get_iam_api_token, count_tokens,
 
 # For the purpose of demonstration, I'll assume the name of your module is 'your_module'
 
+DUMMY_CONFIG = {
+    "service_account_id": "dummy_service_account_id",
+    "key_id": "dummy_key_id",
+    "iam_url": "dummy_iam_url",
+    "tokenize_url": "dummy_tokenize_url",
+    "model": "dummy_model",
+    "API_URL": "dummy_API_URL",
+    "x-folder-id": "dummy_x-folder-id",
+    "BUCKET_NAME": "dummy_BUCKET_NAME",
+    "rss_file_name": "dummy_rss_file_name",
+    "ENDPOINT_URL": "dummy_ENDPOINT_URL",
+    "ACCESS_KEY": "dummy_ACCESS_KEY",
+    "SECRET_KEY": "dummy_SECRET_KEY",
+    "logo_url": "dummy_logo_url",
+    "rss_url": "dummy_rss_url"
+}
 
-def test_load_config():
-    # Assuming you have a key "service_account_id" in your config.json
+
+def test_load_config(mocker):
+    # Mocking the open function and json.load
+    mock_open = mocker.mock_open(read_data=json.dumps(DUMMY_CONFIG))
+    mocker.patch("builtins.open", mock_open)
+    mocker.patch("json.load", return_value=DUMMY_CONFIG)
+
+    # Test with a specific key
     result = load_config("service_account_id")
-    assert isinstance(result, str)  # Assuming service_account_id is a string
+    assert result == "dummy_service_account_id"
+
+    # Test the entire config
+    result = load_config()
+    assert result == DUMMY_CONFIG
+
+DUMMY_AUTHORIZED_KEY = {
+    "private_key": "dummy_private_key"
+}
 
 
-def test_get_iam_api_token():
+def test_get_iam_api_token(mocker):
+    # Mocking the open function and json.load for authorized_key.json
+    mock_open_authorized_key = mocker.mock_open(read_data=json.dumps(DUMMY_AUTHORIZED_KEY))
+    mocker.patch("builtins.open", mock_open_authorized_key)
+    mocker.patch("json.load", return_value=DUMMY_AUTHORIZED_KEY)
+
+    # Mocking the requests.post response
+    mocker.patch('requests.post', return_value=MockResponse({"iamToken": "dummy_iamToken"}, 200))
+
     token = get_iam_api_token()
-    assert isinstance(token, str)
+    assert token == "dummy_iamToken"
+
 
 
 def test_count_tokens(mocker):
