@@ -1,4 +1,24 @@
 import pytest
+# Стандартные библиотеки
+import json
+import logging
+import os
+import pytz
+import time
+import tempfile
+from datetime import datetime, timedelta
+from typing import Dict, Tuple, List, Optional, Union, Any
+
+# Сторонние библиотеки
+import boto3
+import feedparser
+import jwt
+import requests
+import trafilatura
+from botocore.client import Config
+from bs4 import BeautifulSoup
+from feedgenerator import DefaultFeed, Enclosure
+from ratelimiter import RateLimiter
 from main import (load_config, get_iam_api_token, count_tokens,
                          get_previous_feed_and_links, upload_file_to_yandex,
                          extract_image_url, process_entry)
