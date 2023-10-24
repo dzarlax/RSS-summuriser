@@ -1,6 +1,7 @@
+import os
 from flask import Flask, render_template, request, redirect, url_for, flash, session
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user
-import os
+from typing import Optional
 
 app = Flask(__name__)
 app.secret_key = os.urandom(16).hex()
