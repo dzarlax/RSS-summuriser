@@ -194,7 +194,7 @@ def extract_image_url(downloaded: Optional[str]) -> str:
 
 
 def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, api_key: str, previous_links: List[str], logo: str, tokenize_url: str) -> Optional[Dict[str, Union[str, Enclosure]]]:
-    pub_date = datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z').replace(tzinfo=None)
+    pub_date = datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z').astimezone(pytz.utc)
     if pub_date < two_days_ago:
         return None
     im_url: str = logo
