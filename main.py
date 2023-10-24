@@ -33,14 +33,16 @@ def load_config(key: Optional[str] = None):
     current_directory = os.path.dirname(os.path.abspath(__file__))
     # Объединение этого пути с именем файла, который вы хотите открыть
     file_path = os.path.join(current_directory, "config.json")
+
     with open(file_path, "r") as file:
         config = json.load(file)
 
     if key:
-        return config.get(key)  # Возвращаем значение заданного ключа (или None, если ключ не найден)
+        if key not in config:
+            raise KeyError(f"The key '{key}' was not found in the config file.")
+        return config[key]  # Возвращаем значение заданного ключа
     else:
         return config  # Возвращаем весь конфигурационный словарь
-
 
 # Определите максимальное количество запросов, которое вы хотите выполнять в секунду.
 # Например, если API позволяет делать 10 запросов в секунду:
@@ -207,8 +209,7 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, api_
 
 
 def main() -> None:
-    # Настройте параметры
-
+    # Настройте параметры, которые используются несколько раз
     # YandexGPT
     API_URL = load_config("API_URL")
     folder_id = load_config("x-folder-id")
