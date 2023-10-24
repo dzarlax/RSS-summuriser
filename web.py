@@ -3,6 +3,7 @@ import json
 from flask import Flask, render_template, request, redirect, url_for, flash, session
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user
 from typing import Optional
+import main
 
 app = Flask(__name__)
 app.secret_key = os.urandom(16).hex()
@@ -61,6 +62,15 @@ def logout():
 @login_required
 def index():
     return render_template('index.html')
+
+@app.route('/run-main', methods=['POST'])
+def run_main_function():
+    try:
+        main()  # ваша функция main
+        flash("Основная функция успешно выполнена!", "success")
+    except Exception as e:
+        flash(f"Произошла ошибка: {str(e)}", "danger")
+    return redirect(url_for('index'))
 
 if __name__ == '__main__':
     app.run(debug=True)
