@@ -2,6 +2,7 @@
 import json
 import logging
 import os
+import pytz
 import time
 import tempfile
 from datetime import datetime, timedelta
@@ -250,7 +251,7 @@ def main() -> None:
             enclosure=Enclosure(entry.enclosures[0].href, '1234', 'image/jpeg'),
             pubdate=pub_date_dt
         )
-    two_days_ago = datetime.now(datetime.timezone.utc) - timedelta(days=2)
+    two_days_ago = datetime.now(pytz.utc) - timedelta(days=2)
     # Сортировка записей по времени публикации
     sorted_entries = sorted(in_feed.entries,
                             key=lambda entry: datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z'),
