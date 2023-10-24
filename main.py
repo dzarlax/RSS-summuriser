@@ -40,6 +40,7 @@ with open(file_path, 'r') as file:
 iam_url = config["iam_url"]
 service_account_id = config["service_account_id"]
 key_id = config["key_id"]
+
 file_path_authorized_key = os.path.join(current_directory, "authorized_key.json")
 with open(file_path_authorized_key, 'r') as private:
     data = json.load(private)
@@ -249,7 +250,7 @@ def main() -> None:
             enclosure=Enclosure(entry.enclosures[0].href, '1234', 'image/jpeg'),
             pubdate=pub_date_dt
         )
-    two_days_ago = datetime.now().replace(tzinfo=None) - timedelta(days=2)
+    two_days_ago = datetime.now(datetime.timezone.utc) - timedelta(days=2)
     # Сортировка записей по времени публикации
     sorted_entries = sorted(in_feed.entries,
                             key=lambda entry: datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z'),
