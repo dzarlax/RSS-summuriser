@@ -38,18 +38,8 @@ python3 main.py
 
 После выполнения скрипта результат будет загружен на Yandex Cloud Storage.
 
-## Зависимости
 
-- `jwt`
-- `json`
-- `time`
-- `trafilatura`
-- `feedparser`
-- `requests`
-- `BeautifulSoup4`
-- `feedgenerator`
-- `boto3`
-- `botocore`
+
 
 ## Лицензия
 
