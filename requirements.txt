@@ -33,3 +33,5 @@ urllib3==1.26.18
 PyJWT
 ratelimiter
 pytz
+flask
+flask-login
