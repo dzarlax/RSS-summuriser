@@ -209,7 +209,7 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, api_
     }
 
 
-def main() -> None:
+def main_func() -> None:
     # Настройте параметры, которые используются несколько раз
     # YandexGPT
     API_URL = load_config("API_URL")
@@ -275,4 +275,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    main_func()

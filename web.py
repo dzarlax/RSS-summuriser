@@ -66,7 +66,7 @@ def index():
 @app.route('/run-main', methods=['POST'])
 def run_main_function():
     try:
-        main()  # ваша функция main
+        main.main_func()  # ваша функция main
         flash("Основная функция успешно выполнена!", "success")
     except Exception as e:
         flash(f"Произошла ошибка: {str(e)}", "danger")
