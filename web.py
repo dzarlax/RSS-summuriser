@@ -1,9 +1,14 @@
 import os
 import json
+import logging
 from flask import Flask, render_template, request, redirect, url_for, flash, session
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user
 from typing import Optional
 import main
+
+
+logging.basicConfig(filename='app.log', level=logging.INFO, format='%(asctime)s:%(levelname)s:%(message)s')
+
 
 app = Flask(__name__)
 app.secret_key = os.urandom(16).hex()
@@ -12,8 +17,10 @@ login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
 
+
 class User(UserMixin):
     pass
+
 
 def load_config(key: Optional[str] = None):
     # Получение абсолютного пути к директории, где находится main.py
@@ -31,6 +38,7 @@ def load_config(key: Optional[str] = None):
     else:
         return config  # Возвращаем весь конфигурационный словарь
 
+
 @login_manager.user_loader
 def user_loader(username):
     if username != "admin":
@@ -38,6 +46,7 @@ def user_loader(username):
     user = User()
     user.id = username
     return user
+
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -48,20 +57,26 @@ def login():
             user = User()
             user.id = username
             login_user(user)
+            logging.info(f"User {username} logged in successfully.")
             return redirect(url_for('index'))
         flash("Неверное имя пользователя или пароль", "danger")
+        logging.warning(f"Failed login attempt by user {username}.")
     return render_template('login.html')
+
 
 @app.route('/logout')
 @login_required
 def logout():
+    logging.info(f"User {session['user_id']} logged out.")
     logout_user()
     return redirect(url_for('login'))
+
 
 @app.route('/')
 @login_required
 def index():
     return render_template('index.html')
+
 
 @app.route('/run-main', methods=['POST'])
 def run_main_function():
@@ -70,7 +85,9 @@ def run_main_function():
         flash("Основная функция успешно выполнена!", "success")
     except Exception as e:
         flash(f"Произошла ошибка: {str(e)}", "danger")
+        logging.error(f"Error occurred: {str(e)}")
     return redirect(url_for('index'))
+
 
 if __name__ == '__main__':
     app.run(debug=True)
