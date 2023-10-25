@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+from celery import Celery
 from flask import Flask, render_template, request, redirect, url_for, flash, session
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user
 from typing import Optional
@@ -17,6 +18,18 @@ app.secret_key = os.urandom(16).hex()
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = 'login'
+
+celery = Celery(__name__)
+celery.config_from_object('celery_config')
+
+@celery.task(bind=True)
+def async_main_func(self):
+    try:
+        main.main_func()
+    except Exception as e:
+        logging.error(f"Error occurred in async task: {str(e)}")
+        raise self.retry(exc=e, countdown=60, max_retries=3)
+
 
 
 class User(UserMixin):
@@ -80,12 +93,8 @@ def index():
 
 @app.route('/run-main', methods=['POST'])
 def run_main_function():
-    try:
-        main.main_func()
-        return "Основная функция успешно выполнена!", 200
-    except Exception as e:
-        logging.error(f"Error occurred: {str(e)}")
-        return f"Произошла ошибка: {str(e)}", 500
+    task = async_main_func.apply_async()
+    return "Задача запущена, пожалуйста, подождите...", 202
 
 
 if __name__ == '__main__':
