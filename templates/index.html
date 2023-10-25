@@ -55,17 +55,23 @@
                 transform: rotate(360deg);
             }
         }
-        .logout-btn {
-            padding: 10px 15px;
-            background-color: #f44336; /* Красный цвет */
-            color: white;
-            text-decoration: none;
-            border-radius: 5px;
-            transition: background-color 0.3s;
+        .container {
+            background-color: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            width: 300px;
         }
 
-        .logout-btn:hover {
-            background-color: #e53935; /* Темно-красный цвет при наведении */
+        .logout-btn {
+            display: block;
+            margin-bottom: 20px;
+        }
+
+        form {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
         }
     </style>
     <script>
@@ -123,17 +129,19 @@
     </script>
 </head>
 <body>
-    {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-            {% for category, message in messages %}
-                <p style="color: {{ 'green' if category == 'success' else 'red' }}">{{ message }}</p>
-            {% endfor %}
-        {% endif %}
-    {% endwith %}
-    <a href="{{ url_for('logout') }}" class="logout-btn">Выход</a>
-    <form id="mainForm" onsubmit="submitForm(event)">
-        <button type="submit">Запустить функцию main</button>
-    </form>
+    <div class="container">
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                {% for category, message in messages %}
+                    <p style="color: {{ 'green' if category == 'success' else 'red' }}">{{ message }}</p>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+        <a href="{{ url_for('logout') }}" class="logout-btn">Выход</a>
+        <form id="mainForm" onsubmit="submitForm(event)">
+            <button type="submit">Запустить функцию main</button>
+        </form>
+    </div>
 
     <div id="loading" style="display: none;">
         <p>Ваш запрос обрабатывается, пожалуйста, подождите...</p>
