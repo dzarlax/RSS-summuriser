@@ -82,12 +82,10 @@ def index():
 def run_main_function():
     try:
         main.main_func()
-        flash("Основная функция успешно выполнена!", "success")
+        return "Основная функция успешно выполнена!", 200
     except Exception as e:
-        flash(f"Произошла ошибка: {str(e)}", "danger")
         logging.error(f"Error occurred: {str(e)}")
-
-    return redirect(url_for('index'))
+        return f"Произошла ошибка: {str(e)}", 500
 
 
 if __name__ == '__main__':

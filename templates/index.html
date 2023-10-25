@@ -5,6 +5,42 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Мое веб-приложение</title>
+    <script>
+        function submitForm(event) {
+            event.preventDefault();
+
+            // Показать индикатор загрузки
+            document.getElementById("loading").style.display = "block";
+
+            // Отправить запрос через AJAX
+            fetch("/run-main", {
+                method: "POST",
+                body: new FormData(event.target)
+            })
+            .then(response => response.text())
+            .then(data => {
+                // Скрыть индикатор загрузки
+                document.getElementById("loading").style.display = "none";
+
+                // Показать результат
+                let message = document.createElement("p");
+                message.innerText = data;
+                message.style.color = "green";
+                document.body.appendChild(message);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                // Скрыть индикатор загрузки
+                document.getElementById("loading").style.display = "none";
+
+                // Показать сообщение об ошибке
+                let message = document.createElement("p");
+                message.innerText = "Произошла ошибка. Пожалуйста, попробуйте еще раз.";
+                message.style.color = "red";
+                document.body.appendChild(message);
+            });
+        }
+    </script>
 </head>
 <body>
     {% with messages = get_flashed_messages(with_categories=true) %}
@@ -15,8 +51,14 @@
         {% endif %}
     {% endwith %}
 
-    <form action="/run-main" method="post">
+    <form id="mainForm" onsubmit="submitForm(event)">
         <button type="submit">Запустить функцию main</button>
     </form>
+
+    <div id="loading" style="display: none;">
+        <p>Ваш запрос обрабатывается, пожалуйста, подождите...</p>
+        <iframe src="https://giphy.com/embed/l3nWhI38IWDofyDrW" width="480" height="480" frameBorder="0" class="giphy-embed" allowFullScreen></iframe><p><a href="https://giphy.com/gifs/thinking-l3nWhI38IWDofyDrW">via GIPHY</a></p>
+    </div>
 </body>
 </html>
+
