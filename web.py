@@ -6,7 +6,7 @@ from flask_login import LoginManager, UserMixin, login_user, login_required, log
 from typing import Optional
 import main
 
-
+LOGGER = logging.getLogger(__name__)
 # Настройка логгера
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -63,14 +63,14 @@ def login():
             logging.info(f"User {username} logged in successfully.")
             return redirect(url_for('index'))
         flash("Неверное имя пользователя или пароль", "danger")
-        logging.warning(f"Failed login attempt by user {username}.")
+        LOGGER.warning(f"Failed login attempt by user {username}.")
     return render_template('login.html')
 
 
 @app.route('/logout')
 @login_required
 def logout():
-    logging.info(f"User {session['user_id']} logged out.")
+    LOGGER.info(f"User {session['user_id']} logged out.")
     logout_user()
     return redirect(url_for('login'))
 
@@ -88,7 +88,7 @@ def run_main_function():
         flash("Основная функция успешно выполнена!", "success")
     except Exception as e:
         flash(f"Произошла ошибка: {str(e)}", "danger")
-        logging.error(f"Error occurred: {str(e)}")
+        LOGGER.error(f"Error occurred: {str(e)}")
     return redirect(url_for('index'))
 
 
