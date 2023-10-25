@@ -82,9 +82,14 @@ def login():
 @app.route('/logout')
 @login_required
 def logout():
-    logging.info(f"User {session['user_id']} logged out.")
+    user_id = session.get('user_id')
+    if user_id:
+        logging.info(f"User {user_id} logged out.")
+    else:
+        logging.warning("Unknown user logged out.")
     logout_user()
     return redirect(url_for('login'))
+
 
 
 @app.route('/')
