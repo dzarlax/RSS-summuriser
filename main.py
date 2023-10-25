@@ -120,6 +120,20 @@ def get_previous_feed_and_links(bucket_name: str, s3, object_name) -> Tuple[feed
     return parsed_rss, [entry.link for entry in parsed_rss.entries]
 
 
+def is_entry_recent(entry: feedparser.FeedParserDict, two_days_ago: datetime) -> bool:
+    """Проверяет, что запись была опубликована не позднее, чем два дня назад."""
+    pub_date_str = entry.get("published", None)
+    if pub_date_str:
+        try:
+            pub_date_dt = datetime.strptime(pub_date_str, '%a, %d %b %Y %H:%M:%S %z')
+        except ValueError:
+            pub_date_dt = datetime.strptime(pub_date_str, '%a, %d %b %Y %H:%M:%S')
+    else:
+        return False
+
+    return pub_date_dt >= two_days_ago
+
+
 def upload_file_to_yandex(file_name: str, bucket: str, s3, object_name) -> None:
     if object_name is None:
         object_name = file_name
@@ -229,6 +243,7 @@ def main_func() -> None:
     logo = load_config("logo_url")
 
     api_key = get_iam_api_token()
+    two_days_ago = datetime.now(pytz.utc) - timedelta(days=2)
     previous_feed, previous_links = get_previous_feed_and_links(BUCKET_NAME, s3, object_name)
     in_feed = feedparser.parse(load_config("rss_url"))
     out_feed = DefaultFeed(
@@ -237,24 +252,24 @@ def main_func() -> None:
         description="Front Page articles from Dzarlax, summarized with AI"
     )
     for entry in previous_feed.entries:
-        # Попытка извлечь дату публикации
-        pub_date_str = entry.get("published", None)
-        if pub_date_str:
-            try:
-                pub_date_dt = datetime.strptime(pub_date_str, '%a, %d %b %Y %H:%M:%S %z')
-            except ValueError:
-                pub_date_dt = datetime.strptime(pub_date_str, '%a, %d %b %Y %H:%M:%S')
-        else:
-            pub_date_dt = None  # или другое значение по умолчанию
+        if is_entry_recent(entry, two_days_ago):
+            # Попытка извлечь дату публикации
+            pub_date_str = entry.get("published", None)
+            if pub_date_str:
+                try:
+                    pub_date_dt = datetime.strptime(pub_date_str, '%a, %d %b %Y %H:%M:%S %z')
+                except ValueError:
+                    pub_date_dt = datetime.strptime(pub_date_str, '%a, %d %b %Y %H:%M:%S')
+            else:
+                pub_date_dt = None  # или другое значение по умолчанию
 
-        out_feed.add_item(
-            title=entry.title,
-            link=entry.link,
-            description=entry.description,
-            enclosure=Enclosure(entry.enclosures[0].href, '1234', 'image/jpeg'),
-            pubdate=pub_date_dt
-        )
-    two_days_ago = datetime.now(pytz.utc) - timedelta(days=2)
+            out_feed.add_item(
+                title=entry.title,
+                link=entry.link,
+                description=entry.description,
+                enclosure=Enclosure(entry.enclosures[0].href, '1234', 'image/jpeg'),
+                pubdate=pub_date_dt
+            )
     # Сортировка записей по времени публикации
     sorted_entries = sorted(in_feed.entries,
                             key=lambda entry: datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z'),
