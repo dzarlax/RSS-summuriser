@@ -1,9 +1,8 @@
 import os
 import json
 import logging
-import jsonify
 from celery import Celery
-from flask import Flask, render_template, request, redirect, url_for, flash, session
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user
 from typing import Optional
 import main
