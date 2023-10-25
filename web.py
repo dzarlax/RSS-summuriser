@@ -49,12 +49,12 @@ def load_config(key: Optional[str] = None) -> dict:
         return config
 
 
-@login_manager.user_loader
 def user_loader(username):
     if username != "admin":
         return
     user = User()
     user.id = username
+    logging.info(f"User loaded: {user.id}") # Отладочный вывод
     return user
 
 
@@ -69,6 +69,7 @@ def login():
             user.id = username
             login_user(user)
             logging.info(f"User {username} logged in successfully.")
+            logging.info(session)
             return redirect(url_for('index'))
 
         flash("Неверное имя пользователя или пароль", "danger")
