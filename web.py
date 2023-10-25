@@ -49,6 +49,7 @@ def load_config(key: Optional[str] = None) -> dict:
         return config
 
 
+@login_manager.user_loader
 def user_loader(username):
     if username != "admin":
         return
