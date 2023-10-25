@@ -3,7 +3,7 @@ import json
 import logging
 from celery import Celery
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
-from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from typing import Optional
 import main
 
@@ -82,11 +82,8 @@ def login():
 @app.route('/logout')
 @login_required
 def logout():
-    user_id = session.get('user_id')
-    if user_id:
-        logging.info(f"User {user_id} logged out.")
-    else:
-        logging.warning("Unknown user logged out.")
+    username = current_user.id  # Получите идентификатор текущего пользователя
+    logging.info(f"User {username} logged out.")
     logout_user()
     return redirect(url_for('login'))
 
