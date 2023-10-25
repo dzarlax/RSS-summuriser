@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import jsonify
 from celery import Celery
 from flask import Flask, render_template, request, redirect, url_for, flash, session
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user
@@ -94,7 +95,14 @@ def index():
 @app.route('/run-main', methods=['POST'])
 def run_main_function():
     task = async_main_func.apply_async()
-    return "Задача запущена, пожалуйста, подождите...", 202
+    task_id = task.id
+    return jsonify({"message": "Задача запущена, пожалуйста, подождите...", "task_id": task.id}), 202
+
+
+@app.route('/task-status/<task_id>', methods=['GET'])
+def task_status(task_id):
+    task = async_main_func.AsyncResult(task_id)
+    return jsonify({"status": task.status})
 
 
 if __name__ == '__main__':

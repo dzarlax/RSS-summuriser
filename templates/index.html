@@ -17,29 +17,46 @@
                 method: "POST",
                 body: new FormData(event.target)
             })
-            .then(response => response.text())
+            .then(response => response.json())
             .then(data => {
-                // Скрыть индикатор загрузки
-                document.getElementById("loading").style.display = "none";
-
-                // Показать результат
-                let message = document.createElement("p");
-                message.innerText = data;
-                message.style.color = "green";
-                document.body.appendChild(message);
+                // Если задача была успешно отправлена, начните опросить сервер о ее статусе
+                if (data.message && data.task_id) {
+                    checkTaskStatus(data.task_id);
+                } else {
+                    document.getElementById("loading").style.display = "none";
+                    alert("Произошла ошибка при отправке задачи.");
+                }
             })
             .catch(error => {
                 console.error('Error:', error);
-                // Скрыть индикатор загрузки
                 document.getElementById("loading").style.display = "none";
-
-                // Показать сообщение об ошибке
-                let message = document.createElement("p");
-                message.innerText = "Произошла ошибка. Пожалуйста, попробуйте еще раз.";
-                message.style.color = "red";
-                document.body.appendChild(message);
+                alert("Произошла ошибка. Пожалуйста, попробуйте еще раз.");
             });
         }
+
+        function checkTaskStatus(task_id) {
+            fetch(`/task-status/${task_id}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'SUCCESS') {
+                    document.getElementById("loading").style.display = "none";
+                    alert("Задача завершена!");
+                } else if (data.status === 'FAILURE') {
+                    document.getElementById("loading").style.display = "none";
+                    alert("Произошла ошибка при выполнении задачи.");
+                } else {
+                    setTimeout(function() {
+                        checkTaskStatus(task_id);
+                    }, 5000);  // Проверять каждые 5 секунд
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                document.getElementById("loading").style.display = "none";
+                alert("Произошла ошибка при проверке статуса задачи. Пожалуйста, попробуйте еще раз.");
+            });
+        }
+
     </script>
 </head>
 <body>
