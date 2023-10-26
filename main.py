@@ -223,10 +223,10 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, api_
     }
 
 
-def summarize_and_deduplicate_titles(entries : List[feedparser.FeedParserDict]) -> List[str]:
+def summarize_and_deduplicate_titles(entries, api_key : List[feedparser.FeedParserDict]) -> List[str]:
     titles = [entry['title'] for entry in entries]
     tokenize_url = load_config("tokenize_url")
-    api_key=get_iam_api_token()
+    #api_key=get_iam_api_token()
     API_URL=load_config("API_URL")
     # Для простоты, дедупликация будет убирать повторяющиеся заголовки
     unique_titles = list(set(titles))
@@ -305,7 +305,7 @@ def main_func() -> None:
         if processed:
             out_feed.add_item(
             **processed)
-    summarized_titles = summarize_and_deduplicate_titles(sorted_entries, api_key, API_URL)
+    summarized_titles = summarize_and_deduplicate_titles(sorted_entries, api_key)
     telegram_msg = "\n".join(summarized_titles)
 
     # Токен бота и ID чата из вашего конфигурационного файла или окружения
