@@ -223,30 +223,6 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, api_
     }
 
 
-def summarize_and_deduplicate_titles(entries, api_key : List[feedparser.FeedParserDict]) -> List[str]:
-    titles = [entry['title'] for entry in entries]
-    tokenize_url = load_config("tokenize_url")
-    #api_key=get_iam_api_token()
-    API_URL=load_config("API_URL")
-    # Для простоты, дедупликация будет убирать повторяющиеся заголовки
-    unique_titles = list(set(titles))
-    # Теперь можно суммаризировать эти заголовки
-    summarized_titles = [summarize(title, None, api_key, tokenize_url, API_URL) for title in unique_titles]
-    return summarized_titles
-
-
-def send_telegram_notification(message: str, bot_token: str, chat_id: str) -> None:
-    telegram_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    payload = {
-        "chat_id": chat_id,
-        "text": message,
-        "parse_mode": "HTML"
-    }
-    response = requests.post(telegram_url, data=payload)
-    if response.status_code != 200:
-        LOGGER.error(f"Failed to send message via Telegram: {response.text}")
-
-
 def main_func() -> None:
     # Настройте параметры, которые используются несколько раз
     # YandexGPT
@@ -294,7 +270,6 @@ def main_func() -> None:
                 enclosure=Enclosure(entry.enclosures[0].href, '1234', 'image/jpeg'),
                 pubdate=pub_date_dt
             )
-
     # Сортировка записей по времени публикации
     sorted_entries = sorted(in_feed.entries,
                             key=lambda entry: datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z'),
@@ -305,14 +280,7 @@ def main_func() -> None:
         if processed:
             out_feed.add_item(
             **processed)
-    summarized_titles = summarize_and_deduplicate_titles(sorted_entries, api_key)
-    telegram_msg = "\n".join(summarized_titles)
 
-    # Токен бота и ID чата из вашего конфигурационного файла или окружения
-    TELEGRAM_BOT_TOKEN = load_config("TELEGRAM_BOT_TOKEN")
-    TELEGRAM_CHAT_ID = load_config("TELEGRAM_CHAT_ID")
-
-    send_telegram_notification(telegram_msg, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
     rss = out_feed.writeString('utf-8')
 
     # Используйте временный файл
