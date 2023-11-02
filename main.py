@@ -265,6 +265,7 @@ def main_func() -> None:
             # Check if 'enclosures' exists and has at least one item
             if 'enclosures' in entry and len(entry.enclosures) > 0:
                 # Check if the first enclosure has an 'href' attribute
+                logging(entry.enclosures[0])
                 if 'href' in entry.enclosures[0]:
                     enclosure_href = entry.enclosures[0]['href']
                 else:
