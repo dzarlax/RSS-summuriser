@@ -248,7 +248,7 @@ def main_func() -> None:
     in_feed = feedparser.parse(load_config("rss_url"))
     out_feed = DefaultFeed(
         title="Dzarlax Feed",
-        link="http://example.com/rss",
+        link="https://s3.dzarlax.dev/feed.rss",
         description="Front Page articles from Dzarlax, summarized with AI"
     )
     for entry in previous_feed.entries:
@@ -276,7 +276,7 @@ def main_func() -> None:
                 title=entry.title,
                 link=entry.link,
                 description=entry.description,
-                enclosure=Enclosure(entry.enclosures[0].href, '1234', 'image/jpeg'),
+                enclosure=Enclosure(entry.enclosure_href, '1234', 'image/jpeg'),
                 pubdate=pub_date_dt
             )
     # Сортировка записей по времени публикации
