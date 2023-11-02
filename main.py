@@ -265,7 +265,6 @@ def main_func() -> None:
             # Check if 'enclosures' exists and has at least one item
             if 'enclosures' in entry and len(entry.enclosures) > 0:
                 # Check if the first enclosure has an 'href' attribute
-                print(entry.enclosures[0])
                 if 'href' in entry.enclosures[0]:
                     enclosure_href = entry.enclosures[0]['href']
                 else:
@@ -277,7 +276,7 @@ def main_func() -> None:
                 title=entry.title,
                 link=entry.link,
                 description=entry.description,
-                enclosure=Enclosure(entry.enclosure_href, '1234', 'image/jpeg'),
+                enclosure=Enclosure(enclosure_href, '1234', 'image/jpeg'),
                 pubdate=pub_date_dt
             )
     # Сортировка записей по времени публикации
