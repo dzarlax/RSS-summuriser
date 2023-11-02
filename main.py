@@ -173,7 +173,7 @@ def summarize(text: Optional[str], original_link: str, api_key: str, folder_id: 
         "language": "ru"
     }
 
-    output = query(payload, api_key, API_URL, folder_id)
+    output = query(payload, api_key, folder_id, API_URL)
 
     if not output or 'error' in output:
         return None
