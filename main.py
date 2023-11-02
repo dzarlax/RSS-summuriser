@@ -267,7 +267,10 @@ def main_func() -> None:
                 enclosure_href = entry.enclosures[0].href
             else:
                 enclosure_href = logo  # or some default image URL
-
+            if entry.enclosures and 'href' in entry.enclosures[0]:
+                enclosure_href = entry.enclosures[0]['href']
+            else:
+                enclosure_href = logo
             out_feed.add_item(
                 title=entry.title,
                 link=entry.link,
