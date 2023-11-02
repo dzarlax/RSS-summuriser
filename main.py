@@ -264,13 +264,14 @@ def main_func() -> None:
                 pub_date_dt = None  # или другое значение по умолчанию
             # Check if 'enclosures' exists and has at least one item
             if 'enclosures' in entry and len(entry.enclosures) > 0:
-                enclosure_href = entry.enclosures[0].href
+                # Check if the first enclosure has an 'href' attribute
+                if 'href' in entry.enclosures[0]:
+                    enclosure_href = entry.enclosures[0]['href']
+                else:
+                    enclosure_href = logo  # or some default image URL
             else:
                 enclosure_href = logo  # or some default image URL
-            if entry.enclosures and 'href' in entry.enclosures[0]:
-                enclosure_href = entry.enclosures[0]['href']
-            else:
-                enclosure_href = logo
+
             out_feed.add_item(
                 title=entry.title,
                 link=entry.link,
