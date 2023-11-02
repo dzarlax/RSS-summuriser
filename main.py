@@ -262,6 +262,11 @@ def main_func() -> None:
                     pub_date_dt = datetime.strptime(pub_date_str, '%a, %d %b %Y %H:%M:%S')
             else:
                 pub_date_dt = None  # или другое значение по умолчанию
+            # Check if 'enclosures' exists and has at least one item
+            if 'enclosures' in entry and len(entry.enclosures) > 0:
+                enclosure_href = entry.enclosures[0].href
+            else:
+                enclosure_href = logo  # or some default image URL
 
             out_feed.add_item(
                 title=entry.title,
