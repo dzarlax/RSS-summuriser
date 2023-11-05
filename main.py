@@ -58,7 +58,7 @@ def send_telegram_message(message):
 
 # Определите максимальное количество запросов, которое вы хотите выполнять в секунду.
 # Например, если API позволяет делать 10 запросов в секунду:
-rate_limiter = RateLimiter(max_calls=1, period=2)  # 1 вызов в 1 секунду
+rate_limiter = RateLimiter(max_calls=load_config("RPS"), period=1)  # 1 вызов в 1 секунду
 
 
 def get_iam_api_token() -> str:
