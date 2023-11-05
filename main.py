@@ -153,8 +153,27 @@ def query(payload: Dict[str, Any], api_key: str, folder_id: str, API_URL: str) -
     if response.status_code != 200:
         LOGGER.error(f"Error with Yandex API: {response.text}")
         return {'error': response.text}
-    LOGGER.error(f"Response: {response}")
-    return response.json()
+    try:
+        response = requests.post(API_URL, headers=headers, json=payload)
+        response.raise_for_status()  # Will raise an HTTPError if the HTTP request returned an unsuccessful status code
+        LOGGER.info(response.text)  # Debugging line to print the response text
+        return response.json()
+    except requests.exceptions.HTTPError as http_err:
+        LOGGER.error(f'HTTP error occurred: {http_err}')  # HTTP error
+    except requests.exceptions.RequestException as err:
+        LOGGER.error(f'Request error occurred: {err}')  # Other errors
+    except requests.exceptions.JSONDecodeError as json_err:
+        LOGGER.error(f'JSON decode error: {json_err}')  # JSON decode error
+        try:
+            # Attempt to decode using a different method, e.g., manual string manipulation
+            # This is a simple example and may not work for all cases
+            json_data = json.loads(response.text[response.text.find('{'):response.text.rfind('}') + 1])
+            return json_data
+        except Exception as e:
+            # Log the error and return None or an appropriate error message/value
+            print(f'An error occurred when trying to manually decode JSON: {e}')
+            return None
+    return None
 
 
 def summarize(text: Optional[str], original_link: str, api_key: str, folder_id: str, API_URL: str) -> Optional[str]:
