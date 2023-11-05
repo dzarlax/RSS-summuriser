@@ -18,6 +18,8 @@ from botocore.client import Config
 from bs4 import BeautifulSoup
 from feedgenerator import DefaultFeed, Enclosure
 from ratelimiter import RateLimiter
+from telegram import Bot
+from telegram.error import TelegramError
 
 
 LOGGER = logging.getLogger(__name__)
@@ -44,10 +46,23 @@ def load_config(key: Optional[str] = None):
     else:
         return config  # Возвращаем весь конфигурационный словарь
 
+# Place your Telegram bot's API token here
+TELEGRAM_TOKEN =  load_config("TELEGRAM_BOT_TOKEN")
+# Place your own Telegram user ID here
+TELEGRAM_CHAT_ID = load_config("TELEGRAM_CHAT_ID")
+
+bot = Bot(token=TELEGRAM_TOKEN)
+
+def send_telegram_message(message):
+    try:
+        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
+    except TelegramError as e:
+        print(f"Telegram error: {e}")
+        # You could add further error handling here
 
 # Определите максимальное количество запросов, которое вы хотите выполнять в секунду.
 # Например, если API позволяет делать 10 запросов в секунду:
-rate_limiter = RateLimiter(max_calls=1, period=1)  # 1 вызов в 1 секунду
+rate_limiter = RateLimiter(max_calls=1, period=2)  # 1 вызов в 1 секунду
 
 
 def get_iam_api_token() -> str:
@@ -225,6 +240,9 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, api_
     if entry['link'].startswith("https://t.me"):
         summary = f"{entry['summary']} <a href='{entry['link']}'>Читать оригинал</a>"
         im_url = extract_image_url(downloaded, logo)
+    if entry['link'].startswith("https://radio-t.com"):
+        summary = f"{entry['summary']} <a href='{entry['link']}'>Читать оригинал</a>"
+        im_url = extract_image_url(downloaded, logo)
     elif not downloaded:
         summary = f"{entry['summary']} <a href='{entry['link']}'>Читать оригинал</a>"
     else:
@@ -244,78 +262,85 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, api_
 
 
 def main_func() -> None:
-    # Настройте параметры, которые используются несколько раз
-    # YandexGPT
-    API_URL = load_config("API_URL")
-    folder_id = load_config("x-folder-id")
+    try:
+        send_telegram_message("Запустилось обновление")
+        # Настройте параметры, которые используются несколько раз
+        # YandexGPT
+        API_URL = load_config("API_URL")
+        folder_id = load_config("x-folder-id")
 
-    # S3
-    BUCKET_NAME = load_config("BUCKET_NAME")
-    object_name = load_config("rss_file_name")
-    # Инициализация S3 клиента
-    s3 = boto3.client('s3',
-                      endpoint_url=load_config("ENDPOINT_URL"),
-                      aws_access_key_id=load_config("ACCESS_KEY"),
-                      aws_secret_access_key=load_config("SECRET_KEY"),
-                      config=Config(signature_version='s3v4'))
+        # S3
+        BUCKET_NAME = load_config("BUCKET_NAME")
+        object_name = load_config("rss_file_name")
+        # Инициализация S3 клиента
+        s3 = boto3.client('s3',
+                          endpoint_url=load_config("ENDPOINT_URL"),
+                          aws_access_key_id=load_config("ACCESS_KEY"),
+                          aws_secret_access_key=load_config("SECRET_KEY"),
+                          config=Config(signature_version='s3v4'))
 
-    # links
-    logo = load_config("logo_url")
+        # links
+        logo = load_config("logo_url")
 
-    api_key = get_iam_api_token()
-    two_days_ago = datetime.now(pytz.utc) - timedelta(days=2)
-    previous_feed, previous_links = get_previous_feed_and_links(BUCKET_NAME, s3, object_name)
-    in_feed = feedparser.parse(load_config("rss_url"))
-    out_feed = DefaultFeed(
-        title="Dzarlax Feed",
-        link="https://s3.dzarlax.dev/feed.rss",
-        description="Front Page articles from Dzarlax, summarized with AI"
-    )
-    for entry in previous_feed.entries:
-        if is_entry_recent(entry, two_days_ago):
-            # Попытка извлечь дату публикации
-            pub_date_str = entry.get("published", None)
-            if pub_date_str:
-                try:
-                    pub_date_dt = datetime.strptime(pub_date_str, '%a, %d %b %Y %H:%M:%S %z')
-                except ValueError:
-                    pub_date_dt = datetime.strptime(pub_date_str, '%a, %d %b %Y %H:%M:%S')
-            else:
-                pub_date_dt = None  # или другое значение по умолчанию
-            # Check if 'enclosures' exists and has at least one item
-            if 'enclosures' in entry and len(entry.enclosures) > 0:
-                # Check if the first enclosure has an 'href' attribute
-                if 'href' in entry.enclosures[0]:
-                    enclosure_href = entry.enclosures[0]['href']
+        api_key = get_iam_api_token()
+        two_days_ago = datetime.now(pytz.utc) - timedelta(days=2)
+        previous_feed, previous_links = get_previous_feed_and_links(BUCKET_NAME, s3, object_name)
+        in_feed = feedparser.parse(load_config("rss_url"))
+        out_feed = DefaultFeed(
+            title="Dzarlax Feed",
+            link="https://s3.dzarlax.dev/feed.rss",
+            description="Front Page articles from Dzarlax, summarized with AI"
+        )
+        for entry in previous_feed.entries:
+            if is_entry_recent(entry, two_days_ago):
+                # Попытка извлечь дату публикации
+                pub_date_str = entry.get("published", None)
+                if pub_date_str:
+                    try:
+                        pub_date_dt = datetime.strptime(pub_date_str, '%a, %d %b %Y %H:%M:%S %z')
+                    except ValueError:
+                        pub_date_dt = datetime.strptime(pub_date_str, '%a, %d %b %Y %H:%M:%S')
+                else:
+                    pub_date_dt = None  # или другое значение по умолчанию
+                # Check if 'enclosures' exists and has at least one item
+                if 'enclosures' in entry and len(entry.enclosures) > 0:
+                    # Check if the first enclosure has an 'href' attribute
+                    if 'href' in entry.enclosures[0]:
+                        enclosure_href = entry.enclosures[0]['href']
+                    else:
+                        enclosure_href = logo  # or some default image URL
                 else:
                     enclosure_href = logo  # or some default image URL
-            else:
-                enclosure_href = logo  # or some default image URL
 
-            out_feed.add_item(
-                title=entry.title,
-                link=entry.link,
-                description=entry.description,
-                enclosure=Enclosure(enclosure_href, '1234', 'image/jpeg'),
-                pubdate=pub_date_dt
-            )
-    # Сортировка записей по времени публикации
-    sorted_entries = sorted(in_feed.entries,
-                            key=lambda entry: datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z'),
-                            reverse=True)
+                out_feed.add_item(
+                    title=entry.title,
+                    link=entry.link,
+                    description=entry.description,
+                    enclosure=Enclosure(enclosure_href, '1234', 'image/jpeg'),
+                    pubdate=pub_date_dt
+                )
+        # Сортировка записей по времени публикации
+        sorted_entries = sorted(in_feed.entries,
+                                key=lambda entry: datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z'),
+                                reverse=True)
 
-    for entry in sorted_entries:
-        processed = process_entry(entry, two_days_ago, api_key, previous_links, logo, API_URL, folder_id)
-        if processed:
-            out_feed.add_item(
-            **processed)
+        for entry in sorted_entries:
+            processed = process_entry(entry, two_days_ago, api_key, previous_links, logo, API_URL, folder_id)
+            if processed:
+                out_feed.add_item(
+                **processed)
 
-    rss = out_feed.writeString('utf-8')
+        rss = out_feed.writeString('utf-8')
 
-    # Используйте временный файл
-    with tempfile.NamedTemporaryFile(suffix=".xml") as temp:
-        temp.write(rss.encode('utf-8'))
-        upload_file_to_yandex(temp.name, BUCKET_NAME, s3, object_name)
+        # Используйте временный файл
+        with tempfile.NamedTemporaryFile(suffix=".xml") as temp:
+            temp.write(rss.encode('utf-8'))
+            upload_file_to_yandex(temp.name, BUCKET_NAME, s3, object_name)
+        pass
+    except Exception as e:
+        error_message = f"Application crashed with error: {e}"
+        print(error_message)
+        send_telegram_message(error_message)
 
 
 if __name__ == "__main__":
