@@ -332,6 +332,7 @@ def main_func() -> None:
         with tempfile.NamedTemporaryFile(suffix=".xml") as temp:
             temp.write(rss.encode('utf-8'))
             upload_file_to_yandex(temp.name, BUCKET_NAME, s3, object_name)
+        send_telegram_message("Обновление завершено успешно")
         pass
     except Exception as e:
         error_message = f"Application crashed with error: {e}"
