@@ -236,7 +236,7 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, api_
     if entry['link'].startswith("https://t.me"):
         summary = f"{entry['summary']} <a href='{entry['link']}'>Читать оригинал</a>"
         im_url = extract_image_url(downloaded, logo)
-    if entry['link'].startswith("https://radio-t.com"):
+    elif entry['link'].startswith("https://radio-t.com"):
         summary = f"{entry['summary']} <a href='{entry['link']}'>Читать оригинал</a>"
         im_url = extract_image_url(downloaded, logo)
     elif not downloaded:
