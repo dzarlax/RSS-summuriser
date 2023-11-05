@@ -18,9 +18,6 @@ from botocore.client import Config
 from bs4 import BeautifulSoup
 from feedgenerator import DefaultFeed, Enclosure
 from ratelimiter import RateLimiter
-from telegram import Bot
-from telegram.error import TelegramError
-
 
 LOGGER = logging.getLogger(__name__)
 
@@ -46,19 +43,18 @@ def load_config(key: Optional[str] = None):
     else:
         return config  # Возвращаем весь конфигурационный словарь
 
-# Place your Telegram bot's API token here
-TELEGRAM_TOKEN =  load_config("TELEGRAM_BOT_TOKEN")
-# Place your own Telegram user ID here
-TELEGRAM_CHAT_ID = load_config("TELEGRAM_CHAT_ID")
-
-bot = Bot(token=TELEGRAM_TOKEN)
-
 def send_telegram_message(message):
-    try:
-        bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message)
-    except TelegramError as e:
-        print(f"Telegram error: {e}")
-        # You could add further error handling here
+    # Place your Telegram bot's API token here
+    TELEGRAM_TOKEN = load_config("TELEGRAM_BOT_TOKEN")
+    # Place your own Telegram user ID here
+    TELEGRAM_CHAT_ID = load_config("TELEGRAM_CHAT_ID")
+    send_message_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    data = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message
+    }
+    response = requests.post(send_message_url, data=data)
+    return response.json()
 
 # Определите максимальное количество запросов, которое вы хотите выполнять в секунду.
 # Например, если API позволяет делать 10 запросов в секунду:

@@ -39,4 +39,3 @@ Werkzeug==2.3.0
 celery
 redis
 jsonify
-telegram
