@@ -153,6 +153,7 @@ def query(payload: Dict[str, Any], api_key: str, folder_id: str, API_URL: str) -
     if response.status_code != 200:
         LOGGER.error(f"Error with Yandex API: {response.text}")
         return {'error': response.text}
+    LOGGER.log(f"Response: {response}")
     return response.json()
 
 
