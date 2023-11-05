@@ -199,7 +199,7 @@ def summarize(text: Optional[str], original_link: str, api_key: str, folder_id: 
 
     payload = {
         "model": "general",
-        "instruction_text": "переведи на русский и изложи кратко ",
+        "instruction_uri": "yagpt://300.ya.ru",
         "request_text": text,
         "language": "ru"
     }
