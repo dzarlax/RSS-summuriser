@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import pytz
-import time
 import tempfile
 from datetime import datetime, timedelta
 from typing import Dict, Tuple, List, Optional, Union, Any
@@ -11,7 +10,6 @@ from typing import Dict, Tuple, List, Optional, Union, Any
 # Сторонние библиотеки
 import boto3
 import feedparser
-import jwt
 import requests
 import trafilatura
 from botocore.client import Config
@@ -115,7 +113,7 @@ def ya300(link):
     return url
 
 
-def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, api_key: str, previous_links: List[str], logo: str, tokenize_url: str, API_URL: str) -> Optional[Dict[str, Union[str, Enclosure]]]:
+def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, previous_links: List[str], logo: str) -> Optional[Dict[str, Union[str, Enclosure]]]:
     pub_date = datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z').astimezone(pytz.utc)
     if pub_date < two_days_ago:
         return None
@@ -158,9 +156,6 @@ def main_func() -> None:
     try:
         send_telegram_message("Запустилось обновление")
         # Настройте параметры, которые используются несколько раз
-        # YandexGPT
-        API_URL = load_config("API_URL")
-        folder_id = load_config("x-folder-id")
 
         # S3
         BUCKET_NAME = load_config("BUCKET_NAME")
@@ -216,7 +211,7 @@ def main_func() -> None:
                                 reverse=True)
 
         for entry in sorted_entries:
-            processed = process_entry(entry, two_days_ago, api_key, previous_links, logo, API_URL, folder_id)
+            processed = process_entry(entry, two_days_ago, previous_links, logo)
             if processed:
                 out_feed.add_item(
                 **processed)
