@@ -108,10 +108,11 @@ def ya300(link, endpoint, token):
             },
             headers={'Authorization': F"OAuth {token}"}
         )
-        response_data = response.json()
+
         LOGGER.info(response)
-        LOGGER.info(response_data)
+        LOGGER.info(response.text)
         LOGGER.info(response.status_code)
+        response_data = response.json()
         url = response_data.get("sharing_url", None)
     except json.JSONDecodeError as e:
         LOGGER.error(f"JSONDecodeError: {e}")
