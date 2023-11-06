@@ -133,6 +133,7 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, prev
         return None
     im_url: str = logo
     downloaded = trafilatura.fetch_url(entry['link'])
+    print(entry)
     if entry['link'] in previous_links:
         return None
     if entry['link'].startswith("https://t.me"):
