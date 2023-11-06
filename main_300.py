@@ -99,16 +99,22 @@ def extract_image_url(downloaded: Optional[str], logo: str) -> str:
     return im['content'] if im else logo
 
 def ya300(link, endpoint, token):
-
-    response = requests.post(
-        endpoint,
-        json={
-            'article_url': link
-        },
-        headers={'Authorization': F"OAuth {token}"}
-    )
-    response_data = response.json()
-    url = response_data.get("sharing_url", None)
+    try:
+        response = requests.post(
+            endpoint,
+            json={
+                'article_url': link
+            },
+            headers={'Authorization': F"OAuth {token}"}
+        )
+        response_data = response.json()
+        url = response_data.get("sharing_url", None)
+    except json.JSONDecodeError as e:
+        LOGGER.error(f"JSONDecodeError: {e}")
+        LOGGER.error(f"Получен недопустимый JSON контент.")
+    except Exception as e:
+        LOGGER.error(f"Произошла непредвиденная ошибка: {e}")
+        raise
     return url
 
 
