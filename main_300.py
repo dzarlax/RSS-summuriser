@@ -98,6 +98,7 @@ def extract_image_url(downloaded: Optional[str], logo: str) -> str:
     im = soup.find("meta", property="og:image")
     return im['content'] if im else logo
 
+
 def ya300(link, endpoint, token):
     url = None
     try:
@@ -112,12 +113,14 @@ def ya300(link, endpoint, token):
         LOGGER.info(response)
         LOGGER.info(response.text)
         LOGGER.info(response.status_code)
-        response_data = response.json()
-        url = response_data.get("sharing_url", None)
+        if response.status_code!=200:
+            response_data = response.json()
+            url = response_data.get("sharing_url", None)
+        else:
+            url = None
     except json.JSONDecodeError as e:
-        LOGGER.error(f"JSONDecodeError: {e}")
+        LOGGER.error(f"JSONDecodeError в main: {e}")
         LOGGER.error(f"Получен недопустимый JSON контент.")
-        raise
     except Exception as e:
         LOGGER.error(f"Произошла непредвиденная ошибка: {e}")
         raise
@@ -149,7 +152,6 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, prev
                 response = requests.get(sum_link)
                 LOGGER.info(response)
                 webpage = response.content
-                LOGGER.info(webpage)
                 soup = BeautifulSoup(webpage, 'html.parser')
                 summary_div = soup.find(lambda tag: tag.name == "div" and "class" in tag.attrs and any(
                     cls.startswith("summary-text") for cls in tag["class"]))
