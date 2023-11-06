@@ -98,9 +98,8 @@ def extract_image_url(downloaded: Optional[str], logo: str) -> str:
     im = soup.find("meta", property="og:image")
     return im['content'] if im else logo
 
-def ya300(link):
-    endpoint = load_config("endpoint_300")
-    token = load_config("token_300")
+def ya300(link, endpoint, token):
+
     response = requests.post(
         endpoint,
         json={
@@ -113,13 +112,13 @@ def ya300(link):
     return url
 
 
-def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, previous_links: List[str], logo: str) -> Optional[Dict[str, Union[str, Enclosure]]]:
+def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, previous_links: List[str], logo: str, endpoint, token) -> Optional[Dict[str, Union[str, Enclosure]]]:
     pub_date = datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z').astimezone(pytz.utc)
     if pub_date < two_days_ago:
         return None
     im_url: str = logo
     downloaded = trafilatura.fetch_url(entry['link'])
-    print(ya300(entry['link']))
+    print(ya300(entry['link'], endpoint, token))
     if entry['link'] in previous_links:
         return None
     if entry['link'].startswith("https://t.me"):
@@ -132,7 +131,7 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, prev
         summary = f"{entry['summary']} <a href='{entry['link']}'>Читать оригинал</a>"
     else:
         with rate_limiter:
-            response = requests.get(ya300(entry['link']))
+            response = requests.get(ya300(entry['link'], endpoint, token))
             webpage = response.content
             soup = BeautifulSoup(webpage, 'html.parser')
             summary_div = soup.find(lambda tag: tag.name == "div" and "class" in tag.attrs and any(
@@ -158,7 +157,8 @@ def main_func() -> None:
     try:
         send_telegram_message("Запустилось обновление")
         # Настройте параметры, которые используются несколько раз
-
+        endpoint = load_config("endpoint_300")
+        token = load_config("token_300")
         # S3
         BUCKET_NAME = load_config("BUCKET_NAME")
         object_name = load_config("rss_file_name")
@@ -213,7 +213,7 @@ def main_func() -> None:
                                 reverse=True)
 
         for entry in sorted_entries:
-            processed = process_entry(entry, two_days_ago, previous_links, logo)
+            processed = process_entry(entry, two_days_ago, previous_links, logo, endpoint, token)
             if processed:
                 out_feed.add_item(
                 **processed)
