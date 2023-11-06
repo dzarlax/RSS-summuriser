@@ -99,6 +99,7 @@ def extract_image_url(downloaded: Optional[str], logo: str) -> str:
     return im['content'] if im else logo
 
 def ya300(link, endpoint, token):
+    url = None
     try:
         response = requests.post(
             endpoint,
