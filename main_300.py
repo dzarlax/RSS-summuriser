@@ -163,7 +163,7 @@ def main_func() -> None:
         token = load_config("token_300")
         # S3
         BUCKET_NAME = load_config("BUCKET_NAME")
-        object_name = load_config("rss_file_name")
+        object_name = load_config("rss_300_file_name")
         # Инициализация S3 клиента
         s3 = boto3.client('s3',
                           endpoint_url=load_config("ENDPOINT_URL"),
@@ -225,7 +225,7 @@ def main_func() -> None:
         # Используйте временный файл
         with tempfile.NamedTemporaryFile(suffix=".xml") as temp:
             temp.write(rss.encode('utf-8'))
-            upload_file_to_yandex(temp.name, BUCKET_NAME, s3, "newfeed.xml")
+            upload_file_to_yandex(temp.name, BUCKET_NAME, s3, object_name)
         send_telegram_message("Обновление завершено успешно")
         pass
     except Exception as e:
