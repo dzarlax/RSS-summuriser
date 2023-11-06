@@ -184,7 +184,7 @@ def main_func() -> None:
     try:
         send_telegram_message("Запустилось обновление")
         # Настройте параметры, которые используются несколько раз
-        endpoint = load_config("endpoint_300")
+        endpoint = load_config("endpoint_T300")
         token = load_config("token_300")
         # S3
         BUCKET_NAME = load_config("BUCKET_NAME")
