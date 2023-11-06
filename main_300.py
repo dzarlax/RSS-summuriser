@@ -245,12 +245,6 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, api_
     im_url: str = logo
     downloaded = trafilatura.fetch_url(entry['link'])
     print(ya300(entry['link']))
-    response = requests.get(ya300(entry['link']))
-    webpage = response.content
-    soup = BeautifulSoup(webpage, 'html.parser')
-    summary_div = soup.find('div', class_="summary-text svelte-tiidzr")
-    text = summary_div.get_text(separator="\n", strip=True)
-    print(text)
     if entry['link'] in previous_links:
         return None
     if entry['link'].startswith("https://t.me"):
@@ -262,6 +256,12 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, api_
     elif not downloaded:
         summary = f"{entry['summary']} <a href='{entry['link']}'>Читать оригинал</a>"
     else:
+        response = requests.get(ya300(entry['link']))
+        webpage = response.content
+        soup = BeautifulSoup(webpage, 'html.parser')
+        summary_div = soup.find('div', class_="summary-text svelte-tiidzr")
+        text = summary_div.get_text(separator="\n", strip=True)
+        print(text)
         summary = f"{text} <a href='{entry['link']}'>Читать оригинал</a>"
         if summary is None:
             summary = f"{entry['summary']} <a href='{entry['link']}'>Читать оригинал</a>"
