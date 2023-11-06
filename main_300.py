@@ -109,9 +109,9 @@ def ya300(link, endpoint, token):
             headers={'Authorization': F"OAuth {token}"}
         )
         response_data = response.json()
-        print(response)
-        print(response_data)
-        print(response.status_code)
+        LOGGER.info(response)
+        LOGGER.info(response_data)
+        LOGGER.info(response.status_code)
         url = response_data.get("sharing_url", None)
     except json.JSONDecodeError as e:
         LOGGER.error(f"JSONDecodeError: {e}")
@@ -143,9 +143,9 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, prev
     else:
         with rate_limiter:
             response = requests.get(ya300(entry['link'], endpoint, token))
-            print(response)
+            LOGGER.info(response)
             webpage = response.content
-            print(webpage)
+            LOGGER.info(webpage)
             soup = BeautifulSoup(webpage, 'html.parser')
             summary_div = soup.find(lambda tag: tag.name == "div" and "class" in tag.attrs and any(
                 cls.startswith("summary-text") for cls in tag["class"]))
