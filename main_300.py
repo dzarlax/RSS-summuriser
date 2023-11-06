@@ -143,6 +143,7 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, prev
     else:
         with rate_limiter:
             response = requests.get(ya300(entry['link'], endpoint, token))
+            print(response)
             webpage = response.content
             print(webpage)
             soup = BeautifulSoup(webpage, 'html.parser')
