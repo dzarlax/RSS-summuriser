@@ -345,7 +345,7 @@ def main_func() -> None:
         # Используйте временный файл
         with tempfile.NamedTemporaryFile(suffix=".xml") as temp:
             temp.write(rss.encode('utf-8'))
-            upload_file_to_yandex(temp.name, BUCKET_NAME, s3, object_name)
+            upload_file_to_yandex(temp.name, BUCKET_NAME, s3, "newfeed.xml")
         send_telegram_message("Обновление завершено успешно")
         pass
     except Exception as e:
