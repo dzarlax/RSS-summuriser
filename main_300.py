@@ -142,19 +142,22 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, prev
         summary = f"{entry['summary']} <a href='{entry['link']}'>Читать оригинал</a>"
     else:
         with rate_limiter:
-            response = requests.get(ya300(entry['link'], endpoint, token))
-            LOGGER.info(response)
-            webpage = response.content
-            LOGGER.info(webpage)
-            soup = BeautifulSoup(webpage, 'html.parser')
-            summary_div = soup.find(lambda tag: tag.name == "div" and "class" in tag.attrs and any(
-                cls.startswith("summary-text") for cls in tag["class"]))
-            if summary_div:
-                text = summary_div.get_text(separator="\n", strip=True)
-                summary = f"{text} <a href='{entry['link']}'>Читать оригинал</a>"
-            else:
+            sum_link=ya300(entry['link'], endpoint, token)
+            if sum_link is None:
                 summary = f"{entry['summary']} <a href='{entry['link']}'>Читать оригинал</a>"
-
+            else:
+                response = requests.get(sum_link)
+                LOGGER.info(response)
+                webpage = response.content
+                LOGGER.info(webpage)
+                soup = BeautifulSoup(webpage, 'html.parser')
+                summary_div = soup.find(lambda tag: tag.name == "div" and "class" in tag.attrs and any(
+                    cls.startswith("summary-text") for cls in tag["class"]))
+                if summary_div:
+                    text = summary_div.get_text(separator="\n", strip=True)
+                    summary = f"{text} <a href='{entry['link']}'>Читать оригинал</a>"
+                else:
+                    summary = f"{entry['summary']} <a href='{entry['link']}'>Читать оригинал</a>"
         im_url = extract_image_url(downloaded, logo)
 
     return {
