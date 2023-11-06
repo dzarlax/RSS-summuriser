@@ -60,66 +60,6 @@ def send_telegram_message(message):
 # Например, если API позволяет делать 10 запросов в секунду:
 rate_limiter = RateLimiter(max_calls=int(load_config("RPS")), period=1)  # 1 вызов в 1 секунду
 
-
-def get_iam_api_token() -> str:
-    current_directory = os.path.dirname(os.path.abspath(__file__))
-    file_path_authorized_key = os.path.join(current_directory, "authorized_key.json")
-    with open(file_path_authorized_key, 'r') as private:
-        data = json.load(private)
-        private_key = data['private_key']
-    service_account_id = load_config("service_account_id")
-    key_id = load_config("key_id")
-    iam_url = load_config("iam_url")
-    now = int(time.time())
-    payload = {
-        'aud': iam_url,
-        'iss': service_account_id,
-        'iat': now,
-        'exp': now + 360
-    }
-
-    # Формирование JWT.
-    encoded_token = jwt.encode(
-        payload,
-        private_key,
-        algorithm='PS256',
-        headers={'kid': key_id}
-    )
-    data = {
-        "jwt": encoded_token
-    }
-
-    response = requests.post(iam_url, json=data)
-
-    try:
-        response.raise_for_status()
-        result = response.json()
-        # Доступ к результату
-        return result['iamToken']
-    except requests.RequestException:
-        LOGGER.error(f'Error occurred while requesting an IAM token: {response.status_code}, {response.text}')
-        raise
-
-
-def count_tokens(text: str, api_key: str, folder_id: str) -> int:
-    url = load_config("tokenize_url")
-    model = load_config("model")
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "x-folder-id": folder_id
-    }
-    data = {
-        "model": model,
-        "text": text
-    }
-
-    response = requests.post(url, headers=headers, json=data)
-    response_data = response.json()
-
-    tokens = response_data.get("tokens", [])
-    return len(tokens)
-
-
 def get_previous_feed_and_links(bucket_name: str, s3, object_name) -> Tuple[feedparser.FeedParserDict, List[str]]:
 
     # Загрузите XML из S3
@@ -151,69 +91,6 @@ def upload_file_to_yandex(file_name: str, bucket: str, s3, object_name) -> None:
 
     s3.upload_file(file_name, bucket, object_name)
     LOGGER.info(f"File {object_name} uploaded to {bucket}/{object_name}.")
-
-
-def query(payload: Dict[str, Any], api_key: str, folder_id: str, API_URL: str) -> Dict[str, Any]:
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "x-folder-id": folder_id
-    }
-
-    with rate_limiter:
-        response = requests.post(API_URL, headers=headers, json=payload)
-    if response.status_code != 200:
-        LOGGER.error(f"Error with Yandex API: {response.text}")
-        return {'error': response.text}
-    try:
-        response = requests.post(API_URL, headers=headers, json=payload)
-        response.raise_for_status()  # Will raise an HTTPError if the HTTP request returned an unsuccessful status code
-        LOGGER.info(response.text)  # Debugging line to print the response text
-        return response.json()
-    except requests.exceptions.HTTPError as http_err:
-        LOGGER.error(f'HTTP error occurred: {http_err}')  # HTTP error
-    except requests.exceptions.RequestException as err:
-        LOGGER.error(f'Request error occurred: {err}')  # Other errors
-    except requests.exceptions.JSONDecodeError as json_err:
-        LOGGER.error(f'JSON decode error: {json_err}')  # JSON decode error
-        try:
-            # Attempt to decode using a different method, e.g., manual string manipulation
-            # This is a simple example and may not work for all cases
-            json_data = json.loads(response.text[response.text.find('{'):response.text.rfind('}') + 1])
-            return json_data
-        except Exception as e:
-            # Log the error and return None or an appropriate error message/value
-            print(f'An error occurred when trying to manually decode JSON: {e}')
-            return None
-    return None
-
-
-def summarize(text: Optional[str], original_link: str, api_key: str, folder_id: str, API_URL: str) -> Optional[str]:
-    if text is None:
-        return None
-
-    token_count = count_tokens(text, api_key, folder_id)
-
-    # Если количество токенов >= 7400, возвращаем оригинальный текст
-    if token_count >= 7400:
-        return f"{text} <a href='{original_link}'>Читать оригинал</a>"
-
-    payload = {
-        "model": "general",
-        "instruction_uri": "yagpt://300.ya.ru",
-        "request_text": text,
-        "language": "ru"
-    }
-
-    output = query(payload, api_key, API_URL, folder_id)
-
-    if not output or 'error' in output:
-        return None
-
-        # Добавим проверку на тип перед обращением к элементам словаря
-    if isinstance(output, dict) and 'result' in output and 'alternatives' in output['result']:
-        return f"{output['result']['alternatives'][0]['text']} <a href='{original_link}'>Читать оригинал</a>"
-    return None
-
 
 def extract_image_url(downloaded: Optional[str], logo: str) -> str:
     if downloaded is None:
