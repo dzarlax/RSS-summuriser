@@ -134,7 +134,7 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, prev
         response = requests.get(ya300(entry['link']))
         webpage = response.content
         soup = BeautifulSoup(webpage, 'html.parser')
-        summary_div = soup.find('div', class_="summary-text svelte-tiidzr")
+        summary_div = soup.select_one('div[class^="summary-text"]')
         text = summary_div.get_text(separator="\n", strip=True)
         print(text)
         summary = f"{text} <a href='{entry['link']}'>Читать оригинал</a>"
