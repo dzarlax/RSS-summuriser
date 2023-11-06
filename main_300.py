@@ -101,6 +101,7 @@ def extract_image_url(downloaded: Optional[str], logo: str) -> str:
 def ya300(link, endpoint, token):
     url = None
     try:
+        LOGGER.info(link)
         response = requests.post(
             endpoint,
             json={
@@ -108,7 +109,6 @@ def ya300(link, endpoint, token):
             },
             headers={'Authorization': F"OAuth {token}"}
         )
-
         LOGGER.info(response)
         LOGGER.info(response.text)
         LOGGER.info(response.status_code)
