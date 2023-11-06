@@ -131,17 +131,18 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, prev
     elif not downloaded:
         summary = f"{entry['summary']} <a href='{entry['link']}'>Читать оригинал</a>"
     else:
-        response = requests.get(ya300(entry['link']))
-        webpage = response.content
-        soup = BeautifulSoup(webpage, 'html.parser')
-        summary_div = soup.select_one('div[class^="summary-text"]')
-        text = summary_div.get_text(separator="\n", strip=True)
-        print(text)
-        summary = f"{text} <a href='{entry['link']}'>Читать оригинал</a>"
-        if summary is None:
-            summary = f"{entry['summary']} <a href='{entry['link']}'>Читать оригинал</a>"
+        with rate_limiter:
+            response = requests.get(ya300(entry['link']))
+            webpage = response.content
+            soup = BeautifulSoup(webpage, 'html.parser')
+            summary_div = soup.select_one('div[class^="summary-text"]')
+            text = summary_div.get_text(separator="\n", strip=True)
+            print(text)
+            summary = f"{text} <a href='{entry['link']}'>Читать оригинал</a>"
+            if summary is None:
+                summary = f"{entry['summary']} <a href='{entry['link']}'>Читать оригинал</a>"
 
-        im_url = extract_image_url(downloaded, logo)
+            im_url = extract_image_url(downloaded, logo)
 
     return {
         'title': entry['title'],
