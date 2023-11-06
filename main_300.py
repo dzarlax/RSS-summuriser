@@ -241,7 +241,7 @@ def main_func() -> None:
         print(error_message)
         send_telegram_message(error_message)
     except json.JSONDecodeError as e:
-        LOGGER.error(f"JSONDecodeError: {e}")
+        LOGGER.error(f"JSONDecodeError в main: {e}")
         LOGGER.error(f"Получен недопустимый JSON контент.")
     except Exception as e:
         LOGGER.error(f"Произошла непредвиденная ошибка: {e}")
