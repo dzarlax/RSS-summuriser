@@ -117,6 +117,7 @@ def ya300(link, endpoint, token):
     except json.JSONDecodeError as e:
         LOGGER.error(f"JSONDecodeError: {e}")
         LOGGER.error(f"Получен недопустимый JSON контент.")
+        raise
     except Exception as e:
         LOGGER.error(f"Произошла непредвиденная ошибка: {e}")
         raise
@@ -129,8 +130,6 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, prev
         return None
     im_url: str = logo
     downloaded = trafilatura.fetch_url(entry['link'])
-    print(entry['link'])
-    print(ya300(entry['link'], endpoint, token))
     if entry['link'] in previous_links:
         return None
     if entry['link'].startswith("https://t.me"):
