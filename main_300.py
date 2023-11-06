@@ -109,6 +109,7 @@ def ya300(link, endpoint, token):
             headers={'Authorization': F"OAuth {token}"}
         )
         response_data = response.json()
+        print(response)
         print(response_data)
         print(response.status_code)
         url = response_data.get("sharing_url", None)
