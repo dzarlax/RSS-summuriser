@@ -174,8 +174,6 @@ def main_func() -> None:
 
         # links
         logo = load_config("logo_url")
-
-        api_key = get_iam_api_token()
         two_days_ago = datetime.now(pytz.utc) - timedelta(days=2)
         previous_feed, previous_links = get_previous_feed_and_links(BUCKET_NAME, s3, object_name)
         in_feed = feedparser.parse(load_config("rss_url"))
