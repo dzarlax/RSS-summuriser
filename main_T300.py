@@ -15,6 +15,7 @@ from botocore.client import Config
 from bs4 import BeautifulSoup
 from feedgenerator import DefaultFeed, Enclosure
 from ratelimiter import RateLimiter
+import trafilatura
 
 LOGGER = logging.getLogger(__name__)
 
@@ -106,13 +107,13 @@ def extract_image_url(summary: Optional[str], logo: str) -> str:
     return image_url
 
 
-def ya300(link, endpoint, token):
+def ya300(text, endpoint, token):
     url = None
     try:
-        LOGGER.info(f"Sending request to endpoint with link: {link}")
+        LOGGER.info(f"Sending request to endpoint with link: {text}")
         response = requests.post(
             endpoint,
-            json={'article_url': link},
+            json={'text': text},
             headers={'Authorization': f"OAuth {token}"}
         )
         LOGGER.info(f"Response: {response}")
@@ -150,7 +151,9 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, prev
         im_url = extract_image_url(entry['summary'], logo)
     else:
         with rate_limiter:
-            sum_link = ya300(entry['link'], endpoint, token)
+            downloaded = trafilatura.fetch_url(entry['link'])
+            text = trafilatura.extract(downloaded, include_comments=False, include_tables=False)
+            sum_link = ya300(text, endpoint, token)
             LOGGER.info(sum_link)
             if sum_link is None:
                 summary = f"{entry['summary']} <a href='{entry['link']}'>Читать оригинал</a>"
