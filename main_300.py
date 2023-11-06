@@ -56,7 +56,7 @@ def send_telegram_message(message):
 
 # Определите максимальное количество запросов, которое вы хотите выполнять в секунду.
 # Например, если API позволяет делать 10 запросов в секунду:
-rate_limiter = RateLimiter(max_calls=int(load_config("RPS")), period=1)  # 1 вызов в 1 секунду
+rate_limiter = RateLimiter(max_calls=int(load_config("RPS")), period=2)  # 1 вызов в 1 секунду
 
 def get_previous_feed_and_links(bucket_name: str, s3, object_name) -> Tuple[feedparser.FeedParserDict, List[str]]:
 
