@@ -118,6 +118,7 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, prev
         return None
     im_url: str = logo
     downloaded = trafilatura.fetch_url(entry['link'])
+    print(entry['link'])
     print(ya300(entry['link'], endpoint, token))
     if entry['link'] in previous_links:
         return None
@@ -133,6 +134,7 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, prev
         with rate_limiter:
             response = requests.get(ya300(entry['link'], endpoint, token))
             webpage = response.content
+            print(webpage)
             soup = BeautifulSoup(webpage, 'html.parser')
             summary_div = soup.find(lambda tag: tag.name == "div" and "class" in tag.attrs and any(
                 cls.startswith("summary-text") for cls in tag["class"]))
