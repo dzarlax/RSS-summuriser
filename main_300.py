@@ -1,4 +1,5 @@
 # Стандартные библиотеки
+import html
 import json
 import logging
 import os
@@ -6,7 +7,6 @@ import pytz
 import tempfile
 from datetime import datetime, timedelta
 from typing import Dict, Tuple, List, Optional, Union
-
 # Сторонние библиотеки
 import boto3
 import feedparser
@@ -162,8 +162,26 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, prev
                 summary_div = soup.find(lambda tag: tag.name == "div" and "class" in tag.attrs and any(
                     cls.startswith("summary-text") for cls in tag["class"]))
                 if summary_div:
-                    html_summary = summary_div
-                    summary = f"{html_summary} <a href='{entry['link']}'>Читать оригинал</a>"
+                    LOGGER.info(summary_div)
+                    div_element = soup.find('div', class_=lambda value: value and 'summary-text' in value)
+                    result_html = ''
+                    if div_element:
+                        # Получаем заголовок из элемента <h1> и добавляем его в итоговый HTML текст
+                        h1_text = div_element.find('h1', class_='title').get_text()
+                        result_html += f'<h1>{h1_text}</h1>\n'
+
+                        # Итерируемся по элементам <li> с классами, содержащими "thesis"
+                        li_elements = div_element.select('ul.theses li[class*=thesis]')
+                        for li in li_elements:
+                            # Получаем текст из элемента <li>
+                            li_text = li.find('p', class_='thesis-text').get_text()
+                            # Добавляем текст в итоговый HTML с тегом <h1>
+                            result_html += f'<p>{li_text}</p>\n'
+                    else:
+                        # Если элемент <ul> не найден, выводим сообщение об ошибке или делаем необходимые действия
+                        print("Элемент <ul> с классом 'theses svelte-91sedu' не найден в HTML тексте.")
+                    LOGGER.info(result_html)
+                    summary = f"{result_html} <a href='{entry['link']}'>Читать оригинал</a>"
                 else:
                     summary = f"{entry['summary']} <a href='{entry['link']}'>Читать оригинал</a>"
         im_url = extract_image_url(entry['summary'], logo)
