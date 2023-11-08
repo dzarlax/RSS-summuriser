@@ -185,14 +185,21 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, prev
                 else:
                     summary = f"{entry['summary']} <a href='{entry['link']}'>Читать оригинал</a>"
         im_url = extract_image_url(entry['summary'], logo)
-
-    return {
-        'title': entry['title'],
-        'link': entry['link'],
-        'description': summary,
-        'enclosure': Enclosure(im_url, '1234', 'image/jpeg'),
-        'pubdate': pub_date
-    }
+    if im_url == logo:
+        return {
+            'title': entry['title'],
+            'link': entry['link'],
+            'description': summary,
+            'enclosure': Enclosure(im_url, '1234', 'image/jpeg'),
+            'pubdate': pub_date
+        }
+    else:
+        return {
+            'title': entry['title'],
+            'link': entry['link'],
+            'description': summary,
+            'pubdate': pub_date
+        }
 
 
 def main_func() -> None:
