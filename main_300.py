@@ -190,7 +190,6 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, prev
             'title': entry['title'],
             'link': entry['link'],
             'description': summary,
-            'enclosure': Enclosure(im_url, '1234', 'image/jpeg'),
             'pubdate': pub_date
         }
     else:
