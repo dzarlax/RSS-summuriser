@@ -203,7 +203,6 @@ def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, prev
 
 def main_func() -> None:
     try:
-        send_telegram_message("Запустилось обновление")
         # Настройте параметры, которые используются несколько раз
         endpoint = load_config("endpoint_300")
         token = load_config("token_300")
@@ -272,7 +271,6 @@ def main_func() -> None:
         with tempfile.NamedTemporaryFile(suffix=".xml") as temp:
             temp.write(rss.encode('utf-8'))
             upload_file_to_yandex(temp.name, BUCKET_NAME, s3, object_name)
-        send_telegram_message("Обновление завершено успешно")
         pass
     except Exception as e:
         error_message = f"Application crashed with error: {e}"
