@@ -1,5 +1,4 @@
 # Стандартные библиотеки
-import html
 import json
 import logging
 import os
@@ -43,12 +42,12 @@ def load_config(key: Optional[str] = None):
 
 def send_telegram_message(message):
     # Place your Telegram bot's API token here
-    TELEGRAM_TOKEN = load_config("TELEGRAM_BOT_TOKEN")
+    telegram_token = load_config("TELEGRAM_BOT_TOKEN")
     # Place your own Telegram user ID here
-    TELEGRAM_CHAT_ID = load_config("TELEGRAM_CHAT_ID")
-    send_message_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    telegram_chat_id = load_config("TELEGRAM_CHAT_ID")
+    send_message_url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
     data = {
-        "chat_id": TELEGRAM_CHAT_ID,
+        "chat_id": telegram_chat_id,
         "text": message
     }
     response = requests.post(send_message_url, data=data)
@@ -71,7 +70,7 @@ def get_previous_feed_and_links(bucket_name: str, s3, object_name) -> Tuple[feed
     return parsed_rss, [entry.link for entry in parsed_rss.entries]
 
 
-def is_entry_recent(entry: feedparser.FeedParserDict, two_days_ago: datetime) -> bool:
+def is_entry_recent(entry: feedparser.FeedParserDict, days_ago: datetime) -> bool:
     """Проверяет, что запись была опубликована не позднее, чем два дня назад."""
     pub_date_str = entry.get("published", None)
     if pub_date_str:
@@ -82,7 +81,7 @@ def is_entry_recent(entry: feedparser.FeedParserDict, two_days_ago: datetime) ->
     else:
         return False
 
-    return pub_date_dt >= two_days_ago
+    return pub_date_dt >= days_ago
 
 
 def upload_file_to_yandex(file_name: str, bucket: str, s3, object_name) -> None:
@@ -135,9 +134,9 @@ def ya300(link, endpoint, token):
     return None  # T
 
 
-def process_entry(entry: feedparser.FeedParserDict, two_days_ago: datetime, previous_links: List[str], logo: str, endpoint, token) -> Optional[Dict[str, Union[str, Enclosure]]]:
+def process_entry(entry: feedparser.FeedParserDict, days_ago: datetime, previous_links: List[str], logo: str, endpoint, token) -> Optional[Dict[str, Union[str, Enclosure]]]:
     pub_date = datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z').astimezone(pytz.utc)
-    if pub_date < two_days_ago:
+    if pub_date < days_ago:
         return None
     im_url: str = logo
     if entry['link'] in previous_links:
@@ -218,7 +217,7 @@ def main_func() -> None:
 
         # links
         logo = load_config("logo_url")
-        two_days_ago = datetime.now(pytz.utc) - timedelta(days=2)
+        days_ago = datetime.now(pytz.utc) - timedelta(days=7)
         previous_feed, previous_links = get_previous_feed_and_links(BUCKET_NAME, s3, object_name)
         in_feed = feedparser.parse(load_config("rss_url"))
         out_feed = DefaultFeed(
@@ -227,7 +226,7 @@ def main_func() -> None:
             description="Front Page articles from Dzarlax, summarized with AI"
         )
         for entry in previous_feed.entries:
-            if is_entry_recent(entry, two_days_ago):
+            if is_entry_recent(entry, days_ago):
                 # Попытка извлечь дату публикации
                 pub_date_str = entry.get("published", None)
                 if pub_date_str:
@@ -260,7 +259,7 @@ def main_func() -> None:
                                 reverse=True)
 
         for entry in sorted_entries:
-            processed = process_entry(entry, two_days_ago, previous_links, logo, endpoint, token)
+            processed = process_entry(entry, days_ago, previous_links, logo, endpoint, token)
             if processed:
                 out_feed.add_item(
                 **processed)

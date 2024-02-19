@@ -32,10 +32,6 @@ tzlocal==5.1
 urllib3==1.26.18
 PyJWT
 ratelimiter
-pytz
-flask
-flask-login
 Werkzeug==2.3.0
-celery
 redis
 jsonify
