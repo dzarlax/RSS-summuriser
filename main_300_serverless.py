@@ -25,20 +25,13 @@ logging.basicConfig(level=logging.INFO,
 
 
 def load_config(key: Optional[str] = None):
-    # Получение абсолютного пути к директории, где находится main.py
-    current_directory = os.path.dirname(os.path.abspath(__file__))
-    # Объединение этого пути с именем файла, который вы хотите открыть
-    file_path = os.path.join(current_directory, "config.json")
-
-    with open(file_path, "r") as file:
-        config = json.load(file)
-
     if key:
-        if key not in config:
-            raise KeyError(f"The key '{key}' was not found in the config file.")
-        return config[key]  # Возвращаем значение заданного ключа
+        value = os.getenv(key)  # Чтение из переменной окружения
+        if value is None:
+            raise KeyError(f"The environment variable '{key}' was not found.")
+        return value
     else:
-        return config  # Возвращаем весь конфигурационный словарь
+        raise Exception("Requesting the entire config is not supported when using environment variables.")
 
 
 def send_telegram_message(message):
