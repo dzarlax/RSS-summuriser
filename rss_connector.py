@@ -59,7 +59,7 @@ def generate_aggregated_rss(url):
         title = aggregated_feed['feed']['title'],
         link = aggregated_feed['feed']['link'],
         description = aggregated_feed['feed']['description'],
-        pubDate = aggregated_feed['feed']['published'],
+        published = aggregated_feed['feed']['published'],
         items = rss_items
     )
 

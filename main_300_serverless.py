@@ -252,7 +252,7 @@ def main_func() -> None:
                 )
         # Сортировка записей по времени публикации
         sorted_entries = sorted(in_feed.entries,
-                                key=lambda entry: datetime.strptime(entry.pubDate, '%a, %d %b %Y %H:%M:%S %z'),
+                                key=lambda entry: datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z'),
                                 reverse=True)
 
         for entry in sorted_entries:
