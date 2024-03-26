@@ -7,3 +7,4 @@ bs4~=0.0.1
 beautifulsoup4~=4.12.2
 feedgenerator~=2.1.0
 ratelimit~=2.2.1
+PyRSS2Gen
