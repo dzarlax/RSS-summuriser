@@ -52,7 +52,7 @@ def generate_aggregated_rss(url):
             title = entry['title'],
             link = entry['link'],
             description = entry['summary'],
-            published = pubDate
+            pubDate = pubDate
         ))
 
     rss_feed = PyRSS2Gen.RSS2(
