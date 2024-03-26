@@ -215,8 +215,8 @@ def main_func() -> None:
         logo = load_config("logo_url")
         days_ago = datetime.now(pytz.utc) - timedelta(days=7)
         previous_feed, previous_links = get_previous_feed_and_links(BUCKET_NAME, s3, object_name)
-        #in_feed = feedparser.parse(load_config("rss_url"))
-        in_feed = feedparser.parse(generate_aggregated_rss(load_config("RSS_LINKS")))
+        in_feed = feedparser.parse(load_config("rss_url"))
+        #in_feed = feedparser.parse(generate_aggregated_rss(load_config("RSS_LINKS")))
         out_feed = DefaultFeed(
             title="Dzarlax Feed",
             link="https://s3.dzarlax.dev/feed.rss",
