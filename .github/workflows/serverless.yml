@@ -37,4 +37,5 @@ jobs:
           logo_url: ${{ secrets.logo_url }}
           rss_url: ${{ secrets.rss_url }}
           RPS: ${{ secrets.RPS }}
+          RSS_LINKS: ${{ secrets.RSS_LINKS }}
 

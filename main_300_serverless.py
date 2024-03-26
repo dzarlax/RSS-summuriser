@@ -15,6 +15,7 @@ from botocore.client import Config
 from bs4 import BeautifulSoup
 from feedgenerator import DefaultFeed, Enclosure
 from ratelimit import limits, sleep_and_retry
+from rss_connector import generate_aggregated_rss
 
 LOGGER = logging.getLogger(__name__)
 
@@ -214,7 +215,8 @@ def main_func() -> None:
         logo = load_config("logo_url")
         days_ago = datetime.now(pytz.utc) - timedelta(days=7)
         previous_feed, previous_links = get_previous_feed_and_links(BUCKET_NAME, s3, object_name)
-        in_feed = feedparser.parse(load_config("rss_url"))
+        #in_feed = feedparser.parse(load_config("rss_url"))
+        in_feed = feedparser.parse(rss_xml = generate_aggregated_rss(load_config(RSS_LINKS)))
         out_feed = DefaultFeed(
             title="Dzarlax Feed",
             link="https://s3.dzarlax.dev/feed.rss",
