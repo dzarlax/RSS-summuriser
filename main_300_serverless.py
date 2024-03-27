@@ -270,7 +270,7 @@ def main_func() -> None:
         for entry in previous_feed.entries:
             if is_entry_recent(entry, days_ago):
                 # Попытка извлечь дату публикации
-                pub_date_str = entry.get("pubDate", None)
+                pub_date_str = entry.get("pubDate", datetime.now())
                 if pub_date_str:
                     try:
                         pub_date_dt = parser.parse(pub_date_str)
