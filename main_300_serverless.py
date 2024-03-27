@@ -75,7 +75,7 @@ def is_entry_recent(entry: feedparser.FeedParserDict, days_ago: datetime) -> boo
         try:
             pub_date_dt = parser.parse(pub_date_str)
         except ValueError:
-            pub_date_dt = datetime.now()
+            pub_date_dt = datetime.now(pytz.utc)
     else:
         return False
 
@@ -211,7 +211,7 @@ def merge_rss_feeds(url):
             if hasattr(entry, "published_parsed") and entry.published_parsed:
                 pub_date = datetime(*entry.published_parsed[:6])
             else:
-                pub_date = datetime.now()
+                pub_date = datetime.now(pytz.utc)
 
             item = PyRSS2Gen.RSSItem(
                 title=entry.title if hasattr(entry, "title") else "No title",
@@ -230,10 +230,17 @@ def create_new_rss(items):
         title="Объединенный RSS фид",
         link="http://example.com/new-feed.xml",
         description="Новый RSS фид, объединяющий несколько источников.",
-        lastBuildDate=datetime.now(),
+        lastBuildDate=datetime.now(pytz.utc),
         items=items
     )
     return rss
+
+
+def make_aware(dt, timezone=pytz.utc):
+    if dt.tzinfo is None:  # Если объект не осведомлён о часовом поясе
+        # Добавление информации о часовом поясе
+        return timezone.localize(dt)
+    return dt
 
 
 def main_func() -> None:
@@ -270,12 +277,12 @@ def main_func() -> None:
         for entry in previous_feed.entries:
             if is_entry_recent(entry, days_ago):
                 # Попытка извлечь дату публикации
-                pub_date_str = entry.get("pubDate", str(datetime.now()))
+                pub_date_str = entry.get("pubDate", str(datetime.now(pytz.utc)))
                 if pub_date_str:
                     try:
                         pub_date_dt = parser.parse(pub_date_str)
                     except ValueError:
-                        pub_date_dt = datetime.now()
+                        pub_date_dt = datetime.now(pytz.utc)
                 else:
                     pub_date_dt = datetime  # или другое значение по умолчанию
                 # Check if 'enclosures' exists and has at least one item
