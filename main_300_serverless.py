@@ -302,7 +302,6 @@ def main_func() -> None:
                     enclosure=Enclosure(enclosure_href, '1234', 'image/jpeg'),
                     pubdate=pub_date_dt
                 )
-        print(in_feed.entries)
         # Сортировка записей по времени публикации
         sorted_entries = sorted(in_feed.entries,
                                 key=lambda entry: parser.parse(entry.published),
