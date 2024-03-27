@@ -261,7 +261,6 @@ def main_func() -> None:
         logo = load_config("logo_url")
         days_ago = datetime.now(pytz.utc) - timedelta(days=7)
         previous_feed, previous_links = get_previous_feed_and_links(BUCKET_NAME, s3, object_name)
-        #in_feed = feedparser.parse(load_config("rss_url"))
         # Получаем объединенные элементы
         items = merge_rss_feeds(load_config("RSS_LINKS"))
         # Создаем и сохраняем новый фид
