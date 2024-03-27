@@ -207,6 +207,8 @@ def merge_rss_feeds(url):
             # Проверяем, есть ли данные о дате публикации
             if hasattr(entry, "published_parsed") and entry.published_parsed:
                 pub_date = datetime(*entry.published_parsed[:6])
+            elif hasattr(entry, "published"):
+                pub_date = parser.parse(entry.published) 
             else:
                 pub_date = datetime.now(pytz.utc)
 
