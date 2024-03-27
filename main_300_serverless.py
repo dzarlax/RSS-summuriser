@@ -17,9 +17,6 @@ from botocore.client import Config
 from bs4 import BeautifulSoup
 from feedgenerator import DefaultFeed, Enclosure
 from ratelimit import limits, sleep_and_retry
-import ssl
-if hasattr(ssl, '_create_unverified_context'):
-    ssl._create_default_https_context = ssl._create_unverified_context
 
 LOGGER = logging.getLogger(__name__)
 
