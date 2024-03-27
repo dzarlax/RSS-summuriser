@@ -4,18 +4,22 @@ import logging
 import os
 import tempfile
 from datetime import datetime, timedelta
+from dateutil import parser
 from typing import Dict, Tuple, List, Optional, Union
 
 # Сторонние библиотеки
 import boto3
 import feedparser
 import pytz
+import PyRSS2Gen
 import requests
 from botocore.client import Config
 from bs4 import BeautifulSoup
 from feedgenerator import DefaultFeed, Enclosure
 from ratelimit import limits, sleep_and_retry
-from rss_connector import generate_aggregated_rss
+import ssl
+if hasattr(ssl, '_create_unverified_context'):
+    ssl._create_default_https_context = ssl._create_unverified_context
 
 LOGGER = logging.getLogger(__name__)
 
@@ -69,9 +73,9 @@ def is_entry_recent(entry: feedparser.FeedParserDict, days_ago: datetime) -> boo
     pub_date_str = entry.get("published", None)
     if pub_date_str:
         try:
-            pub_date_dt = datetime.strptime(pub_date_str, '%a, %d %b %Y %H:%M:%S %z')
+            pub_date_dt = parser.parse(pub_date_str)
         except ValueError:
-            pub_date_dt = datetime.strptime(pub_date_str, '%a, %d %b %Y %H:%M:%S')
+            pub_date_dt = datetime.now()
     else:
         return False
 
@@ -132,7 +136,7 @@ def ya300(link, endpoint, token):
 
 def process_entry(entry: feedparser.FeedParserDict, days_ago: datetime, previous_links: List[str], logo: str, endpoint,
                   token) -> Optional[Dict[str, Union[str, Enclosure]]]:
-    pub_date = datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z').astimezone(pytz.utc)
+    pub_date = parser.parse(entry.published).astimezone(pytz.utc)
     if pub_date < days_ago:
         return None
     im_url: str = logo
@@ -196,6 +200,42 @@ def process_entry(entry: feedparser.FeedParserDict, days_ago: datetime, previous
         }
 
 
+def merge_rss_feeds(url):
+    response = requests.get(url)
+    urls = response.text.splitlines()
+    items = []
+    for url in urls:
+        feed = feedparser.parse(requests.get(url).content)
+        for entry in feed.entries:
+            # Проверяем, есть ли данные о дате публикации
+            if hasattr(entry, "published_parsed") and entry.published_parsed:
+                pub_date = datetime(*entry.published_parsed[:6])
+            else:
+                pub_date = datetime.now()
+
+            item = PyRSS2Gen.RSSItem(
+                title=entry.title if hasattr(entry, "title") else "No title",
+                link=entry.link if hasattr(entry, "link") else "No link",
+                description=entry.description if hasattr(entry, "description") else "No description",
+                guid=PyRSS2Gen.Guid(entry.link if hasattr(entry, "link") else "No link"),
+                pubDate=pub_date
+            )
+            items.append(item)
+    return items
+
+
+# Создание нового RSS фида
+def create_new_rss(items):
+    rss = PyRSS2Gen.RSS2(
+        title="Объединенный RSS фид",
+        link="http://example.com/new-feed.xml",
+        description="Новый RSS фид, объединяющий несколько источников.",
+        lastBuildDate=datetime.now(),
+        items=items
+    )
+    return rss
+
+
 def main_func() -> None:
     try:
         # Настройте параметры, которые используются несколько раз
@@ -216,7 +256,12 @@ def main_func() -> None:
         days_ago = datetime.now(pytz.utc) - timedelta(days=7)
         previous_feed, previous_links = get_previous_feed_and_links(BUCKET_NAME, s3, object_name)
         #in_feed = feedparser.parse(load_config("rss_url"))
-        in_feed = feedparser.parse(generate_aggregated_rss(load_config("RSS_LINKS")))
+        # Получаем объединенные элементы
+        items = merge_rss_feeds(load_config("RSS_LINKS"))
+        # Создаем и сохраняем новый фид
+        rss_string = create_new_rss(items).to_xml('utf-8')
+        in_feed = feedparser.parse(rss_string)
+
         out_feed = DefaultFeed(
             title="Dzarlax Feed",
             link="https://s3.dzarlax.dev/feed.rss",
@@ -228,11 +273,11 @@ def main_func() -> None:
                 pub_date_str = entry.get("pubDate", None)
                 if pub_date_str:
                     try:
-                        pub_date_dt = datetime.strptime(pub_date_str, '%a, %d %b %Y %H:%M:%S %z')
+                        pub_date_dt = parser.parse(pub_date_str)
                     except ValueError:
-                        pub_date_dt = datetime.strptime(pub_date_str, '%a, %d %b %Y %H:%M:%S')
+                        pub_date_dt = datetime.now()
                 else:
-                    pub_date_dt = None  # или другое значение по умолчанию
+                    pub_date_dt = datetime  # или другое значение по умолчанию
                 # Check if 'enclosures' exists and has at least one item
                 if 'enclosures' in entry and len(entry.enclosures) > 0:
                     # Check if the first enclosure has an 'href' attribute
@@ -250,9 +295,10 @@ def main_func() -> None:
                     enclosure=Enclosure(enclosure_href, '1234', 'image/jpeg'),
                     pubdate=pub_date_dt
                 )
+        print(in_feed.entries)
         # Сортировка записей по времени публикации
         sorted_entries = sorted(in_feed.entries,
-                                key=lambda entry: datetime.strptime(entry.published, '%a, %d %b %Y %H:%M:%S %z'),
+                                key=lambda entry: parser.parse(entry.published),
                                 reverse=True)
 
         for entry in sorted_entries:
