@@ -160,7 +160,7 @@ def prepare_and_send_message(result, chat_id, telegram_token, telegraph_access_t
             send_telegram_message("Произошла ошибка при отправке", service_chat_id, telegram_token)
     else:
         telegraph_url = create_telegraph_page_with_library(result, telegraph_access_token)
-        message = f"Сегодня много новостей, поэтому они спрятаны по ссылочке: {telegraph_url}"
+        message = f"{telegraph_url}"
         response = send_telegram_message(message, chat_id, telegram_token)
         if response.get('ok'):
             send_telegram_message("Сообщение успешно отправлено", service_chat_id, telegram_token)
