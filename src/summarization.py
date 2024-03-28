@@ -1,7 +1,6 @@
 # Стандартные библиотеки
 import json
 import logging
-import os
 import tempfile
 from datetime import datetime, timedelta
 from dateutil import parser
@@ -18,37 +17,14 @@ from bs4 import BeautifulSoup
 from feedgenerator import DefaultFeed, Enclosure
 from ratelimit import limits, sleep_and_retry
 
+from shared import load_config, send_telegram_message
+
 LOGGER = logging.getLogger(__name__)
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s',
-                    handlers=[logging.FileHandler("output.log"), logging.StreamHandler()])
-
-
-def load_config(key: Optional[str] = None):
-    if key:
-        value = os.getenv(key)  # Чтение из переменной окружения
-        if value is None:
-            raise KeyError(f"The environment variable '{key}' was not found.")
-        return value
-    else:
-        raise Exception("Requesting the entire config is not supported when using environment variables.")
-
-
-def send_telegram_message(message):
-    # Place your Telegram bot's API token here
-    TELEGRAM_TOKEN = load_config("TELEGRAM_BOT_TOKEN")
-    # Place your own Telegram user ID here
-    TELEGRAM_CHAT_ID = load_config("TELEGRAM_CHAT_ID")
-    send_message_url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    data = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message
-    }
-    response = requests.post(send_message_url, data=data)
-    return response.json()
-
+                    handlers=[logging.FileHandler("../output.log"), logging.StreamHandler()])
 
 # Определите максимальное количество запросов, которое вы хотите выполнять в секунду.
 CALLS = int(load_config("RPS"))
@@ -208,7 +184,9 @@ def merge_rss_feeds(url):
             if hasattr(entry, "published_parsed") and entry.published_parsed:
                 pub_date = datetime(*entry.published_parsed[:6])
             elif hasattr(entry, "published"):
-                pub_date = parser.parse(entry.published) 
+                pub_date = parser.parse(entry.published)
+            elif hasattr(entry, "pub_date"):
+                pub_date = parser.parse(entry.pub_date)
             else:
                 pub_date = datetime.now(pytz.utc)
 
@@ -321,7 +299,7 @@ def main_func() -> None:
     except Exception as e:
         error_message = f"Application crashed with error: {e}"
         print(error_message)
-        send_telegram_message(error_message)
+        send_telegram_message(error_message, load_config("TELEGRAM_BOT_TOKEN"), load_config("TELEGRAM_CHAT_ID"))
     except json.JSONDecodeError as e:
         LOGGER.error(f"JSONDecodeError в main: {e}")
         LOGGER.error(f"Получен недопустимый JSON контент.")
