@@ -180,7 +180,7 @@ def job():
     telegraph_access_token = load_config("TELEGRAPH_ACCESS_TOKEN")
 
     # Получаем данные фида
-    data = fetch_and_parse_rss_feed(load_config("FEED_URL"))
+    data = fetch_and_parse_rss_feed(load_config("feed_url"))
 
     # Преобразование и фильтрация данных
     data['today'] = datetime.datetime.now().date()
