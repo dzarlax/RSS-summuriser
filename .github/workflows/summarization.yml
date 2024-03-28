@@ -1,4 +1,4 @@
-name: Serverless run
+name: Summarization
 
 on:
   schedule:
