@@ -41,18 +41,20 @@ def get_previous_feed_and_links(bucket_name: str, s3, object_name) -> Tuple[feed
     return parsed_rss, [entry.link for entry in parsed_rss.entries]
 
 
-def is_entry_recent(entry: feedparser.FeedParserDict, days_ago: datetime) -> bool:
+def is_entry_recent(entry: feedparser.FeedParserDict, days_ago: datetime) -> tuple:
     """Проверяет, что запись была опубликована не позднее, чем два дня назад."""
     pub_date_str = entry.get("published", None)
     if pub_date_str:
         try:
             pub_date_dt = parser.parse(pub_date_str)
+            later = pub_date_dt >= days_ago
         except ValueError:
             pub_date_dt = datetime.now(pytz.utc)
+            print(pub_date_str)
     else:
-        return False
+        return False, datetime.now(pytz.utc)
 
-    return pub_date_dt >= days_ago
+    return later, pub_date_dt
 
 
 def upload_file_to_yandex(file_name: str, bucket: str, s3, object_name) -> None:
@@ -213,13 +215,6 @@ def create_new_rss(items):
     return rss
 
 
-def make_aware(dt, timezone=pytz.utc):
-    if dt.tzinfo is None:  # Если объект не осведомлён о часовом поясе
-        # Добавление информации о часовом поясе
-        return timezone.localize(dt)
-    return dt
-
-
 def main_func() -> None:
     try:
         # Настройте параметры, которые используются несколько раз
@@ -251,17 +246,8 @@ def main_func() -> None:
             description="Front Page articles from Dzarlax, summarized with AI"
         )
         for entry in previous_feed.entries:
-            if is_entry_recent(entry, days_ago):
-                # Попытка извлечь дату публикации
-                pub_date_str = entry.get("pubDate", str(datetime.now(pytz.utc)))
-                if pub_date_str:
-                    try:
-                        pub_date_dt = parser.parse(pub_date_str)
-                    except ValueError:
-                        pub_date_dt = datetime.now(pytz.utc)
-                else:
-                    pub_date_dt = datetime  # или другое значение по умолчанию
-                # Check if 'enclosures' exists and has at least one item
+            later, pub_date_dt = is_entry_recent(entry, days_ago)
+            if later:
                 if 'enclosures' in entry and len(entry.enclosures) > 0:
                     # Check if the first enclosure has an 'href' attribute
                     if 'href' in entry.enclosures[0]:
