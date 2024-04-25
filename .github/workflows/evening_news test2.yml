@@ -24,7 +24,7 @@ jobs:
           
 
       - name: Run the script
-        run: python src/evening_news.py test
+        run: python src/evening_news2.py test
         env: # Убедитесь, что все необходимые переменные окружения перечислены здесь
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
