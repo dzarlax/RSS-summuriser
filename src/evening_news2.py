@@ -71,7 +71,6 @@ def process_with_gpt(prompt):
     )
 
     summary = (output['choices'][0]['text'])
-    print(summary)
     return summary
 
 
