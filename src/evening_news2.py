@@ -37,11 +37,24 @@ def fetch_and_parse_rss_feed(url: str) -> pd.DataFrame:
     return pd.DataFrame(data)
 
 
+from llama_cpp import Llama
+
+
+llm = Llama(
+  model_path="./phi3.gguf",  # path to GGUF file
+  n_ctx=512,  # The max sequence length to use - note that longer sequence lengths require much more resources
+  n_threads=2, # The number of CPU threads to use, tailor to your system and the resulting performance
+  n_gpu_layers=0, # The number of layers to offload to GPU, if you have GPU acceleration available. Set to 0 if no GPU acceleration is available on your system.
+)
+
+# Simple inference example
+
+
 def generate_summary_batch(input_texts: list, batch_size: int = 4, ) -> list:
     summaries = []
     for i in range(0, len(input_texts), batch_size):
         batch_texts = input_texts[i:i + batch_size]
-        batch_prompts = ["Определите одну наилучшую категорию для загπоловка новости: " + text for text in batch_texts]
+        batch_prompts = ["You must use one of the provided categories (Business, Tech, Science, Nature, Serbia, Other) to respond with a single word to the news headline:" + text for text in batch_texts]
         for prompt in batch_prompts:
             summary = process_with_gpt(prompt)
             summaries.append(summary)
@@ -49,23 +62,16 @@ def generate_summary_batch(input_texts: list, batch_size: int = 4, ) -> list:
     return summaries
 
 
-def process_with_gpt(text):
-    prompt_text = text
-    client = OpenAI(api_key=load_config("openai_token"))
-    response = client.chat.completions.create(  # Используйте 'completions.create' для получения ответа
-        model="gpt-4-0125-preview",
-        messages=[
-            {"role": "system", "content": "В ответе должно быть только одна категория из этих: Бизнес, Технологии, Наука, Сербия, Другое"},
-            {"role": "user", "content": prompt_text},
-        ]
+def process_with_gpt(prompt):
+    output = llm(
+        f"<|user|>\n{prompt}<|end|>\n<|assistant|>",
+        max_tokens=2,  # Generate up to 256 tokens
+        stop=["<|end|>"],
+        echo=False,  # Whether to echo the prompt
     )
-    # Проверьте, является ли 'response' словарём или объектом
-    # Если 'response' - это словарь (как показано в вашем примере ошибки), используйте код ниже:
-    if isinstance(response, dict):
-        summary = response['choices'][0]['message']['content']
-    # Если 'response' - это объект, попробуйте использовать точечную нотацию:
-    else:
-        summary = response.choices[0].message.content
+
+    summary = (output['choices'][0]['text'])
+    print(summary)
     return summary
 
 
