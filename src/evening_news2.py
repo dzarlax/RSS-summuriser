@@ -135,6 +135,7 @@ def create_telegraph_page_with_library(result, access_token, author_name="Dzarla
     for category, group in result.groupby('category'):
         # Используем <h3> для заголовков категорий, т.к. <h2> в списке запрещённых
         content_html += f"<hr><h3>{category}</h3>"
+        print(category)
 
         for _, row in group.iterrows():
             article_title = row['headline']
