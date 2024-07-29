@@ -5,7 +5,6 @@ import sys
 from urllib.parse import urlparse
 from xml.etree import ElementTree as ET
 
-from openai import OpenAI
 import pandas as pd
 import requests
 from scipy.sparse import csr_matrix
