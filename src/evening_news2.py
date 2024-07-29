@@ -41,7 +41,7 @@ from llama_cpp import Llama
 
 
 llm = Llama(
-  model_path="src/phi3.gguf",  # path to GGUF file
+  model_path="src/llama31.gguf",  # path to GGUF file
   n_ctx=512,  # The max sequence length to use - note that longer sequence lengths require much more resources
   n_threads=2, # The number of CPU threads to use, tailor to your system and the resulting performance
   n_gpu_layers=0, # The number of layers to offload to GPU, if you have GPU acceleration available. Set to 0 if no GPU acceleration is available on your system.
