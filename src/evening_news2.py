@@ -68,12 +68,18 @@ def process_with_gpt(prompt):
         stop=[""],
         echo=False,  # Whether to echo the prompt
     )
-
+    
     # Получение текста из ответа
-    raw_text = output['choices'][0]['text']
+    raw_text = output['choices'][0]['text'].strip()
     # Очистка от лишних символов и оставление только первого слова
     first_word = raw_text.split()[0] if raw_text else ""
+    
+    # Проверка и удаление пробелов и спецсимволов в начале слова
+    while first_word and (first_word[0].isspace() or not first_word[0].isalnum()):
+        first_word = first_word[1:] if len(first_word) > 1 else ""
+        
     return first_word
+
 
 
 

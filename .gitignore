@@ -3,3 +3,4 @@ phi3.gguf
 .venv
 llama31.gguf
 src/llama31.gguf
+src/__pycache__/shared.cpython-311.pyc
