@@ -63,14 +63,18 @@ def generate_summary_batch(input_texts: list, batch_size: int = 4, ) -> list:
 
 def process_with_gpt(prompt):
     output = llm(
-        f"<|user|>\n{prompt}<|end|>\n<|assistant|>",
+        f"\n{prompt}\n",
         max_tokens=2,  # Generate up to 256 tokens
-        stop=["<|end|>"],
+        stop=[""],
         echo=False,  # Whether to echo the prompt
     )
 
-    summary = (output['choices'][0]['text'])
-    return summary
+    # Получение текста из ответа
+    raw_text = output['choices'][0]['text'].strip()
+    # Очистка от лишних символов и оставление только первого слова
+    first_word = raw_text.split()[0] if raw_text else ""
+    return first_word
+
 
 
 def deduplication(data):

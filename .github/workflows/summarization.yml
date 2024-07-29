@@ -3,7 +3,6 @@ name: Summarization
 on:
   schedule:
     - cron: '*/30 * * * *'
-  push:
 
 jobs:
   run-script:
