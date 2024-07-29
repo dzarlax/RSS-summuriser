@@ -70,7 +70,7 @@ def process_with_gpt(prompt):
     )
 
     # Получение текста из ответа
-    raw_text = output['choices'][0]['text'].strip()
+    raw_text = output['choices'][0]['text']
     # Очистка от лишних символов и оставление только первого слова
     first_word = raw_text.split()[0] if raw_text else ""
     return first_word
@@ -195,6 +195,7 @@ def job():
     data['today'] = datetime.datetime.now().date()
     data = data[data['pubDate'] == data['today']].drop(columns=['today', 'pubDate'])
     data['category'] = generate_summary_batch(data['headline'].tolist(), batch_size=4)
+    print(data['category'])
     result = deduplication(data)
     response = prepare_and_send_message(result, chat_id, telegram_token, telegraph_access_token, service_chat_id)
     print(response)
