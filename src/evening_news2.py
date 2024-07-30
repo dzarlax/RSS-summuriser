@@ -53,7 +53,7 @@ def generate_summary_batch(input_texts: list, batch_size: int = 4, ) -> list:
     summaries = []
     for i in range(0, len(input_texts), batch_size):
         batch_texts = input_texts[i:i + batch_size]
-        batch_prompts = ["You must use one of the provided categories (Business, Tech, Science, Nature, Serbia, Other) to respond with a single word to the news headline:" + text for text in batch_texts]
+        batch_prompts = ["You can use only one of the provided categories (Business, Tech, Science, Nature, Serbia, Other) to respond with a single word to the news headline:" + text for text in batch_texts]
         for prompt in batch_prompts:
             summary = process_with_gpt(prompt)
             summaries.append(summary)
@@ -63,21 +63,15 @@ def generate_summary_batch(input_texts: list, batch_size: int = 4, ) -> list:
 
 def process_with_gpt(prompt):
     output = llm(
-        f"\n{prompt}\n",
-        max_tokens=2,  # Generate up to 256 tokens
-        stop=[""],
+        f"<|user|>\n{prompt}<|end|>\n<|assistant|>",
+        max_tokens=7,  # Generate up to 256 tokens
+        stop=["<|end|>"],
         echo=False,  # Whether to echo the prompt
     )
-    
-    # Получение текста из ответа
-    raw_text = output['choices'][0]['text'].strip()
-    # Очистка от лишних символов и оставление только первого слова
-    first_word = raw_text.split()[0] if raw_text else ""
-    
-    # Проверка и удаление пробелов и спецсимволов в начале слова
-    while first_word and (first_word[0].isspace() or not first_word[0].isalnum()):
-        first_word = first_word[1:] if len(first_word) > 1 else ""
-        
+
+    summary = (output['choices'][0]['text'])
+    first_word = summary.split()[0]
+    print(first_word)
     return first_word
 
 
