@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 import datetime
+import re
 import sys
 from urllib.parse import urlparse
 from xml.etree import ElementTree as ET
@@ -71,8 +72,8 @@ def process_with_gpt(prompt):
 
     summary = (output['choices'][0]['text'])
     first_word = summary.split()[0]
-    print(first_word)
-    return first_word
+    cleaned_first_word = re.sub(r'[^a-zA-Z]', '', first_word)
+    return cleaned_first_word
 
 
 
@@ -194,8 +195,10 @@ def job():
     # Преобразование и фильтрация данных
     data['today'] = datetime.datetime.now().date()
     data = data[data['pubDate'] == data['today']].drop(columns=['today', 'pubDate'])
-    data['category'] = generate_summary_batch(data['headline'].tolist(), batch_size=4)
-    print(data['category'])
+    data['category'] = generate_summary_batch(
+        [headline + ' Source: ' + url for headline, url in zip(data['headline'], data['link'])],
+        batch_size=4
+    )
     result = deduplication(data)
     response = prepare_and_send_message(result, chat_id, telegram_token, telegraph_access_token, service_chat_id)
     print(response)
