@@ -196,7 +196,7 @@ def job():
     data['today'] = datetime.datetime.now().date()
     data = data[data['pubDate'] == data['today']].drop(columns=['today', 'pubDate'])
     data['category'] = generate_summary_batch(
-        [headline + ' Source: ' + url for headline, url in zip(data['headline'], data['link'])],
+        [headline + ' Source: ' + description for headline, description in zip(data['headline'], data['description'])],
         batch_size=4
     )
     result = deduplication(data)
