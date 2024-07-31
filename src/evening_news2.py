@@ -49,12 +49,15 @@ llm = Llama(
 
 # Simple inference example
 
+def clean_html(html_text):
+    soup = BeautifulSoup(html_text, "html.parser")
+    return soup.get_text()
 
 def generate_summary_batch(input_texts: list, batch_size: int = 4, ) -> list:
     summaries = []
     for i in range(0, len(input_texts), batch_size):
         batch_texts = input_texts[i:i + batch_size]
-        batch_prompts = ["Choose one of the provided categories and answer with one word (Business, Tech, Science, Nature, Serbia, Other) for the article:" + text for text in batch_texts]
+        batch_prompts = ["Choose one of the provided categories and answer with one word (Business, Tech, Science, Nature, Serbia, Other) for the article:" + clean_text = clean_html(text) for text in batch_texts]
         for prompt in batch_prompts:
             summary = process_with_gpt(prompt)
             summaries.append(summary)

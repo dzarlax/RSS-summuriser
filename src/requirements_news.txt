@@ -5,3 +5,4 @@ telegraph
 pandas
 llama-cpp-python
 datetime
+beautifulsoup4
