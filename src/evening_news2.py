@@ -44,7 +44,7 @@ llm = Llama(
   model_path="src/llama31.gguf",  # path to GGUF file
   n_ctx=1024,  # The max sequence length to use - note that longer sequence lengths require much more resources
   n_threads=4, # The number of CPU threads to use, tailor to your system and the resulting performance
-  n_gpu_layers=4, # The number of layers to offload to GPU, if you have GPU acceleration available. Set to 0 if no GPU acceleration is available on your system.
+  n_gpu_layers=0, # The number of layers to offload to GPU, if you have GPU acceleration available. Set to 0 if no GPU acceleration is available on your system.
 )
 
 # Simple inference example
@@ -57,7 +57,7 @@ def generate_summary_batch(input_texts: list, batch_size: int = 4, ) -> list:
     summaries = []
     for i in range(0, len(input_texts), batch_size):
         batch_texts = input_texts[i:i + batch_size]
-        batch_prompts = ["Choose one of the provided categories and answer with one word (Business, Tech, Science, Nature, Serbia, Other) for the article:" + clean_text = clean_html(text) for text in batch_texts]
+        batch_prompts = ["Choose one of the provided categories and answer with one word (Business, Tech, Science, Nature, Serbia, Other) for the article:" + clean_html(text) for text in batch_texts]
         for prompt in batch_prompts:
             summary = process_with_gpt(prompt)
             summaries.append(summary)
