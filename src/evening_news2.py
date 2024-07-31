@@ -8,6 +8,7 @@ from xml.etree import ElementTree as ET
 
 import pandas as pd
 import requests
+from bs4 import BeautifulSoup
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
 from sklearn.feature_extraction.text import TfidfVectorizer
