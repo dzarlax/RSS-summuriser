@@ -50,9 +50,12 @@ llm = Llama(
 
 # Simple inference example
 
-def clean_html(html_text):
+def clean_html(html_text, max_length=1000):
     soup = BeautifulSoup(html_text, "html.parser")
-    return soup.get_text()
+    clean_text = soup.get_text()
+    if len(clean_text) > max_length:
+        clean_text = clean_text[:max_length]
+    return clean_text
 
 def generate_summary_batch(input_texts: list, batch_size: int = 4, ) -> list:
     summaries = []
