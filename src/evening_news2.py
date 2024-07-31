@@ -42,9 +42,9 @@ from llama_cpp import Llama
 
 llm = Llama(
   model_path="src/llama31.gguf",  # path to GGUF file
-  n_ctx=512,  # The max sequence length to use - note that longer sequence lengths require much more resources
-  n_threads=2, # The number of CPU threads to use, tailor to your system and the resulting performance
-  n_gpu_layers=0, # The number of layers to offload to GPU, if you have GPU acceleration available. Set to 0 if no GPU acceleration is available on your system.
+  n_ctx=1024,  # The max sequence length to use - note that longer sequence lengths require much more resources
+  n_threads=4, # The number of CPU threads to use, tailor to your system and the resulting performance
+  n_gpu_layers=4, # The number of layers to offload to GPU, if you have GPU acceleration available. Set to 0 if no GPU acceleration is available on your system.
 )
 
 # Simple inference example
@@ -54,7 +54,7 @@ def generate_summary_batch(input_texts: list, batch_size: int = 4, ) -> list:
     summaries = []
     for i in range(0, len(input_texts), batch_size):
         batch_texts = input_texts[i:i + batch_size]
-        batch_prompts = ["You can use only one of the provided categories (Business, Tech, Science, Nature, Serbia, Other) to respond with a single word to the news headline:" + text for text in batch_texts]
+        batch_prompts = ["Choose one of the provided categories and answer with one word (Business, Tech, Science, Nature, Serbia, Other) for the article:" + text for text in batch_texts]
         for prompt in batch_prompts:
             summary = process_with_gpt(prompt)
             summaries.append(summary)
@@ -66,11 +66,12 @@ def process_with_gpt(prompt):
     output = llm(
         f"<|user|>\n{prompt}<|end|>\n<|assistant|>",
         max_tokens=7,  # Generate up to 256 tokens
-        stop=["<|end|>"],
+        stop=["|"],
         echo=False,  # Whether to echo the prompt
     )
-
+    print(output)
     summary = (output['choices'][0]['text'])
+    print(summary)
     first_word = summary.split()[0]
     cleaned_first_word = re.sub(r'[^a-zA-Z]', '', first_word)
     return cleaned_first_word
@@ -196,7 +197,7 @@ def job():
     data['today'] = datetime.datetime.now().date()
     data = data[data['pubDate'] == data['today']].drop(columns=['today', 'pubDate'])
     data['category'] = generate_summary_batch(
-        [headline + ' Source: ' + description for headline, description in zip(data['headline'], data['description'])],
+        data['description'],
         batch_size=4
     )
     result = deduplication(data)
