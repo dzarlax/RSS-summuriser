@@ -21,4 +21,3 @@ scikit-learn
 scipy
 telegraph
 pandas
-llama-cpp-python
