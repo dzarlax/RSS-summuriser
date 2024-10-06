@@ -207,7 +207,7 @@ def job():
         data['description'],
         batch_size=4
     )
-    result = data
+    result = deduplication(data)
     response = prepare_and_send_message(result, chat_id, telegram_token, telegraph_access_token, service_chat_id)
     print(response)
 
