@@ -3,6 +3,6 @@ scikit-learn
 scipy
 telegraph
 pandas
-llama-cpp-python
 datetime
 beautifulsoup4
+python-dotenv

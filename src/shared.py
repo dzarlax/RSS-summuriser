@@ -1,11 +1,16 @@
 import os
 from typing import Dict, Tuple, List, Optional, Union, Any
 import requests
+from dotenv import load_dotenv, find_dotenv
 
+# Load environment variables from .env file if it exists
+dotenv_path = find_dotenv()
+if dotenv_path:
+    load_dotenv(dotenv_path)
 
-def load_config(key: Optional[str] = None):
+def load_config(key: Optional[str] = None) -> Any:
     if key:
-        value = os.getenv(key)  # Чтение из переменной окружения
+        value = os.getenv(key)  # Read from environment variable
         if value is None:
             raise KeyError(f"The environment variable '{key}' was not found.")
         return value
