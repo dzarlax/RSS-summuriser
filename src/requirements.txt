@@ -21,3 +21,4 @@ scikit-learn
 scipy
 telegraph
 pandas
+python-dotenv
