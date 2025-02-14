@@ -84,9 +84,15 @@ def process_with_gpt(prompt):
     if response.status_code == 200:
         response_json = response.json()
         output_text = response_json["choices"][0]["message"]["content"]
-        first_word = output_text.split()[0]
-        cleaned_first_word = re.sub(r'[^a-zA-Z]', '', first_word)
-        return cleaned_first_word
+
+        # If generating overview, return full text
+        if "Сгенерируйте краткую сводку новостей" in prompt:
+            return output_text
+        # For category classification, return first word
+        else:
+            first_word = output_text.split()[0]
+            cleaned_first_word = re.sub(r'[^a-zA-Z]', '', first_word)
+            return cleaned_first_word
     else:
         print(f"Ошибка API: {response.status_code} - {response.text}")
         return "Error"
@@ -175,25 +181,94 @@ def create_telegraph_page_with_library(result, access_token, author_name="Dzarla
     return response['url']
 
 
-# Подготовка и отправка сообщения
-def prepare_and_send_message(result, chat_id, telegram_token, telegraph_access_token, service_chat_id):
-    if len(html4tg(result)) <= 4096:
-        # Если длина сообщения не превышает 4096 символов, отправляем напрямую через Telegram
-        response = send_telegram_message(html4tg(result), chat_id, telegram_token)
-        if response.get('ok'):
-            send_telegram_message("Сообщение успешно отправлено", service_chat_id, telegram_token)
-        else:
-            send_telegram_message("Произошла ошибка при отправке", service_chat_id, telegram_token)
-    else:
-        telegraph_url = create_telegraph_page_with_library(result, telegraph_access_token)
-        message = f"{telegraph_url}"
-        response = send_telegram_message(message, chat_id, telegram_token)
-        if response.get('ok'):
-            send_telegram_message("Сообщение успешно отправлено", service_chat_id, telegram_token)
-        else:
-            send_telegram_message("Произошла ошибка при отправке", service_chat_id, telegram_token)
-    return response
+# def generate_daily_overview(result):
+#     # Prepare prompt in Russian
+#     prompt = """Сгенерируйте краткую сводку новостей (500-4000 символов) на русском языке на основе следующих категорий и заголовков:
+#
+# """
+#     # Add categorized headlines to prompt
+#     for category, group in result.groupby('category'):
+#         # Translate category names to Russian
+#         category_ru = {
+#             'Business': '💼 Бизнес',
+#             'Tech': '💻 Технологии',
+#             'Science': '🔬 Наука',
+#             'Nature': '🌿 Природа',
+#             'Serbia': '🇷🇸 Сербия',
+#             'Marketing': '📊 Маркетинг',
+#             'Other': '📌 Другое'
+#         }.get(category, category)
+#
+#         prompt += f"\n{category_ru}:\n"
+#         for _, row in group.iterrows():
+#             prompt += f"- {row['headline']}\n"
+#
+#     prompt += "\nСоставьте информативную сводку новостей дня, сохраняя основные темы и ключевые события. Используйте журналистский стиль."
+#
+#     overview = process_with_gpt(prompt)
+#
+#     # Ensure the overview doesn't exceed 4000 characters
+#     if len(overview) > 4000:
+#         overview = overview[:3997] + "..."
+#
+#     return overview
+def generate_daily_overview(result):
+    # Prepare prompt in Russian
+    prompt = """Сгенерируйте краткую сводку новостей (500-4000 символов) на русском языке на основе следующих категорий и заголовков:
 
+"""
+    for category, group in result.groupby('category'):
+        prompt += f"\n{category}:\n"
+        for _, row in group.iterrows():
+            prompt += f"- {row['headline']}\n"
+
+    prompt += "\nСоставьте информативную сводку новостей дня, сохраняя основные темы и ключевые события. Используйте журналистский стиль."
+
+    overview = process_with_gpt(prompt)
+
+    # Ensure the overview doesn't exceed 4000 characters
+    if len(overview) > 4000:
+        overview = overview[:3997] + "..."
+
+    return overview
+
+# def generate_daily_overview(result):
+#     # Prepare prompt with categorized news
+#     prompt = "Generate a comprehensive overview of today's news (between 500-4000 characters) based on these categorized headlines:\n\n"
+#
+#     for category, group in result.groupby('category'):
+#         prompt += f"\n{category}:\n"
+#         for _, row in group.iterrows():
+#             prompt += f"- {row['headline']}\n"
+#
+#     prompt += "\nFormat the overview as a readable summary with emoji for each category. Keep it informative but concise."
+#
+#     overview = process_with_gpt(prompt)
+#
+#     # Ensure the overview doesn't exceed 4000 characters
+#     if len(overview) > 4000:
+#         overview = overview[:3997] + "..."
+#
+#     return overview
+
+
+def prepare_and_send_message(result, chat_id, telegram_token, telegraph_access_token, service_chat_id):
+    # Generate overview in Russian
+    daily_overview = generate_daily_overview(result)
+
+    # Create Telegraph page
+    telegraph_url = create_telegraph_page_with_library(result, telegraph_access_token)
+
+    # Format message with overview and link
+    current_date = datetime.datetime.now().strftime("%d.%m.%Y")
+    message = f"📰 Сводка новостей за {current_date}\n\n{daily_overview}\n\n🔗 Подробнее: {telegraph_url}"
+
+    response = send_telegram_message(message, chat_id, telegram_token)
+    if response.get('ok'):
+        send_telegram_message("Сообщение успешно отправлено", service_chat_id, telegram_token)
+    else:
+        send_telegram_message("Произошла ошибка при отправке", service_chat_id, telegram_token)
+    return response
 
 def job():
     if infra == 'prod':
