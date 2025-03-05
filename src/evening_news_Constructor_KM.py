@@ -15,7 +15,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from telegraph import Telegraph
 
-from shared import load_config, send_telegram_message
+from shared import load_config, send_telegram_message, convert_markdown_to_html
 
 API_URL = load_config("CONSTRUCTOR_KM_API")
 API_KEY = load_config("CONSTRUCTOR_KM_API_KEY")
@@ -214,13 +214,25 @@ def create_telegraph_page_with_library(result, access_token, author_name="Dzarla
 #     return overview
 def generate_daily_overview(result):
     # Prepare prompt in Russian
-    prompt = """Сгенерируйте краткую сводку новостей (500-4000 символов) на русском языке на основе следующих категорий и заголовков:
+    prompt = """Сгенерируйте краткую сводку новостей (500-4000 символов) на русском языке на основе следующих категорий и заголовков с описаниями:
 
 """
     for category, group in result.groupby('category'):
         prompt += f"\n{category}:\n"
         for _, row in group.iterrows():
-            prompt += f"- {row['headline']}\n"
+            # Get headline
+            headline = row['headline']
+
+            # Get description and truncate to 400 characters if needed
+            description = row.get('description', '')
+            if description:
+                if len(description) > 400:
+                    description = description[:397] + "..."
+
+            # Add headline and description to prompt
+            prompt += f"- {headline}\n"
+            if description:
+                prompt += f"  {description}\n"
 
     prompt += "\nСоставьте информативную сводку новостей дня, сохраняя основные темы и ключевые события. Используйте журналистский стиль."
 
@@ -255,13 +267,14 @@ def generate_daily_overview(result):
 def prepare_and_send_message(result, chat_id, telegram_token, telegraph_access_token, service_chat_id):
     # Generate overview in Russian
     daily_overview = generate_daily_overview(result)
+    daily_overview_html = convert_markdown_to_html(daily_overview)
 
     # Create Telegraph page
     telegraph_url = create_telegraph_page_with_library(result, telegraph_access_token)
 
     # Format message with overview and link
     current_date = datetime.datetime.now().strftime("%d.%m.%Y")
-    message = f"📰 Сводка новостей за {current_date}\n\n{daily_overview}\n\n🔗 Подробнее: {telegraph_url}"
+    message = f"📰 Сводка новостей за {current_date}\n\n{daily_overview_html}\n\n🔗 Подробнее: {telegraph_url}"
 
     response = send_telegram_message(message, chat_id, telegram_token)
     if response.get('ok'):
