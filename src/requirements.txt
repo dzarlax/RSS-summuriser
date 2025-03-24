@@ -10,7 +10,6 @@ ratelimit~=2.2.1
 PyRSS2Gen
 datetime
 requests
-typing
 BeautifulSoup4
 tqdm
 typing-extensions
