@@ -225,9 +225,9 @@ def generate_daily_overview(result):
 
             # Get description and truncate to 400 characters if needed
             description = row.get('description', '')
-            if description:
-                if len(description) > 400:
-                    description = description[:397] + "..."
+            # if description:
+            #     if len(description) > 400:
+            #         description = description[:397] + "..."
 
             # Add headline and description to prompt
             prompt += f"- {headline}\n"
