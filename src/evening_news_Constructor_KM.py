@@ -23,7 +23,7 @@ def parse_args():
 def setup_logging():
     logging.basicConfig(
         level=logging.INFO,
-        format="%(Y-%m-%d %H:%M:%S %(levelname)-8s %(message)s",
+        format="%(asctime)s %(levelname)-8s %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
@@ -31,13 +31,6 @@ API_URL = load_config("CONSTRUCTOR_KM_API")
 API_KEY = load_config("CONSTRUCTOR_KM_API_KEY")
 model = load_config("MODEL")
 session = requests.Session()
-
-if __name__ == "__main__":
-    setup_logging()
-    args = parse_args()
-    infra = args.infra
-    logging.info(f"Running in {infra} environment")
-    job()
 
 def fetch_and_parse_rss_feed(url: str) -> pd.DataFrame:
     try:
@@ -233,3 +226,11 @@ def job():
     )
     result = data
     response = prepare_and_send_message(result, chat_id, telegram_token, telegraph_access_token, service_chat_id)
+
+    
+if __name__ == "__main__":
+    setup_logging()
+    args = parse_args()
+    infra = args.infra
+    logging.info(f"Running in {infra} environment")
+    job()
