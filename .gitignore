@@ -6,3 +6,6 @@ src/llama31.gguf
 src/__pycache__/shared.cpython-311.pyc
 .idea
 .env
+.aider.tags.cache.v3
+venv2
+venv3

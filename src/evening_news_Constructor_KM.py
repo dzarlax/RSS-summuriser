@@ -100,34 +100,7 @@ def process_with_gpt(prompt):
 
 
 
-def deduplication(data):
-    # Вычисление TF-IDF и косинусного сходства
-    tfidf_vectorizer = TfidfVectorizer()
-    tfidf_matrix = tfidf_vectorizer.fit_transform(data['headline'])
-    cosine_sim_matrix = cosine_similarity(tfidf_matrix)
 
-    # Идентификация групп новостей
-    threshold = 0.5
-    graph = csr_matrix(cosine_sim_matrix > threshold)
-    n_components, labels = connected_components(csgraph=graph, directed=False, return_labels=True)
-    data['group_id'] = labels
-
-    # Группировка данных по group_id и агрегация ссылок в списки
-    links_aggregated = data.groupby('group_id')['link'].apply(list).reset_index()
-
-    # Определение новости с самым длинным заголовком в каждой группе
-    longest_headlines = data.loc[data.groupby('group_id')['headline'].apply(lambda x: x.str.len().idxmax())]
-
-    # Объединение результатов, чтобы к каждой новости добавить список ссылок
-    result = pd.merge(longest_headlines, links_aggregated, on='group_id', how='left')
-
-    # Переименовываем колонки для ясности
-    result.rename(columns={'link_x': 'link', 'link_y': 'links'}, inplace=True)
-
-    # Удаление дубликатов, не включая столбец 'links'
-    cols_for_deduplication = [col for col in result.columns if col != 'links']
-    result = result.drop_duplicates(subset=cols_for_deduplication)
-    return result
 
 
 def escape_html(text):
@@ -181,40 +154,10 @@ def create_telegraph_page_with_library(result, access_token, author_name="Dzarla
     return response['url']
 
 
-# def generate_daily_overview(result):
-#     # Prepare prompt in Russian
-#     prompt = """Сгенерируйте краткую сводку новостей (500-4000 символов) на русском языке на основе следующих категорий и заголовков:
-#
-# """
-#     # Add categorized headlines to prompt
-#     for category, group in result.groupby('category'):
-#         # Translate category names to Russian
-#         category_ru = {
-#             'Business': '💼 Бизнес',
-#             'Tech': '💻 Технологии',
-#             'Science': '🔬 Наука',
-#             'Nature': '🌿 Природа',
-#             'Serbia': '🇷🇸 Сербия',
-#             'Marketing': '📊 Маркетинг',
-#             'Other': '📌 Другое'
-#         }.get(category, category)
-#
-#         prompt += f"\n{category_ru}:\n"
-#         for _, row in group.iterrows():
-#             prompt += f"- {row['headline']}\n"
-#
-#     prompt += "\nСоставьте информативную сводку новостей дня, сохраняя основные темы и ключевые события. Используйте журналистский стиль."
-#
-#     overview = process_with_gpt(prompt)
-#
-#     # Ensure the overview doesn't exceed 4000 characters
-#     if len(overview) > 4000:
-#         overview = overview[:3997] + "..."
-#
-#     return overview
+
 def generate_daily_overview(result):
     # Prepare prompt in Russian
-    prompt = """Сгенерируйте краткую сводку новостей (500-4000 символов) на русском языке на основе следующих категорий и заголовков с описаниями:
+    prompt = """Сгенерируйте краткую сводку новостей не более 4000 символов на русском языке на основе следующих категорий и заголовков с описаниями:
 
 """
     for category, group in result.groupby('category'):
@@ -234,7 +177,7 @@ def generate_daily_overview(result):
             if description:
                 prompt += f"  {description}\n"
 
-    prompt += "\nСоставьте информативную сводку новостей дня, сохраняя основные темы и ключевые события. Используйте журналистский стиль."
+    prompt += "\n Используйте журналистский стиль."
 
     overview = process_with_gpt(prompt)
 
@@ -244,24 +187,6 @@ def generate_daily_overview(result):
 
     return overview
 
-# def generate_daily_overview(result):
-#     # Prepare prompt with categorized news
-#     prompt = "Generate a comprehensive overview of today's news (between 500-4000 characters) based on these categorized headlines:\n\n"
-#
-#     for category, group in result.groupby('category'):
-#         prompt += f"\n{category}:\n"
-#         for _, row in group.iterrows():
-#             prompt += f"- {row['headline']}\n"
-#
-#     prompt += "\nFormat the overview as a readable summary with emoji for each category. Keep it informative but concise."
-#
-#     overview = process_with_gpt(prompt)
-#
-#     # Ensure the overview doesn't exceed 4000 characters
-#     if len(overview) > 4000:
-#         overview = overview[:3997] + "..."
-#
-#     return overview
 
 
 def prepare_and_send_message(result, chat_id, telegram_token, telegraph_access_token, service_chat_id):
@@ -303,7 +228,7 @@ def job():
         data['description'],
         batch_size=4
     )
-    result = deduplication(data)
+    result = data
     response = prepare_and_send_message(result, chat_id, telegram_token, telegraph_access_token, service_chat_id)
     print(response)
 
