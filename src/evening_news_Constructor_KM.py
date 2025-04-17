@@ -195,7 +195,8 @@ def prepare_and_send_message(result, chat_id, telegram_token, telegraph_access_t
 
     # Format message with overview and link
     current_date = datetime.datetime.now().strftime("%d.%m.%Y")
-    message = f"📰 Сводка новостей за {current_date}\n\n{daily_overview_html}\n\n🔗 Подробнее: {telegraph_url}"
+    message = f"📰 Сводка новостей за {current_date}\n\n{daily_overview}\n\n🔗 Подробнее: {telegraph_url}"
+    logging.info(f"Daily overview:\n{daily_overview}")
 
     response = send_telegram_message(message, chat_id, telegram_token)
     if response.get('ok'):
