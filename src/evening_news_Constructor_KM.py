@@ -3,6 +3,8 @@
 import datetime
 import re
 import sys
+import argparse
+import logging
 from urllib.parse import urlparse
 from xml.etree import ElementTree as ET
 
@@ -13,29 +15,44 @@ from telegraph import Telegraph
 
 from shared import load_config, send_telegram_message, convert_markdown_to_html
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Ежедневный сбор новостей и рассылка в Telegram")
+    parser.add_argument("--infra", choices=["prod", "test"], default="prod", help="Environment (prod or test)")
+    return parser.parse_args()
+
+def setup_logging():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(Y-%m-%d %H:%M:%S %(levelname)-8s %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
 API_URL = load_config("CONSTRUCTOR_KM_API")
 API_KEY = load_config("CONSTRUCTOR_KM_API_KEY")
 model = load_config("MODEL")
+session = requests.Session()
 
-if len(sys.argv) > 1:
-    # Значение первого аргумента сохраняется в переменную
-    infra = sys.argv[1]
-    # Теперь вы можете использовать переменную в вашем скрипте
-    print(f"Переданное значение переменной: {infra}")
-else:
-    infra = 'prod'
-    print("Аргумент не был передан.")
-
+if __name__ == "__main__":
+    setup_logging()
+    args = parse_args()
+    infra = args.infra
+    logging.info(f"Running in {infra} environment")
+    job()
 
 def fetch_and_parse_rss_feed(url: str) -> pd.DataFrame:
-    response = requests.get(url)
+    try:
+        response = session.get(url)
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Failed to fetch RSS feed: {e}")
+        return pd.DataFrame()
     root = ET.fromstring(response.content)
+
     data = [{'headline': item.find('title').text,
              'link': item.find('link').text,
              'pubDate': datetime.datetime.strptime(item.find('pubDate').text, '%a, %d %b %Y %H:%M:%S %z').date(),
              'description': item.find('description').text} for item in root.findall('.//item')]
     return pd.DataFrame(data)
-
 
 # Simple inference example
 
@@ -57,7 +74,6 @@ def generate_summary_batch(input_texts: list, batch_size: int = 4, ) -> list:
 
     return summaries
 
-
 def process_with_gpt(prompt):
     headers = {
         "Content-Type": "application/json",
@@ -75,7 +91,7 @@ def process_with_gpt(prompt):
         "model": model
     }
 
-    response = requests.post(API_URL, json=data, headers=headers)
+    response = session.post(API_URL, json=data, headers=headers)
 
     if response.status_code == 200:
         response_json = response.json()
@@ -90,19 +106,12 @@ def process_with_gpt(prompt):
             cleaned_first_word = re.sub(r'[^a-zA-Z]', '', first_word)
             return cleaned_first_word
     else:
-        print(f"Ошибка API: {response.status_code} - {response.text}")
+        logging.error(f"API error {response.status_code}: {response.text}")
         return "Error"
-
-
-
-
-
-
 
 def escape_html(text):
     """Заменяет специальные HTML символы на их экранированные эквиваленты."""
     return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
-
 
 def format_html_telegram(row):
     # Экранирование специальных HTML символов в заголовке
@@ -113,7 +122,6 @@ def format_html_telegram(row):
     links_html = '\n'.join(links_formatted)
     return f"{headline}\n{links_html}\n"
 
-
 def html4tg(result):
     # Подготовка сообщения для Telegram с использованием HTML
     html_output_telegram = ""
@@ -123,15 +131,14 @@ def html4tg(result):
         html_output_telegram += '\n'.join(group.apply(format_html_telegram, axis=1))
     return html_output_telegram
 
-
 def create_telegraph_page_with_library(result, access_token, author_name="Dzarlax", author_url="https://dzarlax.dev"):
     telegraph = Telegraph(access_token=access_token)
     # Подготовка контента страницы в HTML, используя только разрешенные теги
     content_html = ""
     for category, group in result.groupby('category'):
+        logging.debug(f"Processing category: {category}")
         # Используем <h3> для заголовков категорий, т.к. <h2> в списке запрещённых
         content_html += f"<hr><h3>{category}</h3>"
-        print(category)
 
         for _, row in group.iterrows():
             article_title = row['headline']
@@ -154,13 +161,13 @@ def create_telegraph_page_with_library(result, access_token, author_name="Dzarla
     )
     return response['url']
 
-
-
 def generate_daily_overview(result):
     # Prepare prompt in Russian
-    prompt = """Сгенерируйте краткую сводку новостей не более 4000 символов на русском языке на основе следующих категорий и заголовков с описаниями:
-
-"""
+    prompt = (
+        "Внимание: твой ответ должен быть строго не длиннее 4000 символов. "
+        "Если итоговый текст превышает лимит — сократи его до 4000 символов, сохраняя основные мысли.\n"
+        "Сгенерируй краткую сводку новостей на русском языке на основе следующих категорий и заголовков с описаниями:\n\n"
+    )
     for category, group in result.groupby('category'):
         prompt += f"\n{category}:\n"
         for _, row in group.iterrows():
@@ -169,16 +176,13 @@ def generate_daily_overview(result):
 
             # Get description and truncate to 400 characters if needed
             description = row.get('description', '')
-            # if description:
-            #     if len(description) > 400:
-            #         description = description[:397] + "..."
 
             # Add headline and description to prompt
             prompt += f"- {headline}\n"
             if description:
                 prompt += f"  {description}\n"
 
-    prompt += "\n Используйте журналистский стиль."
+    prompt += "\nСтрого следи за лимитом: максимум 4000 символов! Используй журналистский стиль."
 
     overview = process_with_gpt(prompt)
 
@@ -187,8 +191,6 @@ def generate_daily_overview(result):
         overview = overview[:3997] + "..."
 
     return overview
-
-
 
 def prepare_and_send_message(result, chat_id, telegram_token, telegraph_access_token, service_chat_id):
     # Generate overview in Russian
@@ -231,7 +233,3 @@ def job():
     )
     result = data
     response = prepare_and_send_message(result, chat_id, telegram_token, telegraph_access_token, service_chat_id)
-    print(response)
-
-
-job()
