@@ -17,7 +17,7 @@ from shared import load_config, send_telegram_message, convert_markdown_to_html
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Ежедневный сбор новостей и рассылка в Telegram")
-    parser.add_argument("--infra", choices=["prod", "test"], default="prod", help="Environment (prod or test)")
+    parser.add_argument("infra", nargs="?", choices=["prod", "test"], default="prod", help="Environment (prod or test)")
     return parser.parse_args()
 
 def setup_logging():
