@@ -9,10 +9,6 @@ from xml.etree import ElementTree as ET
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-from scipy.sparse import csr_matrix
-from scipy.sparse.csgraph import connected_components
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 from telegraph import Telegraph
 
 from shared import load_config, send_telegram_message, convert_markdown_to_html
@@ -140,7 +136,12 @@ def create_telegraph_page_with_library(result, access_token, author_name="Dzarla
         for _, row in group.iterrows():
             article_title = row['headline']
             # Формирование списка ссылок в <ul>
-            links_html = ''.join([f'<a href=https://dzarlax.dev/rss/articles/article.html?link={link}>{urlparse(link).netloc}</a>' for link in row['links']])
+            # Если есть поле 'links' (список), используем его, иначе - просто 'link'
+            if 'links' in row and isinstance(row['links'], list):
+                links_list = row['links']
+            else:
+                links_list = [row['link']]
+            links_html = ''.join([f'<a href=https://dzarlax.dev/rss/articles/article.html?link={link}>{urlparse(link).netloc}</a>' for link in links_list])
             # Заголовки статей оборачиваем в <p> и добавляем к ним список ссылок
             content_html += f"<ul><p>{article_title}  {links_html}</p></ul>\n"
 
