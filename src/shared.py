@@ -3,18 +3,16 @@ from typing import Dict, Tuple, List, Optional, Union, Any
 from html import escape as escape_html
 import requests
 import re
-from dotenv import load_dotenv, find_dotenv
 
-# Load environment variables from .env file if it exists
-dotenv_path = find_dotenv()
-if dotenv_path:
-    load_dotenv(dotenv_path)
+# Загрузка .env теперь только в entrypoint-скрипте!
 
 def load_config(key: Optional[str] = None) -> Any:
     if key:
-        value = os.getenv(key)  # Read from environment variable
-        if value is None:
-            raise KeyError(f"The environment variable '{key}' was not found.")
+        value = os.getenv(key)
+        if value is None or value == "":
+            import logging
+            logging.info(f"ENV DEBUG: '{key}' not found or empty! Actual value: '{value}'")
+            raise KeyError(f"The environment variable '{key}' was not found or is empty.")
         return value
     else:
         raise Exception("Requesting the entire config is not supported when using environment variables.")

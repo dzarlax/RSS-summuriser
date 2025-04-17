@@ -12,6 +12,15 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from telegraph import Telegraph
+from dotenv import load_dotenv
+import os
+import pathlib
+
+# Явно указываем путь к .env относительно текущего файла
+dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
+print(f"DEBUG: .env path: {dotenv_path}, exists: {os.path.exists(dotenv_path)}")
+load_dotenv(dotenv_path=dotenv_path, override=False)
+
 
 from shared import load_config, send_telegram_message, convert_markdown_to_html
 
@@ -83,7 +92,6 @@ def process_with_gpt(prompt):
         ],
         "model": model
     }
-
     response = session.post(API_URL, json=data, headers=headers)
 
     if response.status_code == 200:
@@ -91,7 +99,7 @@ def process_with_gpt(prompt):
         output_text = response_json["choices"][0]["message"]["content"]
 
         # If generating overview, return full text
-        if "Сгенерируйте краткую сводку новостей" in prompt:
+        if "Сгенерируй краткую сводку новостей" in prompt or "Сгенерируйте краткую сводку новостей" in prompt:
             return output_text
         # For category classification, return first word
         else:
@@ -100,6 +108,8 @@ def process_with_gpt(prompt):
             return cleaned_first_word
     else:
         logging.error(f"API error {response.status_code}: {response.text}")
+        logging.info(f"API response status: {response.status_code}")
+        logging.info(f"API response text: {response.text}")
         return "Error"
 
 def escape_html(text):
@@ -179,6 +189,8 @@ def generate_daily_overview(result):
 
     overview = process_with_gpt(prompt)
     logging.debug(f"Generated overview:\n{overview}")
+    if not overview or overview == "Error":
+        logging.warning(f"Overview is empty or Error. Overview: '{overview}'")
 
     # Ensure the overview doesn't exceed 4000 characters
     if len(overview) > 4000:
