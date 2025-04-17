@@ -165,7 +165,7 @@ def generate_daily_overview(result):
         prompt += f"\n{category}:\n"
         for _, row in group.iterrows():
             # Get headline
-            headline = row['headline']
+            headline = row.get('headline', '')
 
             # Get description and truncate to 400 characters if needed
             description = row.get('description', '')
@@ -178,6 +178,7 @@ def generate_daily_overview(result):
     prompt += "\nСтрого следи за лимитом: максимум 4000 символов! Используй журналистский стиль."
 
     overview = process_with_gpt(prompt)
+    logging.debug(f"Generated overview:\n{overview}")
 
     # Ensure the overview doesn't exceed 4000 characters
     if len(overview) > 4000:
@@ -195,17 +196,20 @@ def prepare_and_send_message(result, chat_id, telegram_token, telegraph_access_t
 
     # Format message with overview and link
     current_date = datetime.datetime.now().strftime("%d.%m.%Y")
-    message = f"📰 Сводка новостей за {current_date}\n\n{daily_overview}\n\n🔗 Подробнее: {telegraph_url}"
+    message = f"📰 Сводка новостей за {current_date}\n\n{daily_overview_html}\n\n🔗 Подробнее: {telegraph_url}"
     logging.info(f"Daily overview:\n{daily_overview}")
 
     response = send_telegram_message(message, chat_id, telegram_token)
-    if response.get('ok'):
+    if isinstance(response, dict) and response.get('ok'):
         send_telegram_message("Сообщение успешно отправлено", service_chat_id, telegram_token)
     else:
         send_telegram_message("Произошла ошибка при отправке", service_chat_id, telegram_token)
     return response
 
 def job():
+    global infra
+    if infra is None:
+        raise ValueError("infra is not defined")
     if infra == 'prod':
         chat_id = load_config("TELEGRAM_CHAT_ID_NEWS")
     elif infra == 'test':
@@ -221,6 +225,9 @@ def job():
     # Преобразование и фильтрация данных
     data['today'] = datetime.datetime.now().date()
     data = data[data['pubDate'] == data['today']].drop(columns=['today', 'pubDate'])
+    if data.empty:
+        logging.info("No news for today")
+        return
     data['category'] = generate_summary_batch(
         data['description'],
         batch_size=4
