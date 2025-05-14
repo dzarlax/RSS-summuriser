@@ -9,3 +9,4 @@ src/__pycache__/shared.cpython-311.pyc
 .aider.tags.cache.v3
 venv2
 venv3
+.DS_Store
