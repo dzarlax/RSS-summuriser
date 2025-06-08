@@ -5,10 +5,13 @@ import tempfile
 import time
 import threading
 import functools
+import concurrent.futures
+import psutil
+import os
 from datetime import datetime, timedelta
 from dateutil import parser
 from typing import Dict, Tuple, List, Optional, Union, Any
-from collections import Counter
+from collections import Counter, OrderedDict
 
 # Сторонние библиотеки
 import boto3
@@ -20,6 +23,23 @@ from botocore.client import Config
 from bs4 import BeautifulSoup
 from feedgenerator import DefaultFeed, Enclosure
 from ratelimit import limits, sleep_and_retry
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
+
+# Загрузка переменных окружения
+# В продакшене (GitHub Actions) переменные уже доступны
+# В локальной разработке загружаем из .env файла
+try:
+    from dotenv import load_dotenv
+    dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
+    if os.path.exists(dotenv_path):
+        load_dotenv(dotenv_path)
+        print("Environment variables loaded from .env file (local development)")
+    else:
+        print("No .env file found - assuming production environment (GitHub Actions)")
+except ImportError:
+    # В продакшене python-dotenv может быть не установлен - это нормально
+    print("python-dotenv not available - using system environment variables")
 
 from shared import load_config, send_telegram_message
 
@@ -56,45 +76,133 @@ def setup_logging(log_file="../output.log", log_level=logging.INFO):
 LOGGER = setup_logging()
 
 # Определите максимальное количество запросов, которое вы хотите выполнять в секунду.
-CALLS = int(load_config("RPS"))
+try:
+    rps_value = load_config("RPS")
+    CALLS = int(rps_value)
+    print(f"RPS loaded successfully: {CALLS}")
+except KeyError as e:
+    print(f"Warning: RPS environment variable not found. Using default value 1.")
+    print("Available environment variables starting with 'R':", [k for k in os.environ.keys() if k.startswith('R')])
+    CALLS = 1  # Значение по умолчанию
+except ValueError as e:
+    print(f"Warning: RPS value '{rps_value}' is not a valid integer. Using default value 1. Error: {e}")
+    CALLS = 1  # Значение по умолчанию
+
 PERIOD = 3
 
-# Класс для кэширования результатов API
-class ApiCache:
-    """Кэш для результатов API запросов."""
+# Оптимизированный LRU кэш
+class LRUCache:
+    """Оптимизированный LRU кэш с поддержкой TTL."""
     
-    def __init__(self, max_size=1000, ttl=86400):  # TTL = 1 день в секундах
-        self.cache = {}
+    def __init__(self, max_size=1000, ttl=86400):
         self.max_size = max_size
         self.ttl = ttl
+        self.cache = OrderedDict()
+        self.lock = threading.RLock()
     
     def get(self, key):
         """Получить значение из кэша."""
-        if key not in self.cache:
-            return None
-        
-        value, timestamp = self.cache[key]
-        if time.time() - timestamp > self.ttl:
-            # Значение устарело
-            del self.cache[key]
-            return None
+        with self.lock:
+            if key not in self.cache:
+                return None
             
-        return value
+            value, timestamp = self.cache[key]
+            
+            # Проверка TTL
+            if time.time() - timestamp > self.ttl:
+                del self.cache[key]
+                return None
+            
+            # Перемещение в конец (LRU)
+            self.cache.move_to_end(key)
+            return value
     
     def set(self, key, value):
         """Добавить значение в кэш."""
-        # Если кэш переполнен, удалить самые старые записи
-        if len(self.cache) >= self.max_size:
-            oldest_keys = sorted(self.cache.keys(), 
-                                key=lambda k: self.cache[k][1])[:len(self.cache) // 10]  # Удалить 10% старых записей
-            for old_key in oldest_keys:
-                del self.cache[old_key]
-        
-        self.cache[key] = (value, time.time())
-        
+        with self.lock:
+            if key in self.cache:
+                # Обновление существующего значения
+                self.cache[key] = (value, time.time())
+                self.cache.move_to_end(key)
+            else:
+                # Добавление нового значения
+                if len(self.cache) >= self.max_size:
+                    # Удаление самого старого элемента
+                    self.cache.popitem(last=False)
+                
+                self.cache[key] = (value, time.time())
+    
     def clear(self):
         """Очистить кэш."""
-        self.cache.clear()
+        with self.lock:
+            self.cache.clear()
+    
+    def size(self):
+        """Получить текущий размер кэша."""
+        with self.lock:
+            return len(self.cache)
+
+# Улучшенный класс для кэширования результатов API
+class ApiCache(LRUCache):
+    """Специализированный кэш для API результатов."""
+    
+    def __init__(self, max_size=1000, ttl=86400):
+        super().__init__(max_size, ttl)
+        self.hit_count = 0
+        self.miss_count = 0
+    
+    def get(self, key):
+        """Получить значение из кэша с учетом статистики."""
+        result = super().get(key)
+        if result is not None:
+            self.hit_count += 1
+        else:
+            self.miss_count += 1
+        return result
+    
+    def get_hit_rate(self):
+        """Получить коэффициент попаданий в кэш."""
+        total = self.hit_count + self.miss_count
+        return self.hit_count / total if total > 0 else 0
+
+# Менеджер HTTP соединений
+class ConnectionManager:
+    """Менеджер HTTP соединений с пулингом и повторными попытками."""
+    
+    def __init__(self, max_retries=3, backoff_factor=0.3, timeout=30):
+        self.session = requests.Session()
+        self.timeout = timeout
+        
+        # Настройка повторных попыток
+        retry_strategy = Retry(
+            total=max_retries,
+            backoff_factor=backoff_factor,
+            status_forcelist=[429, 500, 502, 503, 504],
+        )
+        
+        # Настройка адаптеров с пулингом соединений
+        adapter = HTTPAdapter(
+            max_retries=retry_strategy,
+            pool_connections=10,
+            pool_maxsize=20
+        )
+        
+        self.session.mount("http://", adapter)
+        self.session.mount("https://", adapter)
+    
+    def get(self, url, **kwargs):
+        """GET запрос с автоматическими повторными попытками."""
+        kwargs.setdefault('timeout', self.timeout)
+        return self.session.get(url, **kwargs)
+    
+    def post(self, url, **kwargs):
+        """POST запрос с автоматическими повторными попытками."""
+        kwargs.setdefault('timeout', self.timeout)
+        return self.session.post(url, **kwargs)
+    
+    def close(self):
+        """Закрыть сессию."""
+        self.session.close()
 
 # Мониторинг использования API
 class ApiMonitor:
@@ -106,37 +214,40 @@ class ApiMonitor:
         self.errors = Counter()
         self.response_times = []
         self.last_reset = datetime.now().date()
+        self.lock = threading.Lock()
         
     def record_call(self, response_time=None, error=None):
         """Записать информацию о вызове API."""
-        # Сбросить счетчики при смене дня
-        today = datetime.now().date()
-        if today != self.last_reset:
-            self.calls_today = 0
-            self.last_reset = today
-            
-        self.calls_today += 1
-        
-        if response_time is not None:
-            self.response_times.append(response_time)
-            # Хранить только последние 1000 значений
-            if len(self.response_times) > 1000:
-                self.response_times.pop(0)
+        with self.lock:
+            # Сбросить счетчики при смене дня
+            today = datetime.now().date()
+            if today != self.last_reset:
+                self.calls_today = 0
+                self.last_reset = today
                 
-        if error:
-            self.errors[error] += 1
+            self.calls_today += 1
+            
+            if response_time is not None:
+                self.response_times.append(response_time)
+                # Хранить только последние 1000 значений
+                if len(self.response_times) > 1000:
+                    self.response_times.pop(0)
+                    
+            if error:
+                self.errors[error] += 1
     
     def get_stats(self):
         """Получить статистику использования API."""
-        avg_response_time = sum(self.response_times) / len(self.response_times) if self.response_times else 0
-        
-        return {
-            "calls_today": self.calls_today,
-            "quota_remaining": max(0, self.quota_limit - self.calls_today),
-            "quota_used_percent": (self.calls_today / self.quota_limit) * 100 if self.quota_limit else 0,
-            "avg_response_time": avg_response_time,
-            "errors": dict(self.errors),
-        }
+        with self.lock:
+            avg_response_time = sum(self.response_times) / len(self.response_times) if self.response_times else 0
+            
+            return {
+                "calls_today": self.calls_today,
+                "quota_remaining": max(0, self.quota_limit - self.calls_today),
+                "quota_used_percent": (self.calls_today / self.quota_limit) * 100 if self.quota_limit else 0,
+                "avg_response_time": avg_response_time,
+                "errors": dict(self.errors),
+            }
     
     def log_stats(self, logger=None):
         """Записать статистику в лог."""
@@ -146,9 +257,53 @@ class ApiMonitor:
         stats = self.get_stats()
         logger.info(f"API Stats: {json.dumps(stats, indent=2)}")
 
+# Класс для мониторинга производительности
+class PerformanceMonitor:
+    """Мониторинг производительности системы."""
+    
+    def __init__(self):
+        self.start_time = time.time()
+        self.start_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
+        self.checkpoints = []
+    
+    def add_checkpoint(self, name: str):
+        """Добавить контрольную точку."""
+        current_time = time.time()
+        current_memory = psutil.Process().memory_info().rss / 1024 / 1024  # MB
+        
+        self.checkpoints.append({
+            'name': name,
+            'time': current_time - self.start_time,
+            'memory': current_memory,
+            'memory_delta': current_memory - self.start_memory
+        })
+        
+        LOGGER.info(f"Checkpoint '{name}': {current_time - self.start_time:.2f}s, "
+                   f"Memory: {current_memory:.1f}MB (Δ{current_memory - self.start_memory:+.1f}MB)")
+    
+    def get_report(self) -> Dict[str, Any]:
+        """Получить отчет о производительности."""
+        total_time = time.time() - self.start_time
+        current_memory = psutil.Process().memory_info().rss / 1024 / 1024
+        
+        return {
+            'total_time': total_time,
+            'start_memory': self.start_memory,
+            'end_memory': current_memory,
+            'memory_peak': max(cp['memory'] for cp in self.checkpoints) if self.checkpoints else current_memory,
+            'checkpoints': self.checkpoints,
+            'system_info': {
+                'cpu_percent': psutil.cpu_percent(),
+                'memory_percent': psutil.virtual_memory().percent,
+                'pid': os.getpid()
+            }
+        }
+
 # Инициализация глобальных объектов
 api_cache = ApiCache()
 api_monitor = ApiMonitor()
+connection_manager = ConnectionManager()
+performance_monitor = PerformanceMonitor()
 
 
 def get_previous_feed_and_links(bucket_name: str, s3, object_name) -> Tuple[feedparser.FeedParserDict, List[str]]:
@@ -259,7 +414,7 @@ def ya300(link, endpoint, token, max_retries=3):
     for retry in range(max_retries):
         try:
             LOGGER.info(f"Sending request to endpoint with link: {link} (attempt {retry+1}/{max_retries})")
-            response = requests.post(
+            response = connection_manager.post(
                 endpoint,
                 json={'article_url': link},
                 headers={'Authorization': f"OAuth {token}"}
@@ -335,8 +490,14 @@ def parse_summary_page(sum_link: str) -> Optional[str]:
     Returns:
         Optional[str]: HTML-контент суммаризации или None в случае ошибки
     """
+    # Проверка кэша для парсинга
+    cached_result = api_cache.get(f"parse_{sum_link}")
+    if cached_result:
+        LOGGER.info(f"Using cached parsing result for: {sum_link}")
+        return cached_result
+    
     try:
-        response = requests.get(sum_link)
+        response = connection_manager.get(sum_link)
         if response.status_code != 200:
             LOGGER.warning(f"Failed to fetch summary page: {response.status_code}")
             return None
@@ -355,7 +516,7 @@ def parse_summary_page(sum_link: str) -> Optional[str]:
         # Получаем заголовок
         h1_element = div_element.find('h1', class_='title')
         if h1_element:
-            h1_text = h1_element.get_text()
+            h1_text = h1_element.get_text(strip=True)
             result_html += f'<h1>{h1_text}</h1>\n'
         
         # Получаем тезисы
@@ -364,10 +525,14 @@ def parse_summary_page(sum_link: str) -> Optional[str]:
             for li in li_elements:
                 thesis_element = li.find('p', class_='thesis-text')
                 if thesis_element:
-                    li_text = thesis_element.get_text()
+                    li_text = thesis_element.get_text(strip=True)
                     result_html += f'<p>{li_text}</p>\n'
         else:
             LOGGER.warning("No thesis elements found in the summary")
+        
+        # Кэшировать результат парсинга
+        if result_html:
+            api_cache.set(f"parse_{sum_link}", result_html)
             
         return result_html if result_html else None
         
@@ -454,13 +619,123 @@ def process_entry(entry: feedparser.FeedParserDict, days_ago: datetime, previous
         LOGGER.error(f"Error processing entry {entry.get('link', 'unknown')}: {e}", exc_info=True)
         return None
 
-
-def merge_rss_feeds(url: str) -> List[PyRSS2Gen.RSSItem]:
+def process_entries_batch(entries: List[feedparser.FeedParserDict], days_ago: datetime, 
+                         previous_links: List[str], logo: str, endpoint: str, token: str,
+                         max_workers: int = 3) -> List[Dict[str, Union[str, Enclosure]]]:
     """
-    Объединяет несколько RSS-фидов в один список элементов.
+    Пакетная обработка записей RSS с контролируемым параллелизмом.
+    
+    Args:
+        entries (List[feedparser.FeedParserDict]): Список записей RSS
+        days_ago (datetime): Дата, раньше которой записи игнорируются
+        previous_links (List[str]): Список ссылок из предыдущего фида
+        logo (str): URL логотипа по умолчанию
+        endpoint (str): Endpoint API суммаризации
+        token (str): Токен авторизации API
+        max_workers (int): Максимальное количество параллельных потоков
+        
+    Returns:
+        List[Dict[str, Union[str, Enclosure]]]: Список обработанных записей
+    """
+    processed_entries = []
+    
+    # Предварительная фильтрация записей
+    valid_entries = []
+    for entry in entries:
+        try:
+            # Быстрая проверка даты без парсинга
+            if hasattr(entry, 'published'):
+                pub_date = parser.parse(entry.published).astimezone(pytz.utc)
+                if pub_date >= days_ago and entry.get('link') not in previous_links:
+                    valid_entries.append(entry)
+        except Exception as e:
+            LOGGER.warning(f"Error in preliminary filtering: {e}")
+            continue
+    
+    LOGGER.info(f"Processing {len(valid_entries)} valid entries out of {len(entries)} total")
+    
+    # Параллельная обработка валидных записей
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_entry = {
+            executor.submit(process_entry, entry, days_ago, previous_links, logo, endpoint, token): entry 
+            for entry in valid_entries
+        }
+        
+        for future in concurrent.futures.as_completed(future_to_entry):
+            entry = future_to_entry[future]
+            try:
+                result = future.result()
+                if result:
+                    processed_entries.append(result)
+            except Exception as exc:
+                LOGGER.error(f"Entry {entry.get('link', 'unknown')} generated an exception: {exc}", exc_info=True)
+    
+    return processed_entries
+
+
+def process_single_feed(feed_url: str) -> List[PyRSS2Gen.RSSItem]:
+    """
+    Обрабатывает один RSS фид.
+    
+    Args:
+        feed_url (str): URL RSS фида
+        
+    Returns:
+        List[PyRSS2Gen.RSSItem]: Список элементов RSS из фида
+    """
+    items = []
+    
+    if not feed_url.strip():
+        return items
+    
+    try:
+        LOGGER.info(f"Processing feed: {feed_url}")
+        feed_response = connection_manager.get(feed_url)
+        
+        if feed_response.status_code != 200:
+            LOGGER.warning(f"Failed to fetch feed {feed_url}: {feed_response.status_code}")
+            return items
+            
+        feed = feedparser.parse(feed_response.content)
+        
+        if feed.bozo:
+            LOGGER.warning(f"Feed {feed_url} has errors: {feed.bozo_exception}")
+        
+        # Обработка записей
+        for entry in feed.entries:
+            try:
+                # Определение даты публикации
+                pub_date = get_entry_date(entry)
+                
+                # Создание элемента RSS
+                item = PyRSS2Gen.RSSItem(
+                    title=entry.title if hasattr(entry, "title") else "No title",
+                    link=entry.link if hasattr(entry, "link") else "No link",
+                    description=entry.description if hasattr(entry, "description") else "No description",
+                    guid=PyRSS2Gen.Guid(entry.link if hasattr(entry, "link") else "No link"),
+                    pubDate=pub_date
+                )
+                items.append(item)
+            except Exception as entry_error:
+                LOGGER.error(f"Error processing entry in feed {feed_url}: {entry_error}", exc_info=True)
+                continue
+                
+        LOGGER.info(f"Processed {len(feed.entries)} entries from {feed_url}")
+        
+    except requests.exceptions.RequestException as e:
+        LOGGER.error(f"Request error for feed {feed_url}: {e}")
+    except Exception as e:
+        LOGGER.error(f"Error processing feed {feed_url}: {e}", exc_info=True)
+    
+    return items
+
+def merge_rss_feeds(url: str, max_workers: int = 5) -> List[PyRSS2Gen.RSSItem]:
+    """
+    Объединяет несколько RSS-фидов в один список элементов с параллельной обработкой.
     
     Args:
         url (str): URL файла со списком URL RSS-фидов
+        max_workers (int): Максимальное количество параллельных потоков
         
     Returns:
         List[PyRSS2Gen.RSSItem]: Список элементов RSS
@@ -469,57 +744,26 @@ def merge_rss_feeds(url: str) -> List[PyRSS2Gen.RSSItem]:
     
     try:
         # Получение списка URL
-        response = requests.get(url, timeout=30)
+        response = connection_manager.get(url)
         if response.status_code != 200:
             LOGGER.error(f"Failed to fetch RSS list: {response.status_code}")
             return items
             
-        urls = response.text.splitlines()
+        urls = [url.strip() for url in response.text.splitlines() if url.strip()]
         LOGGER.info(f"Found {len(urls)} RSS feeds to process")
         
-        # Обработка каждого URL
-        for feed_url in urls:
-            if not feed_url.strip():
-                continue
-                
-            try:
-                LOGGER.info(f"Processing feed: {feed_url}")
-                feed_response = requests.get(feed_url, timeout=30)
-                
-                if feed_response.status_code != 200:
-                    LOGGER.warning(f"Failed to fetch feed {feed_url}: {feed_response.status_code}")
-                    continue
-                    
-                feed = feedparser.parse(feed_response.content)
-                
-                if feed.bozo:
-                    LOGGER.warning(f"Feed {feed_url} has errors: {feed.bozo_exception}")
-                
-                # Обработка записей
-                for entry in feed.entries:
-                    try:
-                        # Определение даты публикации
-                        pub_date = get_entry_date(entry)
-                        
-                        # Создание элемента RSS
-                        item = PyRSS2Gen.RSSItem(
-                            title=entry.title if hasattr(entry, "title") else "No title",
-                            link=entry.link if hasattr(entry, "link") else "No link",
-                            description=entry.description if hasattr(entry, "description") else "No description",
-                            guid=PyRSS2Gen.Guid(entry.link if hasattr(entry, "link") else "No link"),
-                            pubDate=pub_date
-                        )
-                        items.append(item)
-                    except Exception as entry_error:
-                        LOGGER.error(f"Error processing entry in feed {feed_url}: {entry_error}", exc_info=True)
-                        continue
-                        
-                LOGGER.info(f"Processed {len(feed.entries)} entries from {feed_url}")
-                
-            except requests.exceptions.RequestException as e:
-                LOGGER.error(f"Request error for feed {feed_url}: {e}")
-            except Exception as e:
-                LOGGER.error(f"Error processing feed {feed_url}: {e}", exc_info=True)
+        # Параллельная обработка фидов
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_url = {executor.submit(process_single_feed, feed_url): feed_url for feed_url in urls}
+            
+            for future in concurrent.futures.as_completed(future_to_url):
+                feed_url = future_to_url[future]
+                try:
+                    feed_items = future.result()
+                    items.extend(feed_items)
+                    LOGGER.info(f"Successfully processed {len(feed_items)} items from {feed_url}")
+                except Exception as exc:
+                    LOGGER.error(f"Feed {feed_url} generated an exception: {exc}", exc_info=True)
                 
     except requests.exceptions.RequestException as e:
         LOGGER.error(f"Request error for RSS list URL {url}: {e}")
@@ -740,10 +984,12 @@ def main_func() -> None:
     try:
         # Загрузка конфигурации
         config = load_app_config()
+        performance_monitor.add_checkpoint("Config loaded")
         LOGGER.info("Configuration loaded successfully")
         
         # Инициализация S3 клиента
         s3 = init_s3_client(config)
+        performance_monitor.add_checkpoint("S3 initialized")
         LOGGER.info("S3 client initialized")
         
         # Получение предыдущего фида
@@ -752,6 +998,7 @@ def main_func() -> None:
             s3, 
             config["rss_file_name"]
         )
+        performance_monitor.add_checkpoint("Previous feed loaded")
         LOGGER.info(f"Previous feed loaded with {len(previous_links)} entries")
         
         # Настройка параметров
@@ -760,11 +1007,13 @@ def main_func() -> None:
         
         # Получение и обработка новых записей
         items = merge_rss_feeds(config["rss_links"])
+        performance_monitor.add_checkpoint("RSS feeds merged")
         LOGGER.info(f"Merged RSS feeds, got {len(items)} items")
         
         # Создание нового фида
         rss_string = create_new_rss(items, config).to_xml('utf-8')
         in_feed = feedparser.parse(rss_string)
+        performance_monitor.add_checkpoint("New feed created")
         
         # Обработка предыдущих записей
         previous_entries = process_previous_entries(previous_feed, days_ago, logo)
@@ -776,36 +1025,57 @@ def main_func() -> None:
             key=lambda entry: parser.parse(entry.published),
             reverse=True
         )
+        performance_monitor.add_checkpoint("Entries sorted")
         
-        # Обработка новых записей
-        new_entries = []
-        for entry in sorted_entries:
-            processed = process_entry(
-                entry, 
-                days_ago, 
-                previous_links, 
-                logo, 
-                config["endpoint_300"], 
-                config["token_300"]
-            )
-            if processed:
-                new_entries.append(processed)
+        # Обработка новых записей с пакетной обработкой
+        new_entries = process_entries_batch(
+            sorted_entries,
+            days_ago,
+            previous_links,
+            logo,
+            config["endpoint_300"],
+            config["token_300"],
+            max_workers=3  # Ограничиваем количество потоков для API запросов
+        )
+        performance_monitor.add_checkpoint("New entries processed")
         
         LOGGER.info(f"Processed {len(new_entries)} new entries")
         
         # Создание выходного фида
         rss = create_output_feed(config, previous_entries, new_entries)
+        performance_monitor.add_checkpoint("Output feed created")
         
         # Загрузка фида в S3
         with tempfile.NamedTemporaryFile(suffix=".xml") as temp:
             temp.write(rss.encode('utf-8'))
             upload_file_to_yandex(temp.name, config["bucket_name"], s3, config["rss_file_name"])
+        performance_monitor.add_checkpoint("Feed uploaded to S3")
         
         # Логирование статистики
         api_monitor.log_stats()
         
+        # Логирование статистики кэша
+        cache_hit_rate = api_cache.get_hit_rate()
+        cache_size = api_cache.size()
+        LOGGER.info(f"Cache statistics: Hit rate: {cache_hit_rate:.2%}, Size: {cache_size}")
+        
+        # Логирование отчета о производительности
+        performance_report = performance_monitor.get_report()
+        LOGGER.info(f"Performance report: {json.dumps(performance_report, indent=2, default=str)}")
+        
         elapsed_time = time.time() - start_time
         LOGGER.info(f"RSS summarization completed successfully in {elapsed_time:.2f} seconds")
+        
+        # Отправка уведомления об успешном завершении с статистикой
+        success_message = (f"✅ RSS обработка завершена успешно за {elapsed_time:.2f}с\n"
+                          f"📊 Обработано {len(new_entries)} новых записей\n"
+                          f"💾 Кэш: {cache_hit_rate:.1%} попаданий, размер: {cache_size}\n"
+                          f"🔧 Память: {performance_report['memory_peak']:.1f}MB пик")
+        send_telegram_message(
+            success_message, 
+            config.get("telegram_token", ""), 
+            config.get("telegram_chat_id", "")
+        )
         
     except KeyError as e:
         error_message = f"Missing configuration key: {e}"
@@ -836,6 +1106,14 @@ def main_func() -> None:
             )
         except Exception as telegram_error:
             LOGGER.error(f"Failed to send Telegram notification: {telegram_error}")
+    
+    finally:
+        # Очистка ресурсов
+        try:
+            connection_manager.close()
+            LOGGER.info("Connection manager closed successfully")
+        except Exception as cleanup_error:
+            LOGGER.error(f"Error during cleanup: {cleanup_error}")
 
 
 if __name__ == "__main__":
