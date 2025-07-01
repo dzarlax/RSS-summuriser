@@ -712,8 +712,8 @@ def prepare_and_send_message(result, chat_id, telegram_token, telegraph_access_t
         
         logging.info(f"Single message length: {len(message)} characters")
         
-        # Check if single message fits Telegram limits (4096 chars)
-        if len(message) <= 4000:
+        # Check if single message fits safely (considering GPT limit of 2800 chars)
+        if len(message) <= 2700:
             # Send single message
             logging.info("Sending single message")
             return send_single_message(message, telegraph_url, chat_id, telegram_token, service_chat_id)
