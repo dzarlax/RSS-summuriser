@@ -29,6 +29,29 @@ def send_telegram_message(message: str, chat_id: str, telegram_token: str) -> Di
     return response.json()
 
 
+def send_telegram_message_with_keyboard(message: str, chat_id: str, telegram_token: str, 
+                                       inline_keyboard: Optional[List[List[Dict]]] = None) -> Dict[str, Any]:
+    """
+    Send telegram message with optional inline keyboard
+    """
+    send_message_url = f"https://api.telegram.org/bot{telegram_token}/sendMessage"
+    
+    data = {
+        "chat_id": chat_id,
+        "text": message,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": False
+    }
+    
+    if inline_keyboard:
+        data["reply_markup"] = {
+            "inline_keyboard": inline_keyboard
+        }
+    
+    response = requests.post(send_message_url, json=data)
+    return response.json()
+
+
 def convert_markdown_to_html(markdown_text):
     # Convert Markdown headings to HTML
     lines = markdown_text.split('\n')
@@ -63,3 +86,34 @@ def convert_markdown_to_html(markdown_text):
             html_lines.append(processed_line)
 
     return '\n'.join(html_lines)
+
+
+def validate_telegram_html(html_text):
+    """
+    Validate and clean HTML for Telegram
+    Only allows basic tags supported by Telegram
+    """
+    if not html_text:
+        return ""
+    
+    # Remove any HTML tags except <b></b>, <i></i>, <a></a>
+    # For now, we'll be conservative and only allow <b></b>
+    import re
+    
+    # First, preserve valid <b></b> tags and remove everything else
+    # Simple approach: extract text and valid <b> tags only
+    valid_html = re.sub(r'<(?!/?b(?:\s|>))[^>]*>', '', html_text)
+    
+    # Remove any malformed tags
+    valid_html = re.sub(r'<b(?![>])[^>]*>', '<b>', valid_html)
+    valid_html = re.sub(r'</b(?![>])[^>]*>', '</b>', valid_html)
+    
+    # Ensure proper tag pairing
+    open_tags = valid_html.count('<b>')
+    close_tags = valid_html.count('</b>')
+    
+    if open_tags != close_tags:
+        # If tags are not balanced, remove all formatting
+        valid_html = re.sub(r'</?b>', '', valid_html)
+    
+    return valid_html.strip()

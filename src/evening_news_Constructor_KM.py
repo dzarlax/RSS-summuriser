@@ -22,7 +22,7 @@ print(f"DEBUG: .env path: {dotenv_path}, exists: {os.path.exists(dotenv_path)}")
 load_dotenv(dotenv_path=dotenv_path, override=False)
 
 
-from shared import load_config, send_telegram_message, convert_markdown_to_html
+from shared import load_config, send_telegram_message, send_telegram_message_with_keyboard, convert_markdown_to_html, validate_telegram_html
 
 # Load configuration safely
 def load_config_safe(key: str, default=None):
@@ -184,12 +184,17 @@ def process_with_gpt(prompt):
         output_text = response_json["choices"][0]["message"]["content"]
 
         # If generating overview, return full text
-        if "Сгенерируй краткую сводку новостей" in prompt or "Сгенерируйте краткую сводку новостей" in prompt:
+        if any(keyword in prompt for keyword in [
+            "сводку новостей", "Сводку новостей", "сводка новостей", "Сводка новостей",
+            "опытный журналист", "связную сводку", "связный рассказ"
+        ]):
+            logging.info(f"✅ Returning full GPT response: {len(output_text)} characters")
             return output_text
         # For category classification, return first word
         else:
             first_word = output_text.split()[0]
             cleaned_first_word = re.sub(r'[^a-zA-Z]', '', first_word)
+            logging.info(f"Returning first word for category: {cleaned_first_word}")
             return cleaned_first_word
     else:
         logging.error(f"API error {response.status_code}: {response.text}")
@@ -365,47 +370,317 @@ def create_telegraph_page_with_library(result, access_token, author_name="Dzarla
         logging.error(f"Failed to create Telegraph page: {e}")
         return None
 
-def generate_daily_overview(result):
-    # Prepare prompt in Russian
+def convert_lists_to_narrative(text):
+    """
+    Convert any remaining list items to narrative text
+    """
+    if not text:
+        return text
+    
+    lines = text.split('\n')
+    result_lines = []
+    current_section = []
+    current_category = None
+    
+    for line in lines:
+        stripped = line.strip()
+        
+        # Check if this is a category header
+        if stripped.startswith('<b>') and stripped.endswith('</b>'):
+            # If we have accumulated section content, convert it to narrative
+            if current_section and current_category:
+                narrative = convert_section_to_narrative(current_section, current_category)
+                result_lines.append(narrative)
+                current_section = []
+            
+            current_category = stripped
+            result_lines.append(line)
+        
+        # Check if this is a list item
+        elif stripped.startswith(('- ', '• ', '* ')) or (len(stripped) > 2 and stripped[1:3] in ['. ', ') ']):
+            # This is a list item, add to current section
+            clean_item = stripped
+            # Remove list markers
+            for marker in ['- ', '• ', '* ']:
+                if clean_item.startswith(marker):
+                    clean_item = clean_item[len(marker):].strip()
+                    break
+            # Remove numbered markers
+            if len(clean_item) > 2 and clean_item[1] in ['.', ')']:
+                try:
+                    int(clean_item[0])
+                    clean_item = clean_item[2:].strip()
+                except:
+                    pass
+            
+            if clean_item:
+                current_section.append(clean_item)
+        
+        # Regular line (not a list item)
+        else:
+            # First add any accumulated section
+            if current_section and current_category:
+                narrative = convert_section_to_narrative(current_section, current_category)
+                result_lines.append(narrative)
+                current_section = []
+            
+            result_lines.append(line)
+    
+    # Handle any remaining section
+    if current_section and current_category:
+        narrative = convert_section_to_narrative(current_section, current_category)
+        result_lines.append(narrative)
+    
+    return '\n'.join(result_lines)
+
+def convert_section_to_narrative(items, category_header):
+    """
+    Convert a list of items to narrative text
+    """
+    if not items:
+        return ""
+    
+    if len(items) == 1:
+        return items[0]
+    
+    # Create connecting phrases
+    connectors = [
+        "Одновременно", "Также", "Кроме того", "В то же время", 
+        "Параллельно", "Дополнительно", "Более того"
+    ]
+    
+    narrative_parts = [items[0]]
+    
+    for i, item in enumerate(items[1:], 1):
+        if i < len(connectors):
+            connector = connectors[i-1]
+        else:
+            connector = "Также"
+        
+        narrative_parts.append(f"{connector.lower()} {item.lower()}")
+    
+    return " ".join(narrative_parts) + "."
+
+def split_categories_for_messages(result):
+    """
+    Разделяет категории на две группы для отправки двух сообщений
+    Балансирует количество новостей между группами
+    """
+    category_counts = result['category'].value_counts()
+    total_news = len(result)
+    
+    # Цель: примерно 50/50 по количеству новостей
+    target = total_news // 2
+    
+    group1_categories = []
+    group1_count = 0
+    group2_categories = []
+    group2_count = 0
+    
+    # Сортируем категории по количеству (убывание)
+    sorted_categories = category_counts.sort_values(ascending=False)
+    
+    for category, count in sorted_categories.items():
+        # Добавляем в группу с меньшим количеством новостей
+        if group1_count <= group2_count:
+            group1_categories.append(category)
+            group1_count += count
+        else:
+            group2_categories.append(category)
+            group2_count += count
+    
+    logging.info(f"Разделение на группы: Группа 1 ({group1_count} новостей): {group1_categories}")
+    logging.info(f"Разделение на группы: Группа 2 ({group2_count} новостей): {group2_categories}")
+    
+    # Создаем два DataFrame
+    group1_data = result[result['category'].isin(group1_categories)]
+    group2_data = result[result['category'].isin(group2_categories)]
+    
+    return group1_data, group2_data
+
+def generate_daily_overview(result, message_part=None):
+    # Prepare enhanced prompt for detailed HTML news summary
+    total_news = len(result)
+    categories = result['category'].nunique()
+    
+    # Заголовок зависит от части сообщения
+    if message_part == 1:
+        header_text = "Сводка новостей (часть 1)"
+    elif message_part == 2:
+        header_text = "Сводка новостей (часть 2)"
+    else:
+        header_text = "Сводка новостей"
+    
     prompt = (
-        "Внимание: твой ответ должен быть строго не длиннее 4000 символов. "
-        "Если итоговый текст превышает лимит — сократи его до 4000 символов, сохраняя основные мысли.\n"
-        "Сгенерируй краткую сводку новостей на русском языке на основе следующих категорий и заголовков с описаниями. "
-        "НЕ ИСПОЛЬЗУЙ HTML теги в ответе, только обычный текст и markdown форматирование:\n\n"
+        f"Ты - журналист. Создай СЖАТУЮ сводку новостей в HTML.\n\n"
+        f"{total_news} новостей в {categories} категориях.\n\n"
+        f"ТРЕБОВАНИЯ:\n"
+        f"- HTML с <b></b> для заголовков\n" 
+        f"- МАКСИМУМ 2800 символов\n"
+        f"- Связные абзацы (НЕ списки!)\n"
+        f"- СЖАТО: только ключевые события\n\n"
+        f"ФОРМАТ:\n"
+        f"<b>{header_text}</b>\n\n"
+        f"<b>Tech</b>\n"
+        f"Apple выпустила новый iPhone. Tesla показала рост продаж. Microsoft анонсировал ИИ-решения.\n\n"
+        f"<b>Business</b>\n"
+        f"Рынки выросли на 2%. Компании отчитались о прибыли.\n\n"
+        f"ЗАДАЧА: Сжатые связные абзацы для каждой категории!\n\n"
+        f"НОВОСТИ:\n\n"
     )
     for category, group in result.groupby('category'):
-        prompt += f"\n{category}:\n"
+        prompt += f"\n=== {category} ===\n"
         for _, row in group.iterrows():
             # Get headline
             headline = row.get('headline', '')
 
-            # Get description and truncate to 400 characters if needed
+            # Get description and truncate to 500 characters if needed
             description = row.get('description', '')
+            if len(description) > 500:
+                description = description[:497] + "..."
 
             # Add headline and description to prompt
-            prompt += f"- {headline}\n"
+            prompt += f"ЗАГОЛОВОК: {headline}\n"
             if description:
-                prompt += f"  {description}\n"
+                prompt += f"ОПИСАНИЕ: {description}\n"
+            prompt += "---\n"
 
-    prompt += "\nСтрого следи за лимитом: максимум 4000 символов! Используй журналистский стиль. НЕ используй HTML теги!"
+    prompt += (
+        "\n\nПРАВИЛА:\n"
+        "✅ НЕ СПИСКИ! Только связные предложения!\n"
+        "✅ НЕ используй: - • * 1. 2.\n"
+        "✅ Максимум 2800 символов!\n"
+        "✅ СЖАТО: ключевые события, короткие предложения\n"
+        f"✅ Начинай с <b>{header_text}</b>\n"
+        "✅ HTML только <b></b>\n\n"
+        "СЖИМАЙ! Краткость - главное!"
+    )
 
+    logging.info(f"Sending prompt to GPT: {len(prompt)} characters")
+    logging.info(f"Prompt preview: {prompt[:200]}...")
+    
     overview = process_with_gpt(prompt)
-    logging.debug(f"Generated overview:\n{overview}")
-    if not overview or overview == "Error":
-        logging.warning(f"Overview is empty or Error. Overview: '{overview}'")
+    
+    logging.info(f"GPT response received: '{overview}' (length: {len(overview) if overview else 0})")
+    
+    # Detailed logging for debugging
+    if not overview:
+        logging.error("❌ GPT returned None/empty")
+    elif overview == "Error":
+        logging.error("❌ GPT returned 'Error' string")
+    elif overview.strip() == "":
+        logging.error("❌ GPT returned empty string")
+    else:
+        logging.info(f"✅ GPT returned valid response: {overview[:100]}...")
+    
+    # Post-processing: Convert any remaining lists to narrative text
+    if overview and overview != "Error":
+        overview = convert_lists_to_narrative(overview)
+        logging.info(f"After post-processing: {len(overview)} characters")
+    
+    # Better error handling with more detailed logging
+    if not overview or overview == "Error" or overview.strip() == "":
+        logging.error(f"GPT returned empty response. Full response: '{overview}'")
+        logging.error("FALLBACK TRIGGERED - GPT не ответил или вернул пустой результат")
+        
+        # Create NARRATIVE fallback by categories (no lists!)
+        fallback_parts = [f"<b>Сводка новостей за {datetime.datetime.now().strftime('%d.%m.%Y')}</b>\n"]
+        
+        for category, group in result.groupby('category'):
+            category_headlines = []
+            for _, row in group.iterrows():
+                headline = row.get('headline', '')
+                if headline:
+                    # Clean headline for narrative
+                    clean_headline = headline.replace('🖼', '').replace('🇷🇸', '').replace('🇩🇪', '').strip()
+                    category_headlines.append(clean_headline)
+            
+            if category_headlines:
+                fallback_parts.append(f"\n<b>{category}</b>")
+                
+                # Create narrative text from headlines
+                if len(category_headlines) == 1:
+                    narrative = category_headlines[0] + "."
+                else:
+                    connectors = ["Также", "Кроме того", "Дополнительно"]
+                    narrative_parts = [category_headlines[0]]
+                    
+                    for i, headline in enumerate(category_headlines[1:3], 1):  # Max 3 headlines
+                        connector = connectors[min(i-1, len(connectors)-1)]
+                        narrative_parts.append(f"{connector.lower()} {headline.lower()}")
+                    
+                    narrative = ". ".join(narrative_parts) + "."
+                
+                fallback_parts.append(narrative)
+        
+        overview = "\n".join(fallback_parts)
+        logging.info(f"FALLBACK created narrative overview: {len(overview)} characters")
+    
+    # Ensure the overview doesn't exceed 2800 characters
+    if len(overview) > 2800:
+        overview = overview[:2797] + "..."
 
-    # Ensure the overview doesn't exceed 4000 characters
-    if len(overview) > 4000:
-        overview = overview[:3997] + "..."
-
-    # Remove any potential HTML tags that might have been generated
-    overview = sanitize_html_for_telegraph(overview)
-
+    # Validate HTML for Telegram
+    validated_overview = validate_telegram_html(overview)
+    
+    # Final check - if validation failed, provide fallback with headlines
+    if not validated_overview or len(validated_overview.strip()) < 10:
+        logging.warning(f"HTML validation failed. Original: '{overview}', Validated: '{validated_overview}'")
+        logging.warning("VALIDATION FALLBACK TRIGGERED - HTML валидация не прошла")
+        
+        # Create NARRATIVE fallback with actual headlines (no lists!)
+        fallback_parts = [f"<b>Сводка новостей за {datetime.datetime.now().strftime('%d.%m.%Y')}</b>\n"]
+        
+        for category, group in result.groupby('category'):
+            category_headlines = []
+            for _, row in group.iterrows():
+                headline = row.get('headline', '')
+                if headline:
+                    # Clean and truncate headline for narrative
+                    clean_headline = headline.replace('🖼', '').replace('🇷🇸', '').replace('🇩🇪', '').strip()
+                    if len(clean_headline) > 60:
+                        clean_headline = clean_headline[:57] + "..."
+                    category_headlines.append(clean_headline)
+            
+            if category_headlines:
+                fallback_parts.append(f"\n<b>{category}</b>")
+                
+                # Create narrative text from headlines  
+                if len(category_headlines) == 1:
+                    narrative = category_headlines[0] + "."
+                else:
+                    # Take max 2 headlines for validation fallback
+                    headlines_to_use = category_headlines[:2]
+                    narrative = f"{headlines_to_use[0]}. Также {headlines_to_use[1].lower()}."
+                
+                fallback_parts.append(narrative)
+        
+        overview = "\n".join(fallback_parts)
+        logging.info(f"VALIDATION FALLBACK created narrative overview: {len(overview)} characters")
+    else:
+        overview = validated_overview
+    
+    logging.info(f"Final overview length: {len(overview)} characters")
     return overview
+
+def format_enhanced_telegram_message(daily_overview_html, telegraph_url, current_date, result):
+    """
+    Compact message formatting focused on content over decoration
+    """
+    # Simple clean header without statistics
+    message_parts = [
+        f"📰 <b>Новости {current_date}</b>",
+        "",
+        daily_overview_html
+    ]
+    
+    # Don't add Telegraph link in text - we have button for that
+    
+    return "\n".join(message_parts)
 
 def prepare_and_send_message(result, chat_id, telegram_token, telegraph_access_token, service_chat_id):
     """
-    Prepare and send news message with improved error handling
+    Prepare and send news message with smart splitting into multiple messages if needed
     """
     if result.empty:
         logging.warning("No data to send - result DataFrame is empty")
@@ -415,22 +690,7 @@ def prepare_and_send_message(result, chat_id, telegram_token, telegraph_access_t
     
     logging.info(f"Preparing message for {len(result)} news items")
     
-    # Generate overview in Russian
-    try:
-        daily_overview = generate_daily_overview(result)
-        if not daily_overview or daily_overview == "Error":
-            logging.warning("Failed to generate daily overview, using fallback")
-            daily_overview = f"Сводка новостей за {datetime.datetime.now().strftime('%d.%m.%Y')} недоступна"
-        
-        daily_overview_html = convert_markdown_to_html(daily_overview)
-        # Sanitize HTML to remove any potentially problematic tags
-        daily_overview_html = sanitize_html_for_telegraph(daily_overview_html)
-        
-    except Exception as e:
-        logging.error(f"Error generating overview: {e}")
-        daily_overview_html = f"Ошибка при генерации обзора новостей"
-
-    # Create Telegraph page
+    # Create Telegraph page first
     try:
         telegraph_url = create_telegraph_page_with_library(result, telegraph_access_token)
         if not telegraph_url:
@@ -440,42 +700,183 @@ def prepare_and_send_message(result, chat_id, telegram_token, telegraph_access_t
         logging.error(f"Error creating Telegraph page: {e}")
         telegraph_url = "Ошибка создания страницы Telegraph"
 
-    # Format message with overview and link
-    current_date = datetime.datetime.now().strftime("%d.%m.%Y")
-    
-    if telegraph_url.startswith("http"):
-        message = f"📰 Сводка новостей за {current_date}\n\n{daily_overview_html}\n\n🔗 Подробнее: {telegraph_url}"
-    else:
-        message = f"📰 Сводка новостей за {current_date}\n\n{daily_overview_html}\n\n⚠️ {telegraph_url}"
-    
-    # Ensure message is not too long for Telegram (max 4096 characters)
-    if len(message) > 4090:
-        truncated_overview = daily_overview_html[:3800] + "..."
-        if telegraph_url.startswith("http"):
-            message = f"📰 Сводка новостей за {current_date}\n\n{truncated_overview}\n\n🔗 Подробнее: {telegraph_url}"
-        else:
-            message = f"📰 Сводка новостей за {current_date}\n\n{truncated_overview}\n\n⚠️ {telegraph_url}"
-    
-    logging.info(f"Daily overview generated, message length: {len(message)} characters")
-
-    # Send message
+    # Try to create single message first
     try:
-        response = send_telegram_message(message, chat_id, telegram_token)
+        daily_overview_html = generate_daily_overview(result)
+        if not daily_overview_html or daily_overview_html.strip() == "":
+            logging.warning("Failed to generate daily overview")
+            daily_overview_html = f"<b>Сводка новостей за {datetime.datetime.now().strftime('%d.%m.%Y')}</b>\n\nПодробная сводка временно недоступна."
+        
+        current_date = datetime.datetime.now().strftime("%d.%m.%Y")
+        message = format_enhanced_telegram_message(daily_overview_html, telegraph_url, current_date, result)
+        
+        logging.info(f"Single message length: {len(message)} characters")
+        
+        # Check if single message fits Telegram limits (4096 chars)
+        if len(message) <= 4000:
+            # Send single message
+            logging.info("Sending single message")
+            return send_single_message(message, telegraph_url, chat_id, telegram_token, service_chat_id)
+        else:
+            # Split into two messages
+            logging.info(f"Message too long ({len(message)} chars), splitting into two parts")
+            return send_split_messages(result, telegraph_url, chat_id, telegram_token, service_chat_id)
+            
+    except Exception as e:
+        logging.error(f"Error generating overview: {e}")
+        # Fallback to simple message
+        simple_message = f"<b>Сводка новостей за {datetime.datetime.now().strftime('%d.%m.%Y')}</b>\n\nОбработано {len(result)} новостей в {result['category'].nunique()} категориях.\nПодробности в полной версии."
+        return send_single_message(simple_message, telegraph_url, chat_id, telegram_token, service_chat_id)
+
+def send_single_message(message, telegraph_url, chat_id, telegram_token, service_chat_id):
+    """Send single message with Telegraph button"""
+    # Create inline keyboard
+    inline_keyboard = []
+    if telegraph_url.startswith("http"):
+        inline_keyboard.append([
+            {"text": "📖 Читать полностью", "url": telegraph_url}
+        ])
+
+    try:
+        response = send_telegram_message_with_keyboard(message, chat_id, telegram_token, inline_keyboard)
         if isinstance(response, dict) and response.get('ok'):
-            success_msg = f"Сообщение успешно отправлено (ID: {response.get('result', {}).get('message_id', 'unknown')})"
+            success_msg = f"Сообщение отправлено (ID: {response.get('result', {}).get('message_id', 'unknown')})"
             logging.info(success_msg)
             send_telegram_message(success_msg, service_chat_id, telegram_token)
         else:
             error_details = response.get('description', 'unknown error') if isinstance(response, dict) else str(response)
-            error_msg = f"Произошла ошибка при отправке: {error_details}"
+            error_msg = f"Ошибка отправки: {error_details}"
             logging.error(error_msg)
             send_telegram_message(error_msg, service_chat_id, telegram_token)
         return response
     except Exception as e:
-        error_msg = f"Критическая ошибка при отправке сообщения: {e}"
+        error_msg = f"Критическая ошибка при отправке: {e}"
         logging.error(error_msg)
         send_telegram_message(error_msg, service_chat_id, telegram_token)
         return None
+
+def send_split_messages(result, telegraph_url, chat_id, telegram_token, service_chat_id):
+    """Split news into two messages by categories"""
+    try:
+        # Split categories into two balanced groups
+        group1_data, group2_data = split_categories_for_messages(result)
+        
+        # Generate two separate overviews
+        overview1 = generate_daily_overview(group1_data, message_part=1)
+        overview2 = generate_daily_overview(group2_data, message_part=2)
+        
+        current_date = datetime.datetime.now().strftime("%d.%m.%Y")
+        
+        # Format both messages
+        message1 = format_enhanced_telegram_message(overview1, telegraph_url, current_date, group1_data)
+        message2 = format_enhanced_telegram_message(overview2, telegraph_url, current_date, group2_data)
+        
+        logging.info(f"Split messages: Part 1: {len(message1)} chars, Part 2: {len(message2)} chars")
+        
+        # Create keyboards
+        keyboard1 = [[{"text": "📖 Читать полностью", "url": telegraph_url}]] if telegraph_url.startswith("http") else []
+        keyboard2 = [[{"text": "📖 Читать полностью", "url": telegraph_url}]] if telegraph_url.startswith("http") else []
+        
+        # Send first message
+        response1 = send_telegram_message_with_keyboard(message1, chat_id, telegram_token, keyboard1)
+        
+        # Small delay between messages
+        import time
+        time.sleep(1)
+        
+        # Send second message
+        response2 = send_telegram_message_with_keyboard(message2, chat_id, telegram_token, keyboard2)
+        
+        # Check results
+        success_count = 0
+        if isinstance(response1, dict) and response1.get('ok'):
+            success_count += 1
+        if isinstance(response2, dict) and response2.get('ok'):
+            success_count += 1
+            
+        success_msg = f"Отправлено {success_count}/2 сообщений успешно"
+        logging.info(success_msg)
+        send_telegram_message(success_msg, service_chat_id, telegram_token)
+        
+        return {"part1": response1, "part2": response2}
+        
+    except Exception as e:
+        error_msg = f"Ошибка при разделении сообщений: {e}"
+        logging.error(error_msg)
+        send_telegram_message(error_msg, service_chat_id, telegram_token)
+        return None
+
+def generate_category_summary(result):
+    """
+    Generate a brief summary of news by categories with emojis
+    """
+    if result.empty:
+        return "Нет новостей для отображения"
+    
+    category_stats = result['category'].value_counts()
+    category_emojis = {
+        'Tech': '💻', 'Business': '💼', 'Science': '🔬', 
+        'Nature': '🌿', 'Serbia': '🇷🇸', 'Marketing': '📈',
+        'Other': '📰', 'General': '📰'
+    }
+    
+    summary_parts = []
+    for category, count in category_stats.items():
+        emoji = category_emojis.get(category, '📌')
+        
+        # Get sample headlines for this category
+        category_news = result[result['category'] == category]
+        sample_headlines = category_news['headline'].head(2).tolist()
+        
+        summary_parts.append(f"{emoji} <b>{category}</b> ({count})")
+        
+        # Add sample headlines for categories with more than 1 news
+        if count > 1 and sample_headlines:
+            for headline in sample_headlines:
+                # Truncate long headlines
+                truncated_headline = headline[:60] + "..." if len(headline) > 60 else headline
+                summary_parts.append(f"  • {truncated_headline}")
+        elif count == 1 and sample_headlines:
+            truncated_headline = sample_headlines[0][:60] + "..." if len(sample_headlines[0]) > 60 else sample_headlines[0]
+            summary_parts.append(f"  • {truncated_headline}")
+    
+    return "\n".join(summary_parts)
+
+def demo_enhanced_formatting():
+    """
+    Demo function to show enhanced formatting capabilities
+    """
+    # Create sample data for demonstration
+    import pandas as pd
+    
+    sample_data = pd.DataFrame([
+        {'headline': 'Новый прорыв в области искусственного интеллекта', 'category': 'Tech', 
+         'link': 'https://example.com/1', 'description': 'Исследователи создали новую модель ИИ'},
+        {'headline': 'Экономические показатели показывают рост', 'category': 'Business', 
+         'link': 'https://example.com/2', 'description': 'Положительная динамика в экономике'},
+        {'headline': 'Открытие нового вида растений', 'category': 'Science', 
+         'link': 'https://example.com/3', 'description': 'Ботаники обнаружили уникальный вид'},
+        {'headline': 'Технологические инновации в медицине', 'category': 'Tech', 
+         'link': 'https://example.com/4', 'description': 'Новые методы лечения'},
+    ])
+    
+    # Generate category summary
+    category_summary = generate_category_summary(sample_data)
+    print("=== СВОДКА ПО КАТЕГОРИЯМ ===")
+    print(category_summary)
+    print("\n" + "="*50 + "\n")
+    
+    # Generate enhanced message with HTML (no Telegraph link in text)
+    sample_overview = "<b>Главные события дня:</b>\n\nВ области технологий произошли значительные изменения. Искусственный интеллект продолжает развиваться.\n\nЭкономические показатели демонстрируют рост. Новые открытия в ботанике расширяют понимание природы.\n\n<b>Итог:</b> День богат на технологические и научные новости."
+    
+    enhanced_message = format_enhanced_telegram_message(
+        sample_overview, "https://telegra.ph/news-123", "25.12.2024", sample_data
+    )
+    
+    print("=== УЛУЧШЕННОЕ СООБЩЕНИЕ ===")
+    print(enhanced_message)
+    
+    return True
 
 def job():
     """
@@ -521,38 +922,47 @@ def job():
         logging.info(f"Received {len(data)} items from RSS feed")
 
         # Преобразование и фильтрация данных
-        today = datetime.datetime.now().date()
-        logging.info(f"Filtering news for today: {today}")
+        if infra == 'test':
+            # В тестовом режиме берем новости за вчерашний день
+            target_date = datetime.datetime.now().date() - datetime.timedelta(days=1)
+            logging.info(f"Test mode: filtering news for yesterday: {target_date}")
+        else:
+            # В продакшене берем новости за сегодня
+            target_date = datetime.datetime.now().date()
+            logging.info(f"Production mode: filtering news for today: {target_date}")
         
-        data['today'] = today
-        today_data = data[data['pubDate'] == data['today']].drop(columns=['today', 'pubDate'])
+        data['target_date'] = target_date
+        filtered_data = data[data['pubDate'] == data['target_date']].drop(columns=['target_date', 'pubDate'])
         
-        if today_data.empty:
-            logging.info("No news for today")
-            send_telegram_message(f"📅 Нет новостей за {today.strftime('%d.%m.%Y')}", service_chat_id, telegram_token)
+        if filtered_data.empty:
+            date_str = target_date.strftime('%d.%m.%Y')
+            mode_text = "вчера" if infra == 'test' else "сегодня"
+            logging.info(f"No news for {mode_text} ({date_str})")
+            send_telegram_message(f"📅 Нет новостей за {date_str} ({mode_text})", service_chat_id, telegram_token)
             return
         
-        logging.info(f"Found {len(today_data)} news items for today")
+        date_str = target_date.strftime('%d.%m.%Y')
+        logging.info(f"Found {len(filtered_data)} news items for {date_str}")
 
         # Generate categories
         logging.info("Generating categories for news items...")
         try:
             categories = generate_summary_batch(
-                today_data['description'].tolist(),
+                filtered_data['description'].tolist(),
                 batch_size=4
             )
-            today_data['category'] = categories
+            filtered_data['category'] = categories
             logging.info(f"Categories generated: {set(categories)}")
         except Exception as e:
             logging.error(f"Failed to generate categories: {e}")
             # Fallback to default category
-            today_data['category'] = 'General'
+            filtered_data['category'] = 'General'
             logging.info("Using fallback category: General")
 
         # Send message
         logging.info("Preparing and sending message...")
         response = prepare_and_send_message(
-            today_data, 
+            filtered_data, 
             chat_id, 
             telegram_token, 
             telegraph_access_token, 
