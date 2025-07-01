@@ -206,6 +206,79 @@ def escape_html(text):
     """Заменяет специальные HTML символы на их экранированные эквиваленты."""
     return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
+def smart_truncate_html(text, max_length):
+    """
+    Smart truncation of HTML content that preserves complete categories
+    """
+    if len(text) <= max_length:
+        return text
+    
+    import re
+    
+    # Split text into lines for better processing
+    lines = text.strip().split('\n')
+    result_lines = []
+    current_length = 0
+    
+    # First, add the header if present
+    if lines and lines[0].strip() == '<b>Сводка новостей</b>':
+        result_lines.append(lines[0])
+        current_length += len(lines[0])
+        lines = lines[1:]  # Remove header from processing
+    
+    # Process remaining lines and group by categories
+    current_category = None
+    current_category_lines = []
+    categories = []
+    
+    for line in lines:
+        line = line.strip()
+        if not line:  # Skip empty lines
+            continue
+            
+        # Check if this is a category header
+        if line.startswith('<b>') and line.endswith('</b>') and line != '<b>Сводка новостей</b>':
+            # Save previous category if exists
+            if current_category and current_category_lines:
+                categories.append((current_category, current_category_lines))
+            
+            # Start new category
+            current_category = line
+            current_category_lines = []
+        else:
+            # Add content to current category
+            if current_category:
+                current_category_lines.append(line)
+    
+    # Don't forget the last category
+    if current_category and current_category_lines:
+        categories.append((current_category, current_category_lines))
+    
+    # Now add categories one by one until we hit the limit
+    for category_header, category_content in categories:
+        # Calculate space needed for this category
+        category_text = f"\n\n{category_header}\n" + '\n'.join(category_content)
+        potential_length = current_length + len(category_text)
+        
+        # Check if adding this category would exceed limit (with buffer for "...")
+        if potential_length <= max_length - 20:
+            result_lines.append("")  # Empty line before category
+            result_lines.append(category_header)
+            result_lines.extend(category_content)
+            current_length = potential_length
+        else:
+            # Stop here to keep previous categories complete
+            break
+    
+    # Join result
+    result = '\n'.join(result_lines)
+    
+    # Add ellipsis if content was truncated
+    if len(categories) > 0 and current_length < len(text.strip()) - 100:
+        result = result.rstrip() + "..."
+    
+    return result
+
 def sanitize_html_for_telegraph(html_content):
     """
     Removes HTML tags that are not allowed by Telegraph API.
@@ -506,22 +579,27 @@ def generate_daily_overview(result, message_part=None):
     # Заголовок и лимит зависят от части сообщения
     if message_part == 1:
         header_text = "Сводка новостей (часть 1)"
-        char_limit = 2400  # Меньший лимит для разделенных сообщений
     elif message_part == 2:
         header_text = "Сводка новостей (часть 2)" 
-        char_limit = 2400  # Меньший лимит для разделенных сообщений
     else:
         header_text = "Сводка новостей"
-        char_limit = 2600  # Больший лимит для одиночных сообщений
+    
+    # Определяем лимит символов для каждой части
+    if message_part:
+        char_limit = 3400  # Для разделенных сообщений - меньше лимит
+        detail_level = "СЖАТО"
+    else:
+        char_limit = 2600  # Для одиночных сообщений
+        detail_level = "СЖАТО"
     
     prompt = (
-        f"Ты - журналист. Создай СЖАТУЮ сводку новостей в HTML.\n\n"
+        f"Ты - журналист. Создай {detail_level} сводку новостей в HTML.\n\n"
         f"{total_news} новостей в {categories} категориях.\n\n"
         f"ТРЕБОВАНИЯ:\n"
         f"- HTML с <b></b> для заголовков\n" 
-        f"- МАКСИМУМ {char_limit} символов\n"
         f"- Связные абзацы (НЕ списки!)\n"
-        f"- СЖАТО: только ключевые события\n\n"
+        f"- МАКСИМУМ {char_limit} символов\n"
+        f"- Охвати основные события по категориям\n\n"
         f"ФОРМАТ:\n"
         f"<b>{header_text}</b>\n\n"
         f"<b>Tech</b>\n"
@@ -552,11 +630,10 @@ def generate_daily_overview(result, message_part=None):
         "\n\nПРАВИЛА:\n"
         "✅ НЕ СПИСКИ! Только связные предложения!\n"
         "✅ НЕ используй: - • * 1. 2.\n"
-        f"✅ Максимум {char_limit} символов!\n"
-        "✅ СЖАТО: ключевые события, короткие предложения\n"
+        f"✅ МАКСИМУМ {char_limit} символов - соблюдай лимит!\n"
         f"✅ Начинай с <b>{header_text}</b>\n"
         "✅ HTML только <b></b>\n\n"
-        "СЖИМАЙ! Краткость - главное!"
+        f"ВАЖНО: Не превышай {char_limit} символов!"
     )
 
     logging.info(f"Sending prompt to GPT: {len(prompt)} characters")
@@ -619,9 +696,8 @@ def generate_daily_overview(result, message_part=None):
         overview = "\n".join(fallback_parts)
         logging.info(f"FALLBACK created narrative overview: {len(overview)} characters")
     
-    # Ensure the overview doesn't exceed character limit
-    if len(overview) > char_limit:
-        overview = overview[:char_limit-3] + "..."
+    # Не обрезаем контент - позволяем GPT создать полную сводку
+    # Система разделения сообщений разделит контент при необходимости
 
     # Validate HTML for Telegram
     validated_overview = validate_telegram_html(overview)
@@ -781,21 +857,32 @@ def send_split_messages(result, telegraph_url, chat_id, telegram_token, service_
         keyboard2 = [[{"text": "📖 Читать полностью", "url": telegraph_url}]] if telegraph_url.startswith("http") else []
         
         # Send first message
+        logging.info(f"Sending first message ({len(message1)} chars)...")
         response1 = send_telegram_message_with_keyboard(message1, chat_id, telegram_token, keyboard1)
+        logging.info(f"First message response: {response1}")
         
         # Small delay between messages
         import time
         time.sleep(1)
         
         # Send second message
+        logging.info(f"Sending second message ({len(message2)} chars)...")
         response2 = send_telegram_message_with_keyboard(message2, chat_id, telegram_token, keyboard2)
+        logging.info(f"Second message response: {response2}")
         
         # Check results
         success_count = 0
         if isinstance(response1, dict) and response1.get('ok'):
             success_count += 1
+            logging.info("✅ First message sent successfully")
+        else:
+            logging.error(f"❌ First message failed: {response1}")
+            
         if isinstance(response2, dict) and response2.get('ok'):
             success_count += 1
+            logging.info("✅ Second message sent successfully")
+        else:
+            logging.error(f"❌ Second message failed: {response2}")
             
         success_msg = f"Отправлено {success_count}/2 сообщений успешно"
         logging.info(success_msg)
