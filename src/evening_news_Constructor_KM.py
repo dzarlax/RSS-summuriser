@@ -503,20 +503,23 @@ def generate_daily_overview(result, message_part=None):
     total_news = len(result)
     categories = result['category'].nunique()
     
-    # Заголовок зависит от части сообщения
+    # Заголовок и лимит зависят от части сообщения
     if message_part == 1:
         header_text = "Сводка новостей (часть 1)"
+        char_limit = 2400  # Меньший лимит для разделенных сообщений
     elif message_part == 2:
-        header_text = "Сводка новостей (часть 2)"
+        header_text = "Сводка новостей (часть 2)" 
+        char_limit = 2400  # Меньший лимит для разделенных сообщений
     else:
         header_text = "Сводка новостей"
+        char_limit = 2600  # Больший лимит для одиночных сообщений
     
     prompt = (
         f"Ты - журналист. Создай СЖАТУЮ сводку новостей в HTML.\n\n"
         f"{total_news} новостей в {categories} категориях.\n\n"
         f"ТРЕБОВАНИЯ:\n"
         f"- HTML с <b></b> для заголовков\n" 
-        f"- МАКСИМУМ 2800 символов\n"
+        f"- МАКСИМУМ {char_limit} символов\n"
         f"- Связные абзацы (НЕ списки!)\n"
         f"- СЖАТО: только ключевые события\n\n"
         f"ФОРМАТ:\n"
@@ -549,7 +552,7 @@ def generate_daily_overview(result, message_part=None):
         "\n\nПРАВИЛА:\n"
         "✅ НЕ СПИСКИ! Только связные предложения!\n"
         "✅ НЕ используй: - • * 1. 2.\n"
-        "✅ Максимум 2800 символов!\n"
+        f"✅ Максимум {char_limit} символов!\n"
         "✅ СЖАТО: ключевые события, короткие предложения\n"
         f"✅ Начинай с <b>{header_text}</b>\n"
         "✅ HTML только <b></b>\n\n"
@@ -616,9 +619,9 @@ def generate_daily_overview(result, message_part=None):
         overview = "\n".join(fallback_parts)
         logging.info(f"FALLBACK created narrative overview: {len(overview)} characters")
     
-    # Ensure the overview doesn't exceed 2800 characters
-    if len(overview) > 2800:
-        overview = overview[:2797] + "..."
+    # Ensure the overview doesn't exceed character limit
+    if len(overview) > char_limit:
+        overview = overview[:char_limit-3] + "..."
 
     # Validate HTML for Telegram
     validated_overview = validate_telegram_html(overview)
