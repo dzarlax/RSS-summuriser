@@ -46,13 +46,14 @@ class AsyncHTTPClient:
         self.session: Optional[aiohttp.ClientSession] = None
         self.rate_limiter = RateLimiter(max_calls=settings.api_rate_limit, time_window=1.0)
         
-        # Connection configuration
-        self.timeout = ClientTimeout(total=30, connect=10)
+        # Connection configuration  
+        self.timeout = ClientTimeout(total=60, connect=15, sock_read=30)
         self.connector = aiohttp.TCPConnector(
             limit=20,  # Total connection pool size
             limit_per_host=5,  # Connections per host
             ttl_dns_cache=300,  # DNS cache TTL
             use_dns_cache=True,
+            ssl=False,  # Disable SSL verification for problematic sites
         )
     
     async def __aenter__(self):
@@ -71,7 +72,7 @@ class AsyncHTTPClient:
                 connector=self.connector,
                 timeout=self.timeout,
                 headers={
-                    'User-Agent': 'RSS-Summarizer-v2/2.0.0',
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
                 }
             )
     

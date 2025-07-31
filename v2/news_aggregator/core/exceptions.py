@@ -53,3 +53,8 @@ class TelegramError(NewsAggregatorError):
 class S3Error(NewsAggregatorError):
     """S3 storage errors."""
     pass
+
+
+class ContentExtractionError(NewsAggregatorError):
+    """Content extraction errors."""
+    pass

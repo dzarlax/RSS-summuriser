@@ -1110,6 +1110,12 @@ function formatHtmlContent(html) {
     
     let formatted = html;
     
+    // Convert markdown bold syntax **text** to HTML <strong>text</strong>
+    formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    
+    // Convert markdown italic syntax *text* to HTML <em>text</em> (process after bold to avoid conflicts)
+    formatted = formatted.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+    
     // Remove figure tags and their contents (already handled images separately)
     formatted = formatted.replace(/<figure[^>]*>[\s\S]*?<\/figure>/gi, '');
     

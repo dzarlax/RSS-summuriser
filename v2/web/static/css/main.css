@@ -1181,3 +1181,14 @@ body {
 .gap-4 { gap: 1rem; }
 .rounded { border-radius: var(--border-radius-sm); }
 .shadow { box-shadow: var(--shadow-md); }
+
+/* Text formatting styles for articles */
+strong, b {
+    font-weight: 700;
+    color: inherit;
+}
+
+em, i {
+    font-style: italic;
+    color: inherit;
+}

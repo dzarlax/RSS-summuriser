@@ -7,7 +7,7 @@ from ..config import settings
 from ..core.http_client import get_http_client
 from ..core.cache import cached
 from ..core.exceptions import APIError
-from .content_extractor import ContentExtractor
+from .content_integration import get_content_service
 
 
 class AIClient:
@@ -24,7 +24,7 @@ class AIClient:
         
         self.enabled = True
         
-        self.content_extractor = ContentExtractor()
+        self.content_service = None
     
     @cached(ttl=86400, key_prefix="ai_summary")
     async def get_article_summary(self, article_url: str) -> Optional[str]:
@@ -42,8 +42,11 @@ class AIClient:
         
         try:
             print(f"  🔗 Extracting content from URL: {article_url}")
-            # Step 1: Extract article content
-            content = await self.content_extractor.extract_article_content(article_url)
+            # Step 1: Extract article content using enhanced extractor
+            if not self.content_service:
+                self.content_service = await get_content_service()
+            
+            content = await self.content_service.extract_content(article_url)
             if not content:
                 print(f"  ⚠️ Could not extract content from {article_url}")
                 return None

@@ -60,3 +60,9 @@ telegraph>=2.2.0
 
 # PostgreSQL для backup
 psycopg2-binary>=2.9.7
+
+# Content extraction improvements
+readability-lxml>=0.8.1       # Mozilla readability algorithm
+playwright>=1.40.0            # JavaScript rendering for SPA sites
+langdetect>=1.0.9             # Language detection
+textstat>=0.7.3               # Text quality metrics
