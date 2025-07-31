@@ -744,18 +744,10 @@ def generate_daily_overview(result, message_part=None):
 
 def format_enhanced_telegram_message(daily_overview_html, telegraph_url, current_date, result):
     """
-    Compact message formatting focused on content over decoration
+    Compact message formatting focused on content over decoration (fixed duplicate headers)
     """
-    # Simple clean header without statistics
-    message_parts = [
-        f"📰 <b>Новости {current_date}</b>",
-        "",
-        daily_overview_html
-    ]
-    
-    # Don't add Telegraph link in text - we have button for that
-    
-    return "\n".join(message_parts)
+    # daily_overview_html already contains the correct header, don't add another one
+    return daily_overview_html
 
 def prepare_and_send_message(result, chat_id, telegram_token, telegraph_access_token, service_chat_id):
     """

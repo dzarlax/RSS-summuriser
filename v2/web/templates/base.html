@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}RSS Summarizer v2{% endblock %}</title>
+    <link href="/static/css/main.css" rel="stylesheet">
+    <script src="/static/js/main.js"></script>
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <div class="nav-brand">
+                <a href="/">RSS Summarizer v2</a>
+            </div>
+            <div class="nav-menu">
+                <a href="/news">Новости</a>
+                <a href="/admin">Админка</a>
+                <a href="/api/v1">API</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="main-content">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="footer">
+        <div class="footer-content">
+            <p>&copy; 2025 RSS Summarizer v2.0</p>
+        </div>
+    </footer>
+
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

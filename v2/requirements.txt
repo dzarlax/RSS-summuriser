@@ -1,0 +1,62 @@
+# Web framework
+fastapi>=0.104.1
+uvicorn[standard]>=0.24.0
+
+# Database
+asyncpg>=0.29.0
+alembic>=1.13.0
+sqlalchemy[asyncio]>=2.0.23
+
+# HTTP clients
+aiohttp>=3.9.1
+httpx>=0.25.2
+tenacity>=8.2.3
+
+# Cache (using file-based cache instead of Redis)
+
+# Configuration
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# RSS parsing (для чтения источников)
+feedparser>=6.0.10
+beautifulsoup4>=4.12.2
+
+# Date handling
+python-dateutil>=2.8.2
+pytz>=2023.3
+
+# Text processing (removed heavy ML deps - using API instead)
+
+# File operations
+aiofiles>=23.2.1
+
+# Cloud storage (removed - using DB only)
+# boto3>=1.34.0
+# aiobotocore>=2.8.0
+
+# Monitoring
+structlog>=23.2.0
+prometheus-client>=0.19.0
+
+# Task scheduling (removed - using direct async processing)
+
+# Templates
+jinja2>=3.1.2
+
+# Static files
+python-multipart>=0.0.6
+
+# CLI interface
+click>=8.1.7
+rich>=13.7.0
+
+# Machine learning removed - using Constructor KM API instead
+
+# Legacy dependencies removed (already specified above)
+
+# Telegraph integration
+telegraph>=2.2.0
+
+# PostgreSQL для backup
+psycopg2-binary>=2.9.7

@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block title %}Кластеризация - RSS Summarizer v2{% endblock %}
+
+{% block content %}
+<div class="admin-container">
+    <div class="admin-sidebar">
+        <h3>Администрирование</h3>
+        <nav class="admin-nav">
+            <a href="/admin" class="nav-item">
+                <span class="icon">📊</span> Дашборд
+            </a>
+            <a href="/admin/sources" class="nav-item">
+                <span class="icon">📰</span> Источники
+            </a>
+            <a href="/admin/clustering" class="nav-item active">
+                <span class="icon">🔗</span> Кластеризация
+            </a>
+            <a href="/admin/stats" class="nav-item">
+                <span class="icon">📈</span> Статистика
+            </a>
+            <a href="/admin/backup" class="nav-item">
+                <span class="icon">💾</span> Резервные копии
+            </a>
+        </nav>
+    </div>
+
+    <div class="admin-main">
+        <h1>Настройки кластеризации</h1>
+        
+        <div class="clustering-settings">
+            <div class="settings-section">
+                <h2>Параметры дедупликации</h2>
+                <div class="form-group">
+                    <label>Порог схожести заголовков:</label>
+                    <input type="range" min="0.1" max="1.0" step="0.1" value="0.7" id="title-threshold">
+                    <span id="title-threshold-value">0.7</span>
+                </div>
+                <div class="form-group">
+                    <label>Порог схожести содержания:</label>
+                    <input type="range" min="0.1" max="1.0" step="0.1" value="0.6" id="content-threshold">
+                    <span id="content-threshold-value">0.6</span>
+                </div>
+            </div>
+            
+            <div class="settings-section">
+                <h2>Статистика кластеризации</h2>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <h3>Активные кластеры</h3>
+                        <div class="stat-number">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Дедуплицировано</h3>
+                        <div class="stat-number">0%</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.getElementById('title-threshold').addEventListener('input', function(e) {
+    document.getElementById('title-threshold-value').textContent = e.target.value;
+});
+
+document.getElementById('content-threshold').addEventListener('input', function(e) {
+    document.getElementById('content-threshold-value').textContent = e.target.value;
+});
+</script>
+{% endblock %}

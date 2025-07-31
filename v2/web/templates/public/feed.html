@@ -1,0 +1,1207 @@
+{% extends "base.html" %}
+
+{% block title %}Лента новостей - RSS Summarizer v2{% endblock %}
+
+{% block content %}
+<div class="news-page">
+    <div class="news-header">
+        <div class="container">
+            <h1>📰 Лента новостей</h1>
+            <p>Свежие новости из проверенных источников</p>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Filters -->
+        <div class="news-filters">
+            <div class="filters-header">
+                <h3>📋 Категории</h3>
+                <div class="filter-count" id="filter-count">Всего: 0</div>
+            </div>
+            <div class="filter-buttons" id="filter-buttons">
+                <button class="filter-btn active" data-category="all">
+                    <span class="filter-icon">🔍</span>
+                    <span>Все</span>
+                    <span class="count" id="count-all">0</span>
+                </button>
+                <!-- Category buttons will be added dynamically -->
+            </div>
+        </div>
+
+        <!-- News Feed -->
+        <div class="news-feed" id="news-feed">
+            <div class="loading-state">
+                <div class="loading-spinner"></div>
+                <p>Загрузка новостей...</p>
+            </div>
+        </div>
+
+        <!-- Load More Button -->
+        <div class="load-more-container" id="load-more-container" style="display: none;">
+            <button class="btn btn-outline load-more-btn" onclick="loadMoreNews()">
+                Загрузить еще
+            </button>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Modern News Page Design */
+.news-page {
+    min-height: 100vh;
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+}
+
+.news-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 60px 0;
+    text-align: center;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+}
+
+.news-header h1 {
+    font-size: 2.5rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+}
+
+.news-header p {
+    font-size: 1.2rem;
+    opacity: 0.9;
+    margin: 0;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 20px;
+}
+
+/* News Filters */
+.news-filters {
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    margin: 30px 0;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
+}
+
+.filters-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #eee;
+}
+
+.filters-header h3 {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: #2c3e50;
+    margin: 0;
+}
+
+.filter-count {
+    font-size: 0.9rem;
+    color: #6c757d;
+    font-weight: 500;
+}
+
+.filter-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.filter-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border: 2px solid #e9ecef;
+    background: white;
+    border-radius: 25px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.3s ease;
+    color: #495057;
+    position: relative;
+    overflow: hidden;
+}
+
+.filter-btn:hover {
+    border-color: #667eea;
+    color: #667eea;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+}
+
+.filter-btn.active {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-color: #667eea;
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.filter-btn .filter-icon {
+    font-size: 16px;
+}
+
+.filter-btn .count {
+    background: rgba(255,255,255,0.2);
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    min-width: 20px;
+    text-align: center;
+}
+
+.filter-btn.active .count {
+    background: rgba(255,255,255,0.3);
+}
+
+/* News Feed */
+.news-feed {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+    gap: 24px;
+    margin-bottom: 40px;
+}
+
+.news-item {
+    background: white;
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+    transition: all 0.3s ease;
+    border: 1px solid rgba(255,255,255,0.2);
+    position: relative;
+}
+
+.news-item:hover {
+    box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+}
+
+.news-image {
+    position: relative;
+    width: 100%;
+    height: 200px;
+    overflow: hidden;
+    background: #f8f9fa;
+}
+
+.news-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.3s ease;
+}
+
+.news-item:hover .news-image img {
+    transform: scale(1.05);
+}
+
+.image-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
+    color: #dee2e6;
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+}
+
+.category-badge {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    color: white;
+    backdrop-filter: blur(10px);
+    z-index: 2;
+}
+
+.category-business { background: rgba(40, 167, 69, 0.9); }
+.category-tech { background: rgba(23, 162, 184, 0.9); }
+.category-science { background: rgba(111, 66, 193, 0.9); }
+.category-nature { background: rgba(40, 167, 69, 0.9); }
+.category-serbia { background: rgba(220, 53, 69, 0.9); }
+.category-marketing { background: rgba(255, 193, 7, 0.9); }
+.category-other { background: rgba(108, 117, 125, 0.9); }
+
+.news-content {
+    padding: 20px;
+}
+
+.news-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #2c3e50;
+    line-height: 1.4;
+    margin-bottom: 12px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.news-title a {
+    color: inherit;
+    text-decoration: none;
+    transition: color 0.3s ease;
+}
+
+.news-title a:hover {
+    color: #667eea;
+}
+
+.news-summary {
+    color: #6c757d;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    margin-bottom: 16px;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.news-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 12px;
+    border-top: 1px solid #f1f3f4;
+    font-size: 0.8rem;
+    color: #6c757d;
+}
+
+.news-source {
+    font-weight: 500;
+    color: #495057;
+}
+
+.news-date {
+    font-style: italic;
+}
+
+/* Loading and Empty States */
+.loading-state {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 60px 20px;
+    color: #6c757d;
+}
+
+.loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #667eea;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 20px;
+}
+
+.empty-state {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 60px 20px;
+    color: #6c757d;
+}
+
+.empty-state .icon {
+    font-size: 3rem;
+    margin-bottom: 20px;
+}
+
+.empty-state h3 {
+    font-size: 1.5rem;
+    margin-bottom: 10px;
+    color: #495057;
+}
+
+/* Load More Button */
+.load-more-container {
+    text-align: center;
+    margin: 40px 0;
+}
+
+.load-more-btn {
+    padding: 12px 32px;
+    font-size: 1rem;
+    font-weight: 500;
+    border-radius: 25px;
+    border: 2px solid #667eea;
+    color: #667eea;
+    background: white;
+    transition: all 0.3s ease;
+}
+
+.load-more-btn:hover {
+    background: #667eea;
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
+}
+
+/* Animations */
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.news-item {
+    animation: fadeIn 0.5s ease-out;
+}
+
+/* Action Buttons */
+.news-actions {
+    display: flex;
+    gap: 8px;
+    padding: 12px 20px;
+    border-top: 1px solid #f1f3f4;
+    background: #fafbfc;
+}
+
+.btn-read-more,
+.btn-original {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    border-radius: 20px;
+    text-decoration: none;
+    transition: all 0.2s ease;
+    border: none;
+    cursor: pointer;
+}
+
+.btn-read-more {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    flex: 1;
+    justify-content: center;
+}
+
+.btn-read-more:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(102, 126, 234, 0.3);
+}
+
+.btn-original {
+    background: white;
+    color: #6c757d;
+    border: 1px solid #dee2e6;
+}
+
+.btn-original:hover {
+    background: #f8f9fa;
+    color: #495057;
+    border-color: #adb5bd;
+}
+
+/* Modal Styles */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(5px);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    opacity: 0;
+    animation: modalFadeIn 0.3s ease-out forwards;
+}
+
+.modal-content {
+    background: white;
+    border-radius: 16px;
+    max-width: 800px;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+    transform: translateY(20px);
+    animation: modalSlideIn 0.3s ease-out forwards;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid #eee;
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border-radius: 16px 16px 0 0;
+}
+
+.modal-category {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: white;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: #6c757d;
+    padding: 8px;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.modal-close:hover {
+    background: rgba(0, 0, 0, 0.1);
+    color: #495057;
+}
+
+.modal-image {
+    position: relative;
+    width: 100%;
+    max-height: 300px;
+    overflow: hidden;
+}
+
+.modal-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.modal-body {
+    padding: 24px;
+}
+
+.modal-title {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #2c3e50;
+    line-height: 1.3;
+    margin: 0 0 16px 0;
+}
+
+.modal-meta {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 20px;
+    font-size: 0.875rem;
+}
+
+.modal-source,
+.modal-date {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: #6c757d;
+    font-weight: 500;
+}
+
+.modal-summary {
+    font-size: 1rem;
+    line-height: 1.6;
+    color: #495057;
+    margin-bottom: 24px;
+}
+
+.modal-summary h3 {
+    color: #2c3e50;
+    font-size: 1.2rem;
+    font-weight: 600;
+    margin: 20px 0 10px 0;
+}
+
+.modal-summary p {
+    margin-bottom: 12px;
+}
+
+.modal-summary a {
+    color: #667eea;
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.modal-summary a:hover {
+    text-decoration: underline;
+}
+
+.modal-summary strong {
+    color: #2c3e50;
+    font-weight: 600;
+}
+
+.modal-summary em {
+    font-style: italic;
+    color: #6c757d;
+}
+
+.modal-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    padding-top: 20px;
+    border-top: 1px solid #eee;
+}
+
+.modal-actions .btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 24px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    border-radius: 8px;
+    text-decoration: none;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.modal-actions .btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+.modal-actions .btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.modal-actions .btn-secondary {
+    background: #f8f9fa;
+    color: #6c757d;
+    border: 1px solid #dee2e6;
+}
+
+.modal-actions .btn-secondary:hover {
+    background: #e9ecef;
+    color: #495057;
+}
+
+/* Modal Animations */
+@keyframes modalFadeIn {
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes modalSlideIn {
+    to {
+        transform: translateY(0);
+    }
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    .news-header h1 {
+        font-size: 2rem;
+    }
+    
+    .news-header p {
+        font-size: 1rem;
+    }
+    
+    .news-feed {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+    
+    .filter-buttons {
+        justify-content: center;
+    }
+    
+    .filters-header {
+        flex-direction: column;
+        gap: 10px;
+        text-align: center;
+    }
+    
+    .modal-overlay {
+        padding: 10px;
+    }
+    
+    .modal-content {
+        max-width: none;
+        max-height: 95vh;
+    }
+    
+    .modal-body {
+        padding: 20px;
+    }
+    
+    .modal-title {
+        font-size: 1.25rem;
+    }
+    
+    .modal-actions {
+        flex-direction: column;
+        gap: 8px;
+    }
+    
+    .modal-actions .btn {
+        justify-content: center;
+    }
+}
+
+@media (max-width: 480px) {
+    .news-filters {
+        margin: 20px 0;
+        padding: 16px;
+    }
+    
+    .news-content {
+        padding: 16px;
+    }
+    
+    .filter-btn {
+        padding: 8px 12px;
+        font-size: 13px;
+    }
+    
+    .modal-header {
+        padding: 16px 20px;
+    }
+    
+    .modal-body {
+        padding: 16px;
+    }
+    
+    .news-actions {
+        padding: 10px 16px;
+        gap: 6px;
+    }
+    
+    .btn-read-more,
+    .btn-original {
+        padding: 6px 10px;
+        font-size: 0.7rem;
+    }
+}
+</style>
+
+<script>
+let currentPage = 0;
+let isLoading = false;
+let currentCategory = 'all';
+let categoryCounts = {};
+let allCategories = {};
+
+// Category mappings
+const categoryConfig = {
+    'all': { icon: '🔍', name: 'Все' },
+    'business': { icon: '💼', name: 'Бизнес' },
+    'tech': { icon: '💻', name: 'Технологии' },
+    'science': { icon: '🔬', name: 'Наука' },
+    'nature': { icon: '🌿', name: 'Природа' },
+    'serbia': { icon: '🇷🇸', name: 'Сербия' },
+    'marketing': { icon: '📈', name: 'Маркетинг' },
+    'other': { icon: '📰', name: 'Разное' }
+};
+
+document.addEventListener('DOMContentLoaded', function() {
+    loadCategories();
+    loadNews(true);
+});
+
+async function loadCategories() {
+    try {
+        const response = await fetch('/api/v1/categories');
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        allCategories = { all: data.total_articles };
+        
+        // Convert categories to counts object
+        data.categories.forEach(cat => {
+            allCategories[cat.category.toLowerCase()] = cat.count;
+        });
+        
+        // Update filter buttons with all available categories
+        updateAllCategoryFilters();
+        
+    } catch (error) {
+        console.error('Error loading categories:', error);
+    }
+}
+
+async function loadNews(reset = false) {
+    if (isLoading) return;
+    
+    isLoading = true;
+    
+    if (reset) {
+        currentPage = 0;
+        document.getElementById('news-feed').innerHTML = `
+            <div class="loading-state">
+                <div class="loading-spinner"></div>
+                <p>Загрузка новостей...</p>
+            </div>
+        `;
+    }
+    
+    try {
+        const limit = 20;
+        const offset = currentPage * limit;
+        
+        let url = `/api/v1/feed?limit=${limit}&offset=${offset}`;
+        if (currentCategory !== 'all') {
+            url += `&category=${currentCategory}`;
+        }
+        
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (reset) {
+            renderNews(data.items || [], true);
+            updateCurrentCategoryCounts(data.items || []);
+        } else {
+            renderNews(data.items || [], false);
+        }
+        
+        // Show/hide load more button
+        const loadMoreContainer = document.getElementById('load-more-container');
+        if (data.items && data.items.length === limit) {
+            loadMoreContainer.style.display = 'block';
+        } else {
+            loadMoreContainer.style.display = 'none';
+        }
+        
+        currentPage++;
+        
+    } catch (error) {
+        console.error('Error loading news:', error);
+        showError('Ошибка загрузки новостей. Попробуйте обновить страницу.');
+    } finally {
+        isLoading = false;
+    }
+}
+
+function renderNews(articles, reset = false) {
+    const container = document.getElementById('news-feed');
+    
+    if (!articles || articles.length === 0) {
+        if (reset) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <div class="icon">📰</div>
+                    <h3>Новостей не найдено</h3>
+                    <p>Попробуйте изменить фильтры или обновить страницу</p>
+                </div>
+            `;
+        }
+        return;
+    }
+    
+    // Store articles data for modal
+    articles.forEach(article => {
+        articlesData[article.article_id] = article;
+    });
+    
+    const newsHtml = articles.map(article => createNewsItem(article)).join('');
+    
+    if (reset) {
+        container.innerHTML = newsHtml;
+        articlesData = {}; // Reset data when resetting view
+        articles.forEach(article => {
+            articlesData[article.article_id] = article;
+        });
+    } else {
+        container.insertAdjacentHTML('beforeend', newsHtml);
+    }
+}
+
+function createNewsItem(article) {
+    const category = (article.category || 'Other').toLowerCase();
+    const categoryInfo = categoryConfig[category] || categoryConfig['other'];
+    
+    // Extract image from content or summary
+    const imageUrl = extractImageFromContent(article.image_url || article.summary || article.content || '');
+    
+    // Clean summary for display
+    const cleanSummary = cleanHtmlSummary(article.summary || '');
+    
+    return `
+        <article class="news-item" data-category="${category}" onclick="showArticleModal('${article.article_id}')">
+            <div class="news-image">
+                ${imageUrl ? 
+                    `<img src="${imageUrl}" alt="${escapeHtml(article.title)}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=\\"image-placeholder\\">📰</div>'">` :
+                    `<div class="image-placeholder">📰</div>`
+                }
+                <div class="category-badge category-${category}">
+                    ${categoryInfo.icon} ${categoryInfo.name}
+                </div>
+            </div>
+            <div class="news-content">
+                <h2 class="news-title">
+                    ${escapeHtml(article.title)}
+                </h2>
+                ${cleanSummary ? `
+                    <p class="news-summary">${cleanSummary}</p>
+                ` : ''}
+                <div class="news-meta">
+                    <span class="news-source">${article.domain || 'Неизвестно'}</span>
+                    <span class="news-date">${formatDate(article.published_at)}</span>
+                </div>
+            </div>
+            <div class="news-actions">
+                <button class="btn-read-more" onclick="event.stopPropagation(); showArticleModal('${article.article_id}')">
+                    📖 Подробнее
+                </button>
+                <a href="${article.url}" target="_blank" rel="noopener noreferrer" class="btn-original" onclick="event.stopPropagation()">
+                    🔗 Оригинал
+                </a>
+            </div>
+        </article>
+    `;
+}
+
+function updateAllCategoryFilters() {
+    // Update filter buttons with all available categories from database
+    const filterButtons = document.getElementById('filter-buttons');
+    let buttonsHtml = `
+        <button class="filter-btn ${currentCategory === 'all' ? 'active' : ''}" data-category="all" onclick="filterByCategory('all')">
+            <span class="filter-icon">🔍</span>
+            <span>Все</span>
+            <span class="count">${allCategories.all || 0}</span>
+        </button>
+    `;
+    
+    // Add buttons for all categories that exist in database
+    Object.keys(categoryConfig).forEach(category => {
+        if (category !== 'all' && allCategories[category] > 0) {
+            const config = categoryConfig[category];
+            buttonsHtml += `
+                <button class="filter-btn ${currentCategory === category ? 'active' : ''}" data-category="${category}" onclick="filterByCategory('${category}')">
+                    <span class="filter-icon">${config.icon}</span>
+                    <span>${config.name}</span>
+                    <span class="count">${allCategories[category]}</span>
+                </button>
+            `;
+        }
+    });
+    
+    filterButtons.innerHTML = buttonsHtml;
+    
+    // Update filter count
+    document.getElementById('filter-count').textContent = `Всего: ${allCategories.all || 0}`;
+}
+
+function updateCurrentCategoryCounts(articles) {
+    // Just count current visible articles for reference
+    categoryCounts = { all: articles.length };
+    
+    articles.forEach(article => {
+        const category = (article.category || 'Other').toLowerCase();
+        categoryCounts[category] = (categoryCounts[category] || 0) + 1;
+    });
+}
+
+function filterByCategory(category) {
+    if (currentCategory === category) return;
+    
+    currentCategory = category;
+    
+    // Update active button
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.category === category);
+    });
+    
+    // Reset and load news with new filter
+    loadNews(true);
+}
+
+function loadMoreNews() {
+    loadNews(false);
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function formatDate(dateString) {
+    if (!dateString) return 'Неизвестно';
+    
+    try {
+        const date = new Date(dateString);
+        const now = new Date();
+        const diffHours = Math.floor((now - date) / (1000 * 60 * 60));
+        
+        if (diffHours < 1) return 'Только что';
+        if (diffHours < 24) return `${diffHours} ч. назад`;
+        
+        const diffDays = Math.floor(diffHours / 24);
+        if (diffDays < 7) return `${diffDays} дн. назад`;
+        
+        return date.toLocaleDateString('ru-RU');
+    } catch {
+        return 'Неизвестно';
+    }
+}
+
+function extractImageFromContent(content) {
+    if (!content) return null;
+    
+    // Extract image URL from HTML content
+    const imgRegex = /<img[^>]+src=['"]([^'"]+)['"][^>]*>/i;
+    const match = content.match(imgRegex);
+    
+    if (match && match[1]) {
+        // Clean up the URL
+        let imageUrl = match[1];
+        // Remove HTML entities
+        imageUrl = imageUrl.replace(/&amp;/g, '&').replace(/&#038;/g, '&');
+        return imageUrl;
+    }
+    
+    return null;
+}
+
+function cleanHtmlSummary(html) {
+    if (!html) return '';
+    
+    // Remove HTML tags but keep basic formatting
+    let clean = html;
+    
+    // Remove figure tags and their contents
+    clean = clean.replace(/<figure[^>]*>[\s\S]*?<\/figure>/gi, '');
+    
+    // Remove img tags
+    clean = clean.replace(/<img[^>]*>/gi, '');
+    
+    // Remove script tags
+    clean = clean.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+    
+    // Convert paragraphs to line breaks
+    clean = clean.replace(/<\/p>\s*<p[^>]*>/gi, '\n\n');
+    clean = clean.replace(/<p[^>]*>/gi, '');
+    clean = clean.replace(/<\/p>/gi, '');
+    
+    // Remove other HTML tags
+    clean = clean.replace(/<[^>]*>/g, '');
+    
+    // Decode HTML entities
+    clean = clean.replace(/&quot;/g, '"')
+                 .replace(/&apos;/g, "'")
+                 .replace(/&lt;/g, '<')
+                 .replace(/&gt;/g, '>')
+                 .replace(/&amp;/g, '&')
+                 .replace(/&#038;/g, '&');
+    
+    // Clean up whitespace
+    clean = clean.replace(/\s+/g, ' ').trim();
+    
+    // Limit length
+    if (clean.length > 200) {
+        clean = clean.substring(0, 200) + '...';
+    }
+    
+    return clean;
+}
+
+let articlesData = {}; // Store articles data for modal
+
+function showArticleModal(articleId) {
+    const article = articlesData[articleId];
+    if (!article) return;
+    
+    const category = (article.category || 'Other').toLowerCase();
+    const categoryInfo = categoryConfig[category] || categoryConfig['other'];
+    const imageUrl = extractImageFromContent(article.image_url || article.summary || article.content || '');
+    
+    // Create modal HTML
+    const modalHtml = `
+        <div class="modal-overlay" onclick="closeArticleModal()">
+            <div class="modal-content" onclick="event.stopPropagation()">
+                <div class="modal-header">
+                    <div class="modal-category category-${category}">
+                        ${categoryInfo.icon} ${categoryInfo.name}
+                    </div>
+                    <button class="modal-close" onclick="closeArticleModal()">×</button>
+                </div>
+                
+                ${imageUrl ? `
+                    <div class="modal-image">
+                        <img src="${imageUrl}" alt="${escapeHtml(article.title)}" onerror="this.parentElement.style.display='none'">
+                    </div>
+                ` : ''}
+                
+                <div class="modal-body">
+                    <h1 class="modal-title">${escapeHtml(article.title)}</h1>
+                    
+                    <div class="modal-meta">
+                        <span class="modal-source">📰 ${article.domain || 'Неизвестно'}</span>
+                        <span class="modal-date">📅 ${formatDate(article.published_at)}</span>
+                    </div>
+                    
+                    <div class="modal-summary">
+                        ${formatHtmlContent(article.summary || article.content || 'Содержимое недоступно')}
+                    </div>
+                    
+                    <div class="modal-actions">
+                        <a href="${article.url}" target="_blank" rel="noopener noreferrer" class="btn btn-primary">
+                            🔗 Читать оригинал
+                        </a>
+                        <button class="btn btn-secondary" onclick="closeArticleModal()">
+                            Закрыть
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Add modal to page
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+    document.body.style.overflow = 'hidden';
+}
+
+function closeArticleModal() {
+    const modal = document.querySelector('.modal-overlay');
+    if (modal) {
+        modal.remove();
+        document.body.style.overflow = '';
+    }
+}
+
+function formatHtmlContent(html) {
+    if (!html) return 'Содержимое недоступно';
+    
+    let formatted = html;
+    
+    // Remove figure tags and their contents (already handled images separately)
+    formatted = formatted.replace(/<figure[^>]*>[\s\S]*?<\/figure>/gi, '');
+    
+    // Remove script tags
+    formatted = formatted.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+    
+    // Remove img tags (already handled separately)
+    formatted = formatted.replace(/<img[^>]*>/gi, '');
+    
+    // Convert specific tags to readable format
+    formatted = formatted.replace(/<h[1-6][^>]*>(.*?)<\/h[1-6]>/gi, '<h3>$1</h3>');
+    formatted = formatted.replace(/<strong[^>]*>(.*?)<\/strong>/gi, '<strong>$1</strong>');
+    formatted = formatted.replace(/<em[^>]*>(.*?)<\/em>/gi, '<em>$1</em>');
+    formatted = formatted.replace(/<a[^>]+href=['"]([^'"]+)['"][^>]*>(.*?)<\/a>/gi, '<a href="$1" target="_blank" rel="noopener noreferrer">$2</a>');
+    
+    // Handle line breaks and paragraph formatting
+    // First, normalize line breaks
+    formatted = formatted.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    
+    // Convert double line breaks to paragraph breaks
+    formatted = formatted.replace(/\n\s*\n/g, '</p><p>');
+    
+    // Convert remaining single line breaks to <br>
+    formatted = formatted.replace(/\n/g, '<br>');
+    
+    // Handle existing paragraphs
+    formatted = formatted.replace(/<p[^>]*>(.*?)<\/p>/gi, '<p>$1</p>');
+    
+    // If no paragraphs exist, wrap content in paragraphs
+    if (!formatted.includes('<p>')) {
+        // Split by sentence endings followed by space or line break
+        const sentences = formatted.split(/([.!?]+(?:\s|<br>|$))/);
+        let paragraphs = [];
+        let currentParagraph = '';
+        
+        for (let i = 0; i < sentences.length; i += 2) {
+            const sentence = sentences[i] || '';
+            const punctuation = sentences[i + 1] || '';
+            
+            if (sentence.trim()) {
+                currentParagraph += sentence + punctuation;
+                
+                // Start new paragraph every 2-3 sentences or if content is long
+                if ((i >= 4 && Math.random() > 0.7) || currentParagraph.length > 300) {
+                    paragraphs.push('<p>' + currentParagraph.trim() + '</p>');
+                    currentParagraph = '';
+                }
+            }
+        }
+        
+        // Add remaining content
+        if (currentParagraph.trim()) {
+            paragraphs.push('<p>' + currentParagraph.trim() + '</p>');
+        }
+        
+        formatted = paragraphs.join('');
+    }
+    
+    // Remove remaining unwanted tags but keep basic formatting
+    formatted = formatted.replace(/<(?!\/?(p|br|strong|em|a|h3|ul|ol|li|blockquote)\b)[^>]*>/gi, '');
+    
+    // Clean up extra whitespace but preserve paragraph structure
+    formatted = formatted.replace(/\s*<\/p>\s*<p>\s*/g, '</p><p>');
+    formatted = formatted.replace(/\s*<br>\s*/g, '<br>');
+    formatted = formatted.replace(/\s+/g, ' ');
+    formatted = formatted.replace(/<p>\s+/g, '<p>');
+    formatted = formatted.replace(/\s+<\/p>/g, '</p>');
+    
+    // Ensure content starts and ends with paragraph tags
+    if (!formatted.startsWith('<p>')) {
+        formatted = '<p>' + formatted;
+    }
+    if (!formatted.endsWith('</p>')) {
+        formatted = formatted + '</p>';
+    }
+    
+    // Fix double paragraphs
+    formatted = formatted.replace(/<p><p>/g, '<p>');
+    formatted = formatted.replace(/<\/p><\/p>/g, '</p>');
+    
+    return formatted;
+}
+
+function showError(message) {
+    const container = document.getElementById('news-feed');
+    container.innerHTML = `
+        <div class="empty-state">
+            <div class="icon">⚠️</div>
+            <h3>Ошибка</h3>
+            <p>${message}</p>
+        </div>
+    `;
+}
+</script>
+{% endblock %}

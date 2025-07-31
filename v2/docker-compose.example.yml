@@ -1,0 +1,137 @@
+version: '3.8'
+
+services:
+  # News Aggregator Web Application
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: news_aggregator_web
+    ports:
+      - "8000:8000"
+    environment:
+      # Database Configuration
+      - DATABASE_URL=postgresql://newsuser:newspass123@postgres:5432/newsdb
+      
+      # AI/API Configuration - ЗАМЕНИТЕ НА ВАШИ ЗНАЧЕНИЯ
+      - CONSTRUCTOR_KM_API=https://training.constructor.app/api/platform-kmapi/v1/knowledge-models/your-model-id/chat/completions/direct_llm
+      - CONSTRUCTOR_KM_API_KEY=Bearer your_api_key_here
+      - MODEL=gpt-4o-mini
+      - SUMMARIZATION_MODEL=gpt-4o-mini
+      - CATEGORIZATION_MODEL=gpt-4o-mini
+      - DIGEST_MODEL=gpt-4o
+      - RPS=3
+      
+      # Telegram Integration - ЗАМЕНИТЕ НА ВАШИ ЗНАЧЕНИЯ
+      - TELEGRAM_TOKEN=1234567890:AAExxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+      - TELEGRAM_CHAT_ID=123456789
+      - TELEGRAPH_ACCESS_TOKEN=your_telegraph_token_here
+      
+      # Application Settings
+      - LOG_LEVEL=INFO
+      - DEVELOPMENT=false
+      - MAX_WORKERS=5
+      - CACHE_TTL=86400
+      - CACHE_DIR=/app/cache
+      
+      # News Categories
+      - NEWS_CATEGORIES=Business,Tech,Science,Nature,Serbia,Marketing,Other
+      - DEFAULT_CATEGORY=Other
+      
+      # Backup Configuration
+      - DB_PASSWORD=newspass123
+    
+    depends_on:
+      postgres:
+        condition: service_healthy
+    
+    volumes:
+      - ./backups:/app/backups
+      - ./scripts:/app/scripts
+      - app_cache:/app/cache
+      - app_logs:/app/logs
+    
+    networks:
+      - news_network
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: news_aggregator_db
+    environment:
+      POSTGRES_DB: newsdb
+      POSTGRES_USER: newsuser
+      POSTGRES_PASSWORD: newspass123
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+      - ./backups/postgres:/backup
+    
+    ports:
+      - "5432:5432"
+    
+    networks:
+      - news_network
+    
+    restart: unless-stopped
+    
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U newsuser -d newsdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+
+# Named Volumes для персистентного хранения данных
+volumes:
+  postgres_data:
+    driver: local
+  app_cache:
+    driver: local
+  app_logs:
+    driver: local
+
+# Networks
+networks:
+  news_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+# ==========================================
+# ИНСТРУКЦИИ ПО ИСПОЛЬЗОВАНИЮ:
+# ==========================================
+#
+# 1. ЗАПУСК:
+#    docker-compose -f docker-compose.example.yml up -d
+#
+# 2. ЛОГИ И СТАТУС:
+#    docker-compose -f docker-compose.example.yml logs -f web
+#    docker-compose -f docker-compose.example.yml ps
+#
+# 3. ОСТАНОВКА:
+#    docker-compose -f docker-compose.example.yml down
+#
+# 4. ДОСТУП К ПРИЛОЖЕНИЮ:
+#    - Веб-интерфейс: http://localhost:8000
+#    - API документация: http://localhost:8000/docs
+#    - База данных: localhost:5432 (newsuser/newspass123)
+#
+# ВАЖНО: Перед запуском замените:
+# - CONSTRUCTOR_KM_API_KEY на ваш реальный ключ
+# - TELEGRAM_TOKEN на токен вашего бота
+# - TELEGRAM_CHAT_ID на ID вашего чата
+# - TELEGRAPH_ACCESS_TOKEN на ваш Telegraph токен (опционально)

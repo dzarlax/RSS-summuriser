@@ -1,0 +1,776 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="admin-container">
+    <div class="admin-sidebar">
+        <h3>Администрирование</h3>
+        <nav class="admin-nav">
+            <a href="/admin" class="nav-item">
+                <span class="icon">📊</span> Дашборд
+            </a>
+            <a href="/admin/sources" class="nav-item">
+                <span class="icon">📰</span> Источники
+            </a>
+            <a href="/admin/summaries" class="nav-item">
+                <span class="icon">📄</span> Дневные сводки
+            </a>
+            <a href="/admin/schedule" class="nav-item">
+                <span class="icon">⏰</span> Расписание
+            </a>
+            <a href="/admin/stats" class="nav-item">
+                <span class="icon">📈</span> Статистика
+            </a>
+            <a href="/admin/backup" class="nav-item active">
+                <span class="icon">💾</span> Резервные копии
+            </a>
+        </nav>
+    </div>
+
+    <div class="admin-main">
+        <h1>Резервные копии</h1>
+        
+        <!-- Quick Actions -->
+        <div class="backup-actions">
+            <button class="btn btn-primary" onclick="createBackup()">
+                <span class="icon">💾</span> Создать резервную копию
+            </button>
+            <button class="btn btn-success" onclick="showUploadModal()">
+                <span class="icon">📁</span> Загрузить backup
+            </button>
+            <button class="btn btn-secondary" onclick="refreshBackups()">
+                <span class="icon">🔄</span> Обновить список
+            </button>
+        </div>
+
+        <!-- Backup Status -->
+        <div class="status-panel" id="backup-status" style="display: none;">
+            <h3>Статус операции</h3>
+            <div class="status-content">
+                <div class="status-indicator" id="status-indicator"></div>
+                <div class="status-message" id="status-message">Готов к работе</div>
+                <div class="status-progress" id="status-progress" style="display: none;">
+                    <div class="progress-bar">
+                        <div class="progress-fill"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Schedule Settings -->
+        <div class="backup-schedule">
+            <h2>Автоматические резервные копии</h2>
+            <div class="schedule-form">
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="schedule-enabled"> 
+                        Включить автоматическое создание резервных копий
+                    </label>
+                </div>
+                <div class="form-group">
+                    <label for="schedule-time">Время создания (UTC):</label>
+                    <input type="time" id="schedule-time" value="03:00">
+                </div>
+                <div class="form-group">
+                    <label for="keep-days">Хранить резервные копии (дней):</label>
+                    <input type="number" id="keep-days" value="30" min="1" max="365">
+                </div>
+                <button class="btn btn-primary" onclick="saveSchedule()">
+                    <span class="icon">💾</span> Сохранить настройки
+                </button>
+            </div>
+        </div>
+
+        <!-- Backups List -->
+        <div class="backups-section">
+            <h2>Доступные резервные копии</h2>
+            <div class="backups-table-container">
+                <table class="backups-table">
+                    <thead>
+                        <tr>
+                            <th>Файл</th>
+                            <th>Размер</th>
+                            <th>Дата создания</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody id="backups-list">
+                        <tr>
+                            <td colspan="4" class="loading">Загрузка резервных копий...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Restore Confirmation Modal -->
+<div id="restore-modal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>⚠️ Восстановление из резервной копии</h3>
+            <span class="close" onclick="hideRestoreModal()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <p><strong>ВНИМАНИЕ!</strong> Восстановление из резервной копии заменит все текущие данные:</p>
+            <ul>
+                <li>Все статьи и источники</li>
+                <li>Настройки системы</li>
+                <li>Конфигурация сервиса</li>
+            </ul>
+            <p>Файл для восстановления: <span id="restore-filename"></span></p>
+            <p><strong>Это действие нельзя отменить!</strong></p>
+            
+            <div class="confirmation-input">
+                <label for="restore-confirmation">
+                    Введите "RESTORE" для подтверждения:
+                </label>
+                <input type="text" id="restore-confirmation" placeholder="RESTORE">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="hideRestoreModal()">Отмена</button>
+            <button class="btn btn-danger" onclick="confirmRestore()" id="confirm-restore-btn" disabled>
+                Восстановить
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Upload Backup Modal -->
+<div id="upload-modal" class="modal" style="display: none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>📁 Загрузить Backup Файл</h3>
+            <span class="close" onclick="hideUploadModal()">&times;</span>
+        </div>
+        <div class="modal-body">
+            <p>Выберите backup файл (.tar.gz) для загрузки и восстановления:</p>
+            
+            <div class="upload-area">
+                <input type="file" id="backup-file-input" accept=".tar.gz" style="display: none;">
+                <div class="file-drop-zone" onclick="document.getElementById('backup-file-input').click()">
+                    <div class="upload-icon">📁</div>
+                    <div class="upload-text">
+                        <p>Нажмите для выбора файла</p>
+                        <p><small>Поддерживаются только .tar.gz файлы</small></p>
+                    </div>
+                </div>
+                <div id="selected-file-info" style="display: none;">
+                    <p>Выбранный файл: <span id="selected-filename"></span></p>
+                    <p>Размер: <span id="selected-filesize"></span></p>
+                </div>
+            </div>
+            
+            <div id="upload-progress" style="display: none;">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="upload-progress-fill"></div>
+                </div>
+                <p id="upload-status">Загрузка...</p>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="hideUploadModal()">Отмена</button>
+            <button class="btn btn-success" onclick="uploadSelectedFile()" id="upload-btn" disabled>
+                Загрузить
+            </button>
+        </div>
+    </div>
+</div>
+
+<style>
+.backup-actions {
+    margin-bottom: 30px;
+    display: flex;
+    gap: 15px;
+}
+
+.status-panel {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 20px;
+    margin-bottom: 30px;
+}
+
+.status-content {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.status-indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #28a745;
+    animation: pulse 2s infinite;
+}
+
+.status-indicator.running {
+    background: #ffc107;
+}
+
+.status-indicator.error {
+    background: #dc3545;
+    animation: none;
+}
+
+.progress-bar {
+    width: 200px;
+    height: 8px;
+    background: #e9ecef;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: #007bff;
+    width: 0%;
+    animation: progress 3s infinite;
+}
+
+.backup-schedule {
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 25px;
+    margin-bottom: 30px;
+}
+
+.schedule-form {
+    display: grid;
+    gap: 20px;
+    max-width: 500px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: 500;
+}
+
+.form-group input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.backups-section {
+    background: #fff;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 25px;
+}
+
+.backups-table-container {
+    overflow-x: auto;
+}
+
+.backups-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+}
+
+.backups-table th,
+.backups-table td {
+    text-align: left;
+    padding: 12px;
+    border-bottom: 1px solid #dee2e6;
+}
+
+.backups-table th {
+    background: #f8f9fa;
+    font-weight: 600;
+}
+
+.backup-actions-cell {
+    display: flex;
+    gap: 8px;
+}
+
+.btn-sm {
+    padding: 4px 8px;
+    font-size: 0.875rem;
+}
+
+.btn-danger {
+    background: #dc3545;
+    color: white;
+    border: 1px solid #dc3545;
+}
+
+.btn-danger:hover {
+    background: #c82333;
+    border-color: #bd2130;
+}
+
+.modal {
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-content {
+    background: white;
+    border-radius: 8px;
+    max-width: 500px;
+    width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.modal-header {
+    padding: 20px;
+    border-bottom: 1px solid #dee2e6;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.modal-body {
+    padding: 20px;
+}
+
+.modal-footer {
+    padding: 20px;
+    border-top: 1px solid #dee2e6;
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+}
+
+.confirmation-input {
+    margin-top: 20px;
+}
+
+.confirmation-input input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    margin-top: 5px;
+}
+
+.upload-area {
+    margin: 20px 0;
+}
+
+.file-drop-zone {
+    border: 2px dashed #ddd;
+    border-radius: 8px;
+    padding: 40px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.3s;
+}
+
+.file-drop-zone:hover {
+    border-color: #007bff;
+}
+
+.upload-icon {
+    font-size: 48px;
+    margin-bottom: 10px;
+}
+
+.upload-text p {
+    margin: 5px 0;
+    color: #666;
+}
+
+.progress-bar {
+    width: 100%;
+    height: 20px;
+    background-color: #f0f0f0;
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 10px 0;
+}
+
+.progress-fill {
+    height: 100%;
+    background-color: #28a745;
+    width: 0%;
+    transition: width 0.3s;
+}
+
+.loading {
+    text-align: center;
+    color: #6c757d;
+    font-style: italic;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+@keyframes progress {
+    0% { width: 0%; }
+    50% { width: 70%; }
+    100% { width: 100%; }
+}
+</style>
+
+<script>
+let currentBackups = [];
+let restoreBackupFile = '';
+
+// Load page data
+document.addEventListener('DOMContentLoaded', function() {
+    loadBackups();
+    loadScheduleSettings();
+});
+
+// Backup operations
+async function createBackup() {
+    showStatus('running', 'Создание резервной копии...');
+    
+    try {
+        const response = await fetch('/api/v1/backup', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                description: 'Manual backup from web interface'
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            showStatus('success', 'Резервная копия создается в фоновом режиме');
+            setTimeout(() => {
+                loadBackups();
+                hideStatus();
+            }, 5000);
+        } else {
+            showStatus('error', `Ошибка: ${result.detail || result.message}`);
+        }
+    } catch (error) {
+        showStatus('error', `Ошибка создания резервной копии: ${error.message}`);
+    }
+}
+
+async function loadBackups() {
+    try {
+        const response = await fetch('/api/v1/backups');
+        const data = await response.json();
+        
+        currentBackups = data.backups || [];
+        displayBackups(currentBackups);
+    } catch (error) {
+        console.error('Error loading backups:', error);
+        displayBackups([]);
+    }
+}
+
+function displayBackups(backups) {
+    const tbody = document.getElementById('backups-list');
+    
+    if (backups.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="loading">Резервные копии не найдены</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = backups.map(backup => `
+        <tr>
+            <td>
+                <strong>${backup.filename}</strong>
+                <br>
+                <small class="text-muted">${backup.filepath}</small>
+            </td>
+            <td>${backup.size_mb} MB</td>
+            <td>
+                ${new Date(backup.created_at).toLocaleString('ru-RU')}
+            </td>
+            <td>
+                <div class="backup-actions-cell">
+                    <button class="btn btn-sm btn-danger" onclick="showRestoreModal('${backup.filepath}', '${backup.filename}')">
+                        Восстановить
+                    </button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function refreshBackups() {
+    showStatus('running', 'Обновление списка резервных копий...');
+    loadBackups();
+    setTimeout(() => hideStatus(), 2000);
+}
+
+// Restore operations
+function showRestoreModal(filepath, filename) {
+    restoreBackupFile = filepath;
+    document.getElementById('restore-filename').textContent = filename;
+    document.getElementById('restore-confirmation').value = '';
+    document.getElementById('confirm-restore-btn').disabled = true;
+    document.getElementById('restore-modal').style.display = 'flex';
+}
+
+function hideRestoreModal() {
+    document.getElementById('restore-modal').style.display = 'none';
+    restoreBackupFile = '';
+}
+
+function confirmRestore() {
+    const confirmation = document.getElementById('restore-confirmation').value;
+    
+    if (confirmation !== 'RESTORE') {
+        alert('Пожалуйста, введите "RESTORE" для подтверждения');
+        return;
+    }
+    
+    hideRestoreModal();
+    performRestore();
+}
+
+async function performRestore() {
+    showStatus('running', 'Восстановление из резервной копии...');
+    
+    try {
+        const response = await fetch('/api/v1/restore', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                backup_file: restoreBackupFile
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            showStatus('success', 'Восстановление запущено. Сервис будет перезапущен...');
+            setTimeout(() => {
+                window.location.reload();
+            }, 10000);
+        } else {
+            showStatus('error', `Ошибка восстановления: ${result.detail || result.message}`);
+        }
+    } catch (error) {
+        showStatus('error', `Ошибка восстановления: ${error.message}`);
+    }
+}
+
+// Schedule operations
+async function loadScheduleSettings() {
+    try {
+        const response = await fetch('/api/v1/backup/schedule');
+        const settings = await response.json();
+        
+        document.getElementById('schedule-enabled').checked = settings.enabled || false;
+        document.getElementById('schedule-time').value = settings.schedule_time || '03:00';
+        document.getElementById('keep-days').value = settings.keep_days || 30;
+    } catch (error) {
+        console.error('Error loading schedule settings:', error);
+    }
+}
+
+async function saveSchedule() {
+    const enabled = document.getElementById('schedule-enabled').checked;
+    const scheduleTime = document.getElementById('schedule-time').value;
+    const keepDays = parseInt(document.getElementById('keep-days').value);
+    
+    try {
+        const response = await fetch('/api/v1/backup/schedule', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                enabled: enabled,
+                schedule_time: scheduleTime,
+                keep_days: keepDays
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            showStatus('success', 'Настройки расписания сохранены');
+            setTimeout(() => hideStatus(), 3000);
+        } else {
+            showStatus('error', `Ошибка сохранения: ${result.detail || result.message}`);
+        }
+    } catch (error) {
+        showStatus('error', `Ошибка сохранения настроек: ${error.message}`);
+    }
+}
+
+// Status management
+function showStatus(type, message) {
+    const statusPanel = document.getElementById('backup-status');
+    const indicator = document.getElementById('status-indicator');
+    const messageEl = document.getElementById('status-message');
+    const progress = document.getElementById('status-progress');
+    
+    statusPanel.style.display = 'block';
+    messageEl.textContent = message;
+    
+    // Reset indicator classes
+    indicator.className = 'status-indicator';
+    
+    if (type === 'running') {
+        indicator.classList.add('running');
+        progress.style.display = 'block';
+    } else if (type === 'error') {
+        indicator.classList.add('error');
+        progress.style.display = 'none';
+    } else if (type === 'success') {
+        progress.style.display = 'none';
+    }
+}
+
+function hideStatus() {
+    document.getElementById('backup-status').style.display = 'none';
+}
+
+// Enable/disable restore button based on confirmation
+document.getElementById('restore-confirmation').addEventListener('input', function(e) {
+    const btn = document.getElementById('confirm-restore-btn');
+    btn.disabled = e.target.value !== 'RESTORE';
+});
+
+// Upload Modal Functions
+function showUploadModal() {
+    document.getElementById('upload-modal').style.display = 'flex';
+}
+
+function hideUploadModal() {
+    document.getElementById('upload-modal').style.display = 'none';
+    // Reset form
+    document.getElementById('backup-file-input').value = '';
+    document.getElementById('selected-file-info').style.display = 'none';
+    document.getElementById('upload-progress').style.display = 'none';
+    document.getElementById('upload-btn').disabled = true;
+}
+
+// File selection handler
+document.getElementById('backup-file-input').addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if (file) {
+        document.getElementById('selected-filename').textContent = file.name;
+        document.getElementById('selected-filesize').textContent = formatFileSize(file.size);
+        document.getElementById('selected-file-info').style.display = 'block';
+        document.getElementById('upload-btn').disabled = false;
+    }
+});
+
+async function uploadSelectedFile() {
+    const fileInput = document.getElementById('backup-file-input');
+    const file = fileInput.files[0];
+    
+    if (!file) {
+        alert('Пожалуйста, выберите файл');
+        return;
+    }
+    
+    if (!file.name.endsWith('.tar.gz')) {
+        alert('Поддерживаются только .tar.gz файлы');
+        return;
+    }
+    
+    // Show progress
+    document.getElementById('upload-progress').style.display = 'block';
+    document.getElementById('upload-btn').disabled = true;
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    try {
+        const xhr = new XMLHttpRequest();
+        
+        // Progress handler
+        xhr.upload.addEventListener('progress', function(e) {
+            if (e.lengthComputable) {
+                const percentComplete = (e.loaded / e.total) * 100;
+                document.getElementById('upload-progress-fill').style.width = percentComplete + '%';
+                document.getElementById('upload-status').textContent = `Загрузка... ${Math.round(percentComplete)}%`;
+            }
+        });
+        
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                const response = JSON.parse(xhr.responseText);
+                document.getElementById('upload-status').textContent = 'Загрузка завершена!';
+                
+                // Show success and ask for restore
+                setTimeout(() => {
+                    hideUploadModal();
+                    if (confirm(`Файл ${response.filename} успешно загружен. Восстановить данные из этого backup?`)) {
+                        restoreFromUploadedBackup(response.filename);
+                    } else {
+                        refreshBackups(); // Just refresh the list
+                    }
+                }, 1000);
+            } else {
+                throw new Error(`Upload failed: ${xhr.status}`);
+            }
+        };
+        
+        xhr.onerror = function() {
+            document.getElementById('upload-status').textContent = 'Ошибка загрузки';
+            document.getElementById('upload-btn').disabled = false;
+        };
+        
+        xhr.open('POST', '/api/v1/backup/upload');
+        xhr.send(formData);
+        
+    } catch (error) {
+        console.error('Upload error:', error);
+        document.getElementById('upload-status').textContent = 'Ошибка: ' + error.message;
+        document.getElementById('upload-btn').disabled = false;
+    }
+}
+
+async function restoreFromUploadedBackup(filename) {
+    try {
+        const response = await fetch('/api/v1/restore/upload', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ filename: filename })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showStatus('success', `Восстановление из ${filename} запущено в фоне`);
+        } else {
+            showStatus('error', `Ошибка восстановления: ${result.message}`);
+        }
+    } catch (error) {
+        console.error('Restore error:', error);
+        showStatus('error', 'Ошибка при запуске восстановления');
+    }
+}
+
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+</script>
+{% endblock %} 

@@ -1,0 +1,1 @@
+"""Core modules for RSS Summarizer v2."""
