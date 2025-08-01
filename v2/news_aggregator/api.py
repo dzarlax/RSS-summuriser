@@ -8,6 +8,7 @@ from typing import List, Optional
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks, UploadFile, File
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
@@ -1139,6 +1140,34 @@ async def list_backups():
         return {"backups": backups}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to list backups: {str(e)}")
+
+
+@router.get("/backup/download/{filename}")
+async def download_backup(filename: str):
+    """Download backup file."""
+    try:
+        # Security: validate filename (prevent directory traversal)
+        if not filename.endswith('.tar.gz') or '..' in filename or '/' in filename:
+            raise HTTPException(status_code=400, detail="Invalid filename")
+        
+        # Find project root and backup file
+        project_root = Path(__file__).parent.parent
+        backup_file = project_root / "backups" / filename
+        
+        if not backup_file.exists():
+            raise HTTPException(status_code=404, detail=f"Backup file not found: {filename}")
+        
+        # Return file for download
+        return FileResponse(
+            path=str(backup_file),
+            filename=filename,
+            media_type='application/gzip',
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to download backup: {str(e)}")
 
 
 @router.post("/backup")

@@ -41,6 +41,19 @@ class ContentExtractor:
             'main article',
             '[role="main"] article',
             
+            # Modern framework patterns (TailwindCSS, Bootstrap, etc.)
+            '.prose',  # TailwindCSS typography
+            '.prose-lg', '.prose-xl',  # TailwindCSS variants
+            '.container .text-base',  # Modern text containers
+            '[class*="text-"] div:not([class*="nav"]):not([class*="menu"])',  # TailwindCSS text utilities
+            
+            # Site-specific patterns (based on popular Russian news sites)
+            '.mb-14',  # N+1.ru main content
+            '.article__text',  # Common Russian news pattern
+            '.news-text', '.news-content',  # News sites
+            '.material-text', '.full-text',  # Material content
+            '.text-content', '.story-text',  # Story content
+            
             # Common CMS patterns (WordPress, Drupal, etc.)
             '.entry-content',
             '.post-content',
@@ -119,22 +132,27 @@ class ContentExtractor:
         url = self._clean_url(url)
             
         try:
-            # Strategy 1: Readability algorithm
+            # Strategy 1: Simple direct extraction (no retry) - Try first for reliability
+            content = await self._extract_simple_direct(url)
+            if self._is_good_content(content):
+                return self._finalize_content(content)
+            
+            # Strategy 2: Readability algorithm
             content = await self._extract_with_readability(url)
             if self._is_good_content(content):
                 return self._finalize_content(content)
             
-            # Strategy 2: Enhanced selectors
+            # Strategy 3: Enhanced selectors
             content = await self._extract_with_enhanced_selectors(url)
             if self._is_good_content(content):
                 return self._finalize_content(content)
             
-            # Strategy 3: JavaScript rendering (for SPA sites)
+            # Strategy 4: JavaScript rendering (for SPA sites)
             content = await self._extract_with_browser(url)
             if self._is_good_content(content):
                 return self._finalize_content(content)
             
-            # Strategy 4: Fallback to basic extraction
+            # Strategy 5: Fallback to basic extraction
             content = await self._extract_basic_fallback(url)
             if self._is_good_content(content):
                 return self._finalize_content(content)
@@ -160,7 +178,16 @@ class ContentExtractor:
                     await asyncio.sleep(delay)
                 
                 async with get_http_client() as client:
-                    html = await client.fetch_text(url, headers=headers)
+                    try:
+                        # Bypass retry mechanism for content extraction
+                        response = await client.session.get(url, headers=headers)
+                        response.raise_for_status()
+                        html = await response.text()
+                    except Exception as fetch_error:
+                        print(f"  🔗 HTTP fetch failed (attempt {attempt + 1}): {type(fetch_error).__name__}")
+                        if attempt < max_retries - 1:
+                            continue
+                        raise fetch_error
                 
                 if not html:
                     if attempt < max_retries - 1:
@@ -185,9 +212,10 @@ class ContentExtractor:
                     continue
                     
             except Exception as e:
-                print(f"  ⚠️ Readability extraction attempt {attempt + 1} failed for {url}: {e}")
+                print(f"  ⚠️ Readability extraction attempt {attempt + 1} failed for {url}: {type(e).__name__}")
                 if attempt == max_retries - 1:
                     print(f"  ❌ All readability extraction attempts failed")
+                continue
         
         return None
     
@@ -206,7 +234,16 @@ class ContentExtractor:
                     await asyncio.sleep(delay)
                 
                 async with get_http_client() as client:
-                    html = await client.fetch_text(url, headers=headers)
+                    try:
+                        # Bypass retry mechanism for content extraction
+                        response = await client.session.get(url, headers=headers)
+                        response.raise_for_status()
+                        html = await response.text()
+                    except Exception as fetch_error:
+                        print(f"  🔗 HTTP fetch failed (attempt {attempt + 1}): {type(fetch_error).__name__}")
+                        if attempt < max_retries - 1:
+                            continue
+                        raise fetch_error
                 
                 if not html:
                     if attempt < max_retries - 1:
@@ -246,9 +283,10 @@ class ContentExtractor:
                     continue
                     
             except Exception as e:
-                print(f"  ⚠️ Enhanced selector extraction attempt {attempt + 1} failed for {url}: {e}")
+                print(f"  ⚠️ Enhanced selector extraction attempt {attempt + 1} failed for {url}: {type(e).__name__}")
                 if attempt == max_retries - 1:
                     print(f"  ❌ All enhanced extraction attempts failed")
+                continue
         
         return None
     
@@ -403,13 +441,56 @@ class ContentExtractor:
         
         return None
     
+    async def _extract_simple_direct(self, url: str) -> Optional[str]:
+        """Simple direct extraction without retry mechanisms."""
+        try:
+            print(f"  🔧 Simple direct extraction for {url}")
+            headers = self._get_headers()
+            
+            # Use simple aiohttp session without retry decorators
+            import aiohttp
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=headers) as response:
+                    if response.status != 200:
+                        print(f"  ⚠️ HTTP {response.status}")
+                        return None
+                        
+                    html = await response.text()
+                    if not html:
+                        print(f"  ⚠️ Empty HTML response")
+                        return None
+            
+            soup = BeautifulSoup(html, 'html.parser')
+            self._remove_unwanted_elements(soup)
+            
+            # Try our enhanced selectors
+            content = self._extract_by_enhanced_selectors(soup)
+            if content and len(content) > self.min_content_length:
+                print(f"  ✅ Simple extraction successful: {len(content)} chars")
+                return content
+            
+            # Try enhanced heuristics
+            content = self._extract_by_enhanced_heuristics(soup)
+            if content and len(content) > self.min_content_length:
+                print(f"  ✅ Simple heuristics successful: {len(content)} chars")
+                return content
+            
+            print(f"  ⚠️ Simple extraction found no suitable content")
+            return None
+            
+        except Exception as e:
+            print(f"  ⚠️ Simple extraction failed: {type(e).__name__}: {e}")
+            return None
+    
     async def _extract_basic_fallback(self, url: str) -> Optional[str]:
         """Basic fallback extraction (original method)."""
         try:
             headers = self._get_headers()
             
             async with get_http_client() as client:
-                html = await client.fetch_text(url, headers=headers)
+                response = await client.session.get(url, headers=headers)
+                response.raise_for_status()
+                html = await response.text()
             
             if not html:
                 return None
@@ -438,7 +519,7 @@ class ContentExtractor:
                     return self._clean_text('\n\n'.join(text_parts))
             
         except Exception as e:
-            print(f"  ⚠️ Basic fallback extraction failed for {url}: {e}")
+            print(f"  ⚠️ Basic fallback extraction failed for {url}: {type(e).__name__}")
         
         return None
     
@@ -523,19 +604,69 @@ class ContentExtractor:
         return None
     
     def _extract_by_enhanced_heuristics(self, soup: BeautifulSoup) -> Optional[str]:
-        """Enhanced heuristic extraction with quality scoring."""
+        """Enhanced heuristic extraction with quality scoring and modern CSS patterns."""
         candidates = []
         
-        # Find potential content containers
+        # Strategy 1: Find containers with substantial text content
         for container in soup.find_all(['div', 'section', 'article', 'main']):
+            text = container.get_text(separator='\n', strip=True)
+            
+            if len(text) > self.min_content_length:
+                quality_score = self._assess_content_quality(text)
+                
+                # Boost score for modern CSS patterns
+                container_classes = container.get('class', [])
+                class_string = ' '.join(container_classes).lower()
+                
+                # Modern frameworks indicators
+                if any(pattern in class_string for pattern in [
+                    'prose', 'text-', 'content', 'article', 'story', 'news',
+                    'material', 'body', 'main', 'mb-', 'mt-', 'p-', 'mx-',
+                    'container', 'wrapper'
+                ]):
+                    quality_score += 10
+                
+                # Russian news sites patterns
+                if any(pattern in class_string for pattern in [
+                    'article', 'news', 'material', 'story', 'text', 'content'
+                ]):
+                    quality_score += 15
+                
+                # Tailwind/modern CSS utilities patterns
+                if any(pattern in class_string for pattern in [
+                    'mb-', 'mt-', 'p-', 'px-', 'py-', 'mx-', 'text-', 'prose'
+                ]):
+                    quality_score += 8
+                
+                candidates.append((quality_score, len(text), text, container))
+        
+        # Strategy 2: Look for containers with many paragraphs
+        for container in soup.find_all(['div', 'section']):
             paragraphs = container.find_all('p')
             
-            if len(paragraphs) >= 2:  # At least 2 paragraphs
+            if len(paragraphs) >= 3:  # At least 3 paragraphs
                 text = container.get_text(separator='\n', strip=True)
                 
                 if len(text) > self.min_content_length:
                     quality_score = self._assess_content_quality(text)
-                    candidates.append((quality_score, len(text), text))
+                    quality_score += len(paragraphs) * 2  # Bonus for paragraph count
+                    candidates.append((quality_score, len(text), text, container))
+        
+        # Strategy 3: Find largest text blocks that aren't navigation
+        text_blocks = []
+        for elem in soup.find_all(['div', 'section', 'p']):
+            if self._is_likely_content_element(elem):
+                text = elem.get_text(separator='\n', strip=True)
+                if len(text) > 300:  # Substantial text blocks
+                    text_blocks.append((len(text), text))
+        
+        # Combine largest text blocks if they're substantial
+        if text_blocks:
+            text_blocks.sort(key=lambda x: x[0], reverse=True)
+            combined_text = '\n\n'.join([block[1] for block in text_blocks[:3]])
+            if len(combined_text) > self.min_content_length:
+                quality_score = self._assess_content_quality(combined_text)
+                candidates.append((quality_score, len(combined_text), combined_text, None))
         
         # Sort by quality score, then by length
         if candidates:
@@ -602,6 +733,61 @@ class ContentExtractor:
                 score -= 5
         
         return max(0, score)
+    
+    def _is_likely_content_element(self, element) -> bool:
+        """Check if element is likely to contain main content."""
+        if not element:
+            return False
+        
+        # Check element classes and IDs for content indicators
+        classes = element.get('class', [])
+        element_id = element.get('id', '')
+        class_string = ' '.join(classes).lower()
+        id_string = element_id.lower()
+        
+        # Positive indicators
+        content_indicators = [
+            'content', 'article', 'story', 'news', 'text', 'body',
+            'material', 'post', 'entry', 'main', 'prose'
+        ]
+        
+        # Negative indicators  
+        nav_indicators = [
+            'nav', 'menu', 'header', 'footer', 'sidebar', 'aside',
+            'comment', 'ad', 'advertisement', 'social', 'share',
+            'related', 'recommend', 'tag', 'category', 'meta'
+        ]
+        
+        # Check for content indicators
+        has_content_indicator = any(indicator in class_string or indicator in id_string 
+                                  for indicator in content_indicators)
+        
+        # Check for navigation indicators  
+        has_nav_indicator = any(indicator in class_string or indicator in id_string
+                               for indicator in nav_indicators)
+        
+        # Exclude if it has navigation indicators
+        if has_nav_indicator:
+            return False
+        
+        # Include if it has content indicators
+        if has_content_indicator:
+            return True
+        
+        # Default heuristic: check text content ratio
+        text = element.get_text(strip=True)
+        if len(text) < 50:  # Too short
+            return False
+        
+        # Check if element has reasonable text density
+        html_length = len(str(element))
+        text_length = len(text)
+        
+        if html_length > 0:
+            text_ratio = text_length / html_length
+            return text_ratio > 0.3  # At least 30% text content
+        
+        return True
     
     def _is_good_content(self, content: str) -> bool:
         """Check if extracted content meets quality standards."""

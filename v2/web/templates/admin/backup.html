@@ -310,6 +310,29 @@
     border-color: #bd2130;
 }
 
+.btn-primary {
+    background: #007bff;
+    color: white;
+    border: 1px solid #007bff;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.btn-primary:hover {
+    background: #0056b3;
+    border-color: #004085;
+    color: white;
+    text-decoration: none;
+}
+
+.backup-actions-cell {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
 .modal {
     position: fixed;
     z-index: 1000;
@@ -501,8 +524,14 @@ function displayBackups(backups) {
             </td>
             <td>
                 <div class="backup-actions-cell">
+                    <a href="/api/v1/backup/download/${backup.filename}" 
+                       class="btn btn-sm btn-primary" 
+                       download="${backup.filename}"
+                       title="Скачать backup файл">
+                        <span class="icon">⬇️</span> Скачать
+                    </a>
                     <button class="btn btn-sm btn-danger" onclick="showRestoreModal('${backup.filepath}', '${backup.filename}')">
-                        Восстановить
+                        <span class="icon">🔄</span> Восстановить
                     </button>
                 </div>
             </td>
