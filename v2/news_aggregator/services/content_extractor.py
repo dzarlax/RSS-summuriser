@@ -8,7 +8,7 @@ from typing import Optional, Dict, Any, List, Tuple
 from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup, Comment
-from readability.readability import Document
+from readability import Document
 from playwright.async_api import async_playwright, Browser, Page
 from langdetect import detect
 from langdetect.lang_detect_exception import LangDetectException
@@ -17,7 +17,7 @@ import textstat
 from ..core.http_client import get_http_client
 from ..core.cache import cached
 from ..core.exceptions import ContentExtractionError
-from .extraction_memory_simple import get_extraction_memory, ExtractionAttempt
+from .extraction_memory import get_extraction_memory, ExtractionAttempt
 from .domain_stability_tracker import get_stability_tracker
 from .ai_extraction_optimizer import get_ai_extraction_optimizer
 

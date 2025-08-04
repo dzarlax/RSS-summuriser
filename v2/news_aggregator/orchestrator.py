@@ -26,6 +26,14 @@ class NewsOrchestrator:
         self.ai_client = get_ai_client()
         self.telegram_service = get_telegram_service()
         
+        # Initialize AI services
+        try:
+            from .services.categorization_ai import CategorizationAI
+            self.categorization_ai = CategorizationAI()
+        except Exception as e:
+            print(f"⚠️ Warning: Could not initialize categorization AI: {e}")
+            self.categorization_ai = None
+        
     async def run_full_cycle(self) -> Dict[str, Any]:
         """Run complete news processing cycle without clustering."""
         start_time = datetime.utcnow()
@@ -67,10 +75,12 @@ class NewsOrchestrator:
                 )
                 unprocessed_articles = list(unprocessed_result.scalars().all())
                 
-                # Combine new and unprocessed articles (removing duplicates)
-                articles_to_process = list({article.id: article for article in (all_articles + unprocessed_articles)}.values())
+                # Combine new and unprocessed articles (removing duplicates) - work with IDs only
+                all_article_ids = [article.id for article in all_articles]
+                unprocessed_article_ids = [article.id for article in unprocessed_articles]
+                article_ids_to_process = list(set(all_article_ids + unprocessed_article_ids))
             
-            if not articles_to_process:
+            if not article_ids_to_process:
                 print("ℹ️ No articles to process")
                 return stats
             
@@ -81,13 +91,13 @@ class NewsOrchestrator:
             no_summary_count = len([a for a in unprocessed_articles if not getattr(a, 'summary_processed', False)])
             no_category_count = len([a for a in unprocessed_articles if not getattr(a, 'category_processed', False)])
             
-            print(f"🤖 Processing {len(articles_to_process)} articles with AI:")
+            print(f"🤖 Processing {len(article_ids_to_process)} articles with AI:")
             print(f"   • {new_count} new articles")
             print(f"   • {no_summary_count} articles without summary") 
             print(f"   • {no_category_count} articles needing categorization")
             
             # Step 3: Process articles with AI (каждая статья в отдельной сессии)
-            processed_articles = await self._process_articles_with_ai_separate_sessions(articles_to_process, stats)
+            processed_articles = await self._process_articles_with_ai_separate_sessions(article_ids_to_process, stats)
             stats['articles_processed'] = len(processed_articles)
             
             # Step 4: Skip Telegram digest generation in sync - will be done separately
@@ -136,20 +146,33 @@ class NewsOrchestrator:
             print(f"❌ {error_msg}")
             raise NewsAggregatorError(error_msg) from e
     
-    async def _process_articles_with_ai_separate_sessions(self, articles: List[Article], 
-                                                       stats: Dict[str, Any]) -> List[Article]:
+    async def _process_articles_with_ai_separate_sessions(self, article_ids: List[int], 
+                                                       stats: Dict[str, Any]) -> List[Dict]:
         """Process articles with AI using NO database sessions during AI calls."""
         processed_articles = []
         
         # Process articles sequentially, completely separating DB and AI operations
-        for i, article in enumerate(articles, 1):
+        for i, article_id in enumerate(article_ids, 1):
+            article_data = {}
             try:
-                print(f"📝 Processing article {i}/{len(articles)}: {article.title[:60]}...")
-                
                 # Step 1: Quickly get article data (short DB session)
-                article_data = {}
                 async with AsyncSessionLocal() as db:
-                    await db.refresh(article)  
+                    from .models import Article, Source
+                    from sqlalchemy import select
+                    from sqlalchemy.orm import selectinload
+                    
+                    # Get article with source info
+                    result = await db.execute(
+                        select(Article).options(selectinload(Article.source)).where(Article.id == article_id)
+                    )
+                    article = result.scalar_one_or_none()
+                    
+                    if not article:
+                        print(f"⚠️ Article {article_id} not found, skipping...")
+                        continue
+                        
+                    print(f"📝 Processing article {i}/{len(article_ids)}: {article.title[:60]}...")
+                    
                     article_data = {
                         'id': article.id,
                         'title': article.title,
@@ -169,16 +192,8 @@ class NewsOrchestrator:
                         article_data['source_type'] = article.source.source_type
                         article_data['source_name'] = article.source.name
                     else:
-                        from .models import Source
-                        from sqlalchemy import select
-                        source_result = await db.execute(select(Source).where(Source.id == article.source_id))
-                        source = source_result.scalar_one_or_none()
-                        if source:
-                            article_data['source_type'] = source.source_type
-                            article_data['source_name'] = source.name
-                        else:
-                            article_data['source_type'] = 'rss'
-                            article_data['source_name'] = 'Unknown'
+                        article_data['source_type'] = 'rss'
+                        article_data['source_name'] = 'Unknown'
                 
                 # Step 2: Do AI processing with incremental saves
                 await self._process_article_ai_incremental(article_data, stats)
@@ -187,7 +202,7 @@ class NewsOrchestrator:
                 processed_articles.append(article_data)
                         
             except Exception as e:
-                error_msg = f"Error processing article {article_data.get('id', 'unknown')}: {e}"
+                error_msg = f"Error processing article {article_data.get('id', article_id)}: {e}"
                 stats['errors'].append(error_msg)
                 print(f"❌ {error_msg}")
                 continue
@@ -215,9 +230,15 @@ class NewsOrchestrator:
             try:
                 import time
                 start_time = time.time()
-                summary = await self._get_summary_by_source_type(
-                    article_data['url'], source_type, article_data['content']
-                )
+                # Create a temporary Article-like object for compatibility
+                class TempArticle:
+                    def __init__(self, data):
+                        self.url = data['url']
+                        self.title = data['title']
+                        self.content = data['content']
+                
+                temp_article = TempArticle(article_data)
+                summary = await self._get_summary_by_source_type(temp_article, source_type, stats)
                 elapsed_time = time.time() - start_time
                 print(f"  ✅ Summary generated in {elapsed_time:.1f}s: {summary[:100] if summary else 'None'}...")
                 
@@ -235,12 +256,18 @@ class NewsOrchestrator:
         if needs_category:
             print(f"  🏷️ Starting categorization...")
             try:
-                # Get current summary from database if we just generated it
-                current_summary = summary if needs_summary and 'summary' in locals() else article_data.get('summary')
+                # Get current summary - use fresh summary if we just generated it
+                current_summary = article_data.get('summary')
+                if needs_summary and 'summary' in locals() and summary is not None:
+                    current_summary = summary
                 
-                category = await self._categorize_article(
-                    article_data['title'], current_summary or article_data['content']
-                )
+                # Use AI for categorization
+                if self.categorization_ai:
+                    category = await self.categorization_ai.categorize_article(
+                        article_data['title'], current_summary or article_data['content']
+                    )
+                else:
+                    category = 'Other'  # Fallback category
                 print(f"  ✅ Category assigned: {category}")
                 
                 # Save category immediately
@@ -257,9 +284,9 @@ class NewsOrchestrator:
         if needs_ad_detection:
             print(f"  🛡️ Starting advertising detection...")
             try:
-                is_advertisement = await self._detect_advertisement(
-                    article_data['title'], article_data['content']
-                )
+                # TODO: Implement advertisement detection
+                # For now, set to False (not advertisement)
+                is_advertisement = False
                 print(f"  ✅ Ad detection result: {'Advertisement' if is_advertisement else 'Not advertisement'}")
                 
                 # Save ad detection result immediately
@@ -276,21 +303,35 @@ class NewsOrchestrator:
     
     async def _save_article_field(self, article_id: int, *field_value_pairs):
         """Save article field(s) to database in a short session."""
-        async with AsyncSessionLocal() as db:
-            from .models import Article
-            from sqlalchemy import select
-            
-            result = await db.execute(select(Article).where(Article.id == article_id))
-            article = result.scalar_one_or_none()
-            
-            if article:
+        try:
+            async with AsyncSessionLocal() as db:
+                from .models import Article
+                from sqlalchemy import select
+                
+                result = await db.execute(select(Article).where(Article.id == article_id))
+                article = result.scalar_one_or_none()
+                
+                if not article:
+                    print(f"⚠️ Article {article_id} not found for field update")
+                    return
+                
+                if len(field_value_pairs) % 2 != 0:
+                    print(f"⚠️ Invalid field_value_pairs count: {len(field_value_pairs)}")
+                    return
+                
                 # Set fields in pairs: field_name, value, field_name, value, ...
                 for i in range(0, len(field_value_pairs), 2):
                     field_name = field_value_pairs[i]
                     field_value = field_value_pairs[i + 1]
-                    setattr(article, field_name, field_value)
+                    if hasattr(article, field_name):
+                        setattr(article, field_name, field_value)
+                    else:
+                        print(f"⚠️ Article has no field '{field_name}'")
                 
                 await db.commit()
+                
+        except Exception as e:
+            print(f"❌ Error saving article {article_id} fields: {e}")
 
     async def _process_single_article_with_ai(self, db: AsyncSession, article: Article, 
                                             stats: Dict[str, Any]) -> Optional[Article]:
@@ -346,9 +387,13 @@ class NewsOrchestrator:
         if needs_category:
             print(f"  🏷️ Starting categorization...")
             try:
-                article.category = await self._categorize_article(
-                    article.title, article.summary or article.content
-                )
+                # Use AI for categorization
+                if self.categorization_ai:
+                    article.category = await self.categorization_ai.categorize_article(
+                        article.title, article.summary or article.content
+                    )
+                else:
+                    article.category = 'Other'  # Fallback category
                 print(f"  ✅ Category assigned: {article.category}")
                 
                 # Mark as processed

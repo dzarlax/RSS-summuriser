@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 from ..core.http_client import get_http_client
 from ..core.exceptions import APIError
 # Import ai_client dynamically to avoid circular import
-from .extraction_memory_simple import get_extraction_memory, ExtractionAttempt
+from .extraction_memory import get_extraction_memory, ExtractionAttempt
 from .domain_stability_tracker import get_stability_tracker
 
 
