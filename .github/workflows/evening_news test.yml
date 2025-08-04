@@ -2,6 +2,12 @@ name: Evening news test
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - 'src/**'
+  pull_request:
+    paths:
+      - 'src/**'
 
 jobs:
   run-script:
