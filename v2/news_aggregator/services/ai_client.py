@@ -63,10 +63,14 @@ class AIClient:
                     
             except Exception as e:
                 print(f"  ⚠️ AI-enhanced extraction failed, using fallback: {e}")
+                content = None
+            
+            # If AI-enhanced extraction didn't get content, try standard extraction
+            if not content:
                 content = await self.content_extractor.extract_article_content(article_url)
             
             if not content:
-                print(f"  ⚠️ Could not extract content from {article_url}")
+                print(f"  ❌ Could not extract content from {article_url}")
                 return None
             
             content_length = len(content)
