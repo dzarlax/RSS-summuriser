@@ -39,6 +39,8 @@ RUN apt-get update && apt-get install -y \
 # Копирование приложения
 COPY news_aggregator/ ./news_aggregator/
 COPY web/ ./web/
+COPY db/ ./db/
+COPY scripts/ ./scripts/
 
 # Создание пользователя и финальная настройка
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
