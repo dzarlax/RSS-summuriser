@@ -17,7 +17,8 @@ LABEL org.opencontainers.image.created=$BUILDTIME \
 
 WORKDIR /app
 
-# Установка системных зависимостей для Playwright
+# Установка системных зависимостей и Python пакетов в одном слое
+COPY requirements.txt .
 RUN apt-get update && apt-get install -y \
     curl \
     cron \
@@ -31,28 +32,18 @@ RUN apt-get update && apt-get install -y \
     libgtk-3-0 \
     libgbm1 \
     libasound2 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Установка Python зависимостей
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Установка системных зависимостей Playwright (требует root)
-RUN playwright install-deps chromium
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir -r requirements.txt \
+    && playwright install-deps chromium
 
 # Копирование приложения
 COPY news_aggregator/ ./news_aggregator/
 COPY web/ ./web/
 
-# Создание пользователя для безопасности
+# Создание пользователя и финальная настройка
 RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
 USER appuser
-
-# Установка браузеров Playwright (под пользователем)
-RUN playwright install chromium
-
-# Создание директорий для данных
-RUN mkdir -p /app/logs /app/data /app/cache
+RUN playwright install chromium && mkdir -p /app/logs /app/data /app/cache
 
 EXPOSE 8000
 

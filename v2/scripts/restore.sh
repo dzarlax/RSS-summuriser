@@ -48,9 +48,16 @@ if [ -f "$BACKUP_DIR/backup_info.txt" ]; then
     fi
 fi
 
+# Определяем compose файл
+COMPOSE_FILE="docker-compose.yml"
+if [ -f "docker-compose.production.yml" ] && [ -n "${USE_PRODUCTION:-}" ]; then
+    COMPOSE_FILE="docker-compose.production.yml"
+    echo "🏭 Using production configuration"
+fi
+
 # Останавливаем контейнеры
 echo "⏹️ Stopping containers..."
-docker-compose down || true
+docker-compose -f "$COMPOSE_FILE" down || true
 
 # 1. Configuration - НЕ ВОССТАНАВЛИВАЕТСЯ
 echo "ℹ️  Note: Using repository files (docker-compose.yml, db/init.sql)"
@@ -78,7 +85,7 @@ fi
 
 # 3. Start Database Container
 echo "🐳 Starting PostgreSQL container..."
-docker-compose up -d postgres
+docker-compose -f "$COMPOSE_FILE" up -d postgres
 echo "⏳ Waiting for PostgreSQL to be ready..."
 sleep 15
 
@@ -98,6 +105,16 @@ done
 # 4. Restore Database
 echo "📊 Restoring database..."
 if [ -f "$BACKUP_DIR/database.sql" ]; then
+    echo "🧹 Clearing existing data..."
+    docker exec v2-postgres-1 psql -U newsuser -d newsdb -c "
+        TRUNCATE TABLE articles CASCADE;
+        TRUNCATE TABLE daily_summaries CASCADE;
+        TRUNCATE TABLE processing_stats CASCADE;
+        TRUNCATE TABLE task_queue CASCADE;
+        TRUNCATE TABLE sources CASCADE;
+        TRUNCATE TABLE settings CASCADE;
+        TRUNCATE TABLE schedule_settings CASCADE;
+    "
     echo "📥 Importing database dump..."
     docker exec -i v2-postgres-1 psql -U newsuser -d newsdb < "$BACKUP_DIR/database.sql"
     echo "✅ Database restored"
@@ -109,18 +126,18 @@ fi
 
 # 5. Start All Services
 echo "🚀 Starting all services..."
-docker-compose up -d
+docker-compose -f "$COMPOSE_FILE" up -d
 
 echo "⏳ Waiting for services to start..."
 sleep 10
 
 # 6. Verify Services
 echo "🔍 Verifying services..."
-if docker-compose ps | grep -q "Up"; then
+if docker-compose -f "$COMPOSE_FILE" ps | grep -q "Up"; then
     echo "✅ Services are running"
 else
     echo "⚠️ Warning: Some services may not be running properly"
-    docker-compose ps
+    docker-compose -f "$COMPOSE_FILE" ps
 fi
 
 # Cleanup

@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     cache_ttl: int = Field(default=86400, alias="CACHE_TTL")
     cache_dir: str = Field(default="/tmp/rss_cache", alias="CACHE_DIR")
     
+    # API Rate Limiting
+    api_rate_limit: int = Field(default=3, alias="RPS")  # Requests per second
+    
     
     class Config:
         env_file = ".env"

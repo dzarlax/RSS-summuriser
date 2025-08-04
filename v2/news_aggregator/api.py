@@ -1036,9 +1036,26 @@ async def run_docker_backup() -> dict:
         output_lines.append("🗄️ RSS Summarizer v2 - Docker Backup Starting...")
         output_lines.append(f"📁 Backup directory: {backup_dir}")
         
-        # 1. Database Backup using direct connection
+        # 1. Database Backup using pg_dump
         output_lines.append("📊 Backing up PostgreSQL database...")
-        await backup_database_direct(backup_dir, output_lines)
+        try:
+            result = subprocess.run([
+                "pg_dump", "-h", "postgres", "-U", "newsuser", "-d", "newsdb", 
+                "--data-only", "--column-inserts", "--rows-per-insert=1"
+            ], 
+            capture_output=True, text=True, env={"PGPASSWORD": "newspass123"})
+            
+            if result.returncode == 0:
+                with open(f"{backup_dir}/database.sql", 'w') as f:
+                    f.write(result.stdout)
+                output_lines.append("✅ Database backup completed (pg_dump)")
+            else:
+                output_lines.append(f"⚠️ pg_dump failed: {result.stderr}")
+                # Fallback to direct method
+                await backup_database_direct(backup_dir, output_lines)
+        except FileNotFoundError:
+            output_lines.append("⚠️ pg_dump not found, using direct method...")
+            await backup_database_direct(backup_dir, output_lines)
         
         # 2. Configuration Backup - НЕ НУЖНА
         # docker-compose.yml и init.sql уже есть в репозитории
@@ -1168,8 +1185,8 @@ async def backup_database_direct(backup_dir: str, output_lines: list):
                 sql_lines.append(f"-- {count} rows")
                 for row in rows:
                     # Basic INSERT statement (simplified)
-                    values = ", ".join([f"'{str(val)}'" if val is not None else "NULL" for val in row])
-                    sql_lines.append(f"-- INSERT INTO {table} VALUES ({values});")
+                    values = ", ".join([f"'{str(val).replace(chr(39), chr(39)+chr(39))}'" if val is not None else "NULL" for val in row])
+                    sql_lines.append(f"INSERT INTO {table} VALUES ({values});")
             
             sql_lines.append("")
         

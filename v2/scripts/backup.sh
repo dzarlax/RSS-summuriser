@@ -17,7 +17,7 @@ mkdir -p "$BACKUP_DIR"
 # 1. Database Backup
 echo "📊 Backing up PostgreSQL database..."
 if docker ps --format 'table {{.Names}}' | grep -q "$CONTAINER_NAME"; then
-    docker exec $CONTAINER_NAME pg_dump -U newsuser -d newsdb > "$BACKUP_DIR/database.sql"
+    docker exec $CONTAINER_NAME pg_dump -U newsuser -d newsdb --data-only --column-inserts --rows-per-insert=1 > "$BACKUP_DIR/database.sql"
     echo "✅ Database backup completed"
 else
     echo "⚠️ Warning: PostgreSQL container not running, skipping database backup"
