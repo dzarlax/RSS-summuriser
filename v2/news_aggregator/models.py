@@ -5,7 +5,7 @@ from typing import List, Optional
 
 from sqlalchemy import (
     Boolean, Column, DateTime, Float, ForeignKey, Integer, 
-    String, Text, JSON, ARRAY
+    String, Text, JSON, ARRAY, DECIMAL, UniqueConstraint
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -172,3 +172,92 @@ class ScheduleSettings(Base):
     
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+# Extraction learning models for AI-enhanced content extraction
+class ExtractionPattern(Base):
+    """Extraction pattern model for tracking learned selectors."""
+    __tablename__ = "extraction_patterns"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    domain = Column(String(255), nullable=False, index=True)
+    selector_pattern = Column(Text, nullable=False)
+    extraction_strategy = Column(String(50), nullable=False)
+    success_count = Column(Integer, default=0)
+    failure_count = Column(Integer, default=0)
+    quality_score_avg = Column(DECIMAL(5, 2), default=0)
+    content_length_avg = Column(Integer, default=0)
+    discovered_by = Column(String(20), default='manual')  # 'manual', 'ai', 'heuristic'
+    is_stable = Column(Boolean, default=False)
+    last_ai_analysis = Column(DateTime)
+    consecutive_successes = Column(Integer, default=0)
+    consecutive_failures = Column(Integer, default=0)
+    first_success_at = Column(DateTime)
+    last_success_at = Column(DateTime)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    
+    __table_args__ = (
+        UniqueConstraint('domain', 'selector_pattern', 'extraction_strategy'),
+    )
+
+
+class DomainStability(Base):
+    """Domain stability model for tracking extraction reliability."""
+    __tablename__ = "domain_stability"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    domain = Column(String(255), unique=True, nullable=False, index=True)
+    is_stable = Column(Boolean, default=False, index=True)
+    success_rate_7d = Column(DECIMAL(5, 2), default=0)
+    success_rate_30d = Column(DECIMAL(5, 2), default=0)
+    total_attempts = Column(Integer, default=0)
+    successful_attempts = Column(Integer, default=0)
+    last_successful_extraction = Column(DateTime)
+    last_failed_extraction = Column(DateTime)
+    last_ai_analysis = Column(DateTime)
+    consecutive_successes = Column(Integer, default=0)
+    consecutive_failures = Column(Integer, default=0)
+    stability_achieved_at = Column(DateTime)
+    needs_reanalysis = Column(Boolean, default=False, index=True)
+    ai_credits_saved = Column(Integer, default=0)
+    reanalysis_triggers = Column(JSON, default=list)
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+class ExtractionAttempt(Base):
+    """Extraction attempt model for detailed logging."""
+    __tablename__ = "extraction_attempts"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    article_url = Column(Text, nullable=False)
+    domain = Column(String(255), nullable=False, index=True)
+    extraction_strategy = Column(String(50), nullable=False, index=True)
+    selector_used = Column(Text)
+    success = Column(Boolean, nullable=False, index=True)
+    content_length = Column(Integer)
+    quality_score = Column(DECIMAL(5, 2))
+    extraction_time_ms = Column(Integer)
+    error_message = Column(Text)
+    ai_analysis_triggered = Column(Boolean, default=False)
+    ai_analysis = Column(JSON)
+    user_agent = Column(String(500))
+    http_status_code = Column(Integer)
+    created_at = Column(DateTime, default=func.now(), index=True)
+
+
+class AIUsageTracking(Base):
+    """AI usage tracking model for monitoring costs and effectiveness."""
+    __tablename__ = "ai_usage_tracking"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    domain = Column(String(255), nullable=False, index=True)
+    analysis_type = Column(String(50), nullable=False, index=True)  # 'selector_discovery', 'pattern_analysis'
+    tokens_used = Column(Integer)
+    credits_cost = Column(DECIMAL(10, 4))
+    analysis_result = Column(JSON)
+    patterns_discovered = Column(Integer, default=0)
+    patterns_successful = Column(Integer, default=0)
+    cost_effectiveness = Column(DECIMAL(5, 2))  # successful patterns / cost ratio
+    created_at = Column(DateTime, default=func.now(), index=True)

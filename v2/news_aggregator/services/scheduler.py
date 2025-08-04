@@ -152,59 +152,21 @@ class TaskScheduler:
             await self._update_task_schedule(setting_id)
             
     async def _run_telegram_digest(self, config: Dict[str, Any]):
-        """Run telegram digest task."""
-        from ..services.telegram_service import get_telegram_service
-        from ..services.ai_client import get_ai_client
-        from sqlalchemy import func
-        
-        async with AsyncSessionLocal() as db:
-            # Get today's articles by published date
-            today = datetime.utcnow().date()
+        """Run telegram digest task using unified orchestrator logic."""
+        try:
+            logger.info("Starting telegram digest task via orchestrator")
             
-            from ..models import Article
-            articles_result = await db.execute(
-                select(Article).where(func.date(Article.published_at) == today)
-                .order_by(Article.published_at.desc())
-                .limit(config.get('max_articles', 20))
-            )
-            articles = articles_result.scalars().all()
+            # Use the same logic as button-triggered digest for consistency
+            stats = await self.orchestrator.send_telegram_digest()
             
-            if not articles:
-                logger.info("No articles found for telegram digest")
-                return
-                
-            # Group articles by category
-            categories = {}
-            for article in articles:
-                category = article.category or "Other"
-                if category not in categories:
-                    categories[category] = []
-                categories[category].append({
-                    'title': article.title,
-                    'summary': article.summary or article.content[:200] + "..." if article.content else article.title
-                })
-                
-            # Generate digest
-            ai_client = get_ai_client()
-            digest = await ai_client.generate_digest(categories)
-            
-            if digest:
-                # Create Telegraph page
-                from ..services.telegraph_service import TelegraphService
-                telegraph_service = TelegraphService()
-                telegraph_url = await telegraph_service.create_news_page(categories)
-                
-                # Send to Telegram
-                telegram_service = get_telegram_service()
-                if telegraph_url:
-                    inline_keyboard = [[{"text": "📖 Читать полностью", "url": telegraph_url}]]
-                    await telegram_service.send_message_with_keyboard(digest, inline_keyboard)
-                else:
-                    await telegram_service.send_daily_digest(digest)
-                    
-                logger.info(f"Telegram digest sent successfully ({len(digest)} chars)")
+            if stats.get('telegram_digest_sent'):
+                logger.info(f"Telegram digest sent successfully: {stats.get('telegram_digest_length', 0)} chars, "
+                           f"{stats.get('telegram_articles', 0)} articles in {stats.get('telegram_categories', 0)} categories")
             else:
-                logger.warning("Failed to generate telegram digest")
+                logger.warning("Failed to send telegram digest")
+                
+        except Exception as e:
+            logger.error(f"Error in telegram digest task: {e}", exc_info=True)
                 
     async def _run_news_processing(self, config: Dict[str, Any]):
         """Run news processing task."""
@@ -212,87 +174,26 @@ class TaskScheduler:
         logger.info(f"News processing completed: {stats.get('articles_processed', 0)} articles processed")
         
     async def _run_news_digest_cycle(self, config: Dict[str, Any]):
-        """Run complete news digest cycle: sync, categorize, summarize, and send to Telegram."""
+        """Run complete news digest cycle using unified orchestrator logic."""
         logger.info("Starting complete news digest cycle")
         
         try:
-            # Step 1: Run full news processing cycle
-            stats = await self.orchestrator.run_full_cycle()
-            logger.info(f"News processing completed: {stats.get('articles_processed', 0)} articles processed")
+            # Step 1: Run full news processing cycle (if enabled)
+            if config.get('run_processing', True):
+                processing_stats = await self.orchestrator.run_full_cycle()
+                logger.info(f"News processing completed: {processing_stats.get('articles_processed', 0)} articles processed")
             
-            # Step 2: Get today's processed articles for digest
-            async with AsyncSessionLocal() as db:
-                from datetime import datetime
-                from sqlalchemy import func
-                from ..models import Article
+            # Step 2: Send digest using unified logic (if enabled)
+            if config.get('send_telegram', True):
+                digest_stats = await self.orchestrator.send_telegram_digest()
                 
-                today = datetime.utcnow().date()
-                articles_result = await db.execute(
-                    select(Article).where(func.date(Article.published_at) == today)
-                    .order_by(Article.published_at.desc())
-                    .limit(config.get('max_articles', 20))
-                )
-                articles = articles_result.scalars().all()
-                
-                if not articles:
-                    logger.info("No articles found for digest")
-                    return
-                
-                logger.info(f"Found {len(articles)} articles for digest")
-                
-                # Step 3: Group articles by category
-                categories = {}
-                for article in articles:
-                    category = article.category or "Other"
-                    if category not in categories:
-                        categories[category] = []
-                    categories[category].append({
-                        'title': article.title,
-                        'summary': article.summary or article.content[:200] + "..." if article.content else article.title
-                    })
-                
-                logger.info(f"Articles grouped into categories: {list(categories.keys())}")
-                
-                # Step 4: Generate and save daily summaries (if enabled)
-                if config.get('generate_summaries', True):
-                    await self.orchestrator._generate_and_save_daily_summaries(db, today, categories)
-                    logger.info("Daily summaries generated and saved")
-                
-                # Step 5: Send to Telegram (if enabled)
-                if config.get('send_telegram', True):
-                    # Generate digest using AI
-                    ai_client = get_ai_client()
-                    digest = await ai_client.generate_digest(categories)
-                    
-                    if digest:
-                        logger.info(f"Generated digest ({len(digest)} chars)")
-                        
-                        # Create Telegraph page (if enabled)
-                        telegraph_url = None
-                        if config.get('create_telegraph', True):
-                            from ..services.telegraph_service import TelegraphService
-                            telegraph_service = TelegraphService()
-                            telegraph_url = await telegraph_service.create_news_page(categories)
-                            
-                            if telegraph_url:
-                                logger.info(f"Telegraph page created: {telegraph_url}")
-                        
-                        # Send to Telegram
-                        telegram_service = get_telegram_service()
-                        if telegraph_url:
-                            inline_keyboard = [[{"text": "📖 Читать полностью", "url": telegraph_url}]]
-                            success = await telegram_service.send_message_with_keyboard(digest, inline_keyboard)
-                        else:
-                            success = await telegram_service.send_daily_digest(digest)
-                        
-                        if success:
-                            logger.info("Digest sent to Telegram successfully")
-                        else:
-                            logger.warning("Failed to send digest to Telegram")
-                    else:
-                        logger.warning("Failed to generate digest")
-                
-                logger.info("Complete news digest cycle finished successfully")
+                if digest_stats.get('telegram_digest_sent'):
+                    logger.info(f"Digest sent successfully: {digest_stats.get('telegram_digest_length', 0)} chars, "
+                               f"{digest_stats.get('telegram_articles', 0)} articles in {digest_stats.get('telegram_categories', 0)} categories")
+                else:
+                    logger.warning("Failed to send telegram digest")
+            
+            logger.info("Complete news digest cycle finished successfully")
                 
         except Exception as e:
             logger.error(f"Error in news digest cycle: {e}", exc_info=True)

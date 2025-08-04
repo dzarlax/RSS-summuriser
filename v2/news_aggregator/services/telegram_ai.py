@@ -169,6 +169,29 @@ class TelegramAI:
                            header_text: str, char_limit: int, 
                            total_articles: int, categories_count: int) -> str:
         """Build prompt for digest generation (like old version)."""
+        
+        # Build example format using actual categories with articles
+        format_examples = []
+        example_categories = list(articles_by_category.keys())[:2]  # Use first 2 actual categories
+        
+        if 'Tech' in example_categories or 'Science' in example_categories:
+            format_examples.append("<b>Tech</b>\\nApple выпустила новый iPhone. Tesla показала рост продаж. Microsoft анонсировал ИИ-решения.\\n")
+        elif 'Business' in example_categories:
+            format_examples.append("<b>Business</b>\\nРынки выросли на 2%. Компании отчитались о прибыли.\\n")
+        elif 'Nature' in example_categories or 'Science' in example_categories:
+            format_examples.append("<b>Science</b>\\nУченые открыли новый вид животных. Климатические изменения влияют на экосистемы.\\n")
+        else:
+            # Use actual category names for examples
+            for cat in example_categories:
+                if cat == 'Serbia':
+                    format_examples.append(f"<b>{cat}</b>\\nПолитические события в регионе. Экономические новости страны.\\n")
+                elif cat == 'Other':
+                    format_examples.append(f"<b>{cat}</b>\\nРазличные события дня. Социальные и культурные новости.\\n")
+                else:
+                    format_examples.append(f"<b>{cat}</b>\\nОсновные события категории. Важные обновления и новости.\\n")
+        
+        format_example = "\\n".join(format_examples)
+        
         prompt = (
             f"Ты - журналист. Создай СЖАТО сводку новостей в HTML.\\n\\n"
             f"{total_articles} новостей в {categories_count} категориях.\\n\\n"
@@ -176,14 +199,12 @@ class TelegramAI:
             f"- HTML с <b></b> для заголовков\\n" 
             f"- Связные абзацы (НЕ списки!)\\n"
             f"- МАКСИМУМ {char_limit} символов\\n"
+            f"- ТОЛЬКО категории с новостями (не добавляй пустые)\\n"
             f"- Охвати основные события по категориям\\n\\n"
             f"ФОРМАТ:\\n"
             f"<b>{header_text}</b>\\n\\n"
-            f"<b>Tech</b>\\n"
-            f"Apple выпустила новый iPhone. Tesla показала рост продаж. Microsoft анонсировал ИИ-решения.\\n\\n"
-            f"<b>Business</b>\\n"
-            f"Рынки выросли на 2%. Компании отчитались о прибыли.\\n\\n"
-            f"ЗАДАЧА: Сжатые связные абзацы для каждой категории!\\n\\n"
+            f"{format_example}\\n"
+            f"ЗАДАЧА: Сжатые связные абзацы ТОЛЬКО для категорий с новостями!\\n\\n"
             f"НОВОСТИ:\\n\\n"
         )
         

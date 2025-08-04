@@ -5,6 +5,7 @@ from .base import BaseSource, SourceType, SourceInfo
 from .rss_source import RSSSource
 from .generic_source import GenericSource
 from .telegram_source import TelegramSource
+from .page_monitor_adapter import PageMonitorAdapter
 
 
 class SourceRegistry:
@@ -21,7 +22,7 @@ class SourceRegistry:
         self.register(SourceType.REDDIT, GenericSource)
         self.register(SourceType.TWITTER, GenericSource)
         self.register(SourceType.NEWS_API, GenericSource)
-        self.register(SourceType.CUSTOM, GenericSource)
+        self.register(SourceType.CUSTOM, PageMonitorAdapter)
     
     def register(self, source_type: SourceType, source_class: Type[BaseSource]):
         """Register a source type."""

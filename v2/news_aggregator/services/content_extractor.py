@@ -1,8 +1,9 @@
-"""Enhanced content extraction from web articles."""
+"""Enhanced content extraction from web articles with AI optimization."""
 
 import re
 import json
 import asyncio
+import time
 from typing import Optional, Dict, Any, List, Tuple
 from urllib.parse import urljoin, urlparse
 
@@ -16,6 +17,9 @@ import textstat
 from ..core.http_client import get_http_client
 from ..core.cache import cached
 from ..core.exceptions import ContentExtractionError
+from .extraction_memory_simple import get_extraction_memory, ExtractionAttempt
+from .domain_stability_tracker import get_stability_tracker
+from .ai_extraction_optimizer import get_ai_extraction_optimizer
 
 
 class ContentExtractor:
@@ -117,7 +121,7 @@ class ContentExtractor:
     
     async def extract_article_content(self, url: str) -> Optional[str]:
         """
-        Extract main article content using multiple strategies.
+        Extract main article content using AI-optimized strategies.
         
         Args:
             url: Article URL
@@ -130,37 +134,222 @@ class ContentExtractor:
         
         # Clean URL from invisible/problematic characters
         url = self._clean_url(url)
-            
+        domain = self._extract_domain(url)
+        start_time = time.time()
+        
+        print(f"🧠 AI-optimized extraction for {domain}")
+        
         try:
-            # Strategy 1: Simple direct extraction (no retry) - Try first for reliability
-            content = await self._extract_simple_direct(url)
-            if self._is_good_content(content):
-                return self._finalize_content(content)
+            # Get AI services
+            memory = await get_extraction_memory()
+            stability_tracker = await get_stability_tracker()
             
-            # Strategy 2: Readability algorithm
-            content = await self._extract_with_readability(url)
-            if self._is_good_content(content):
-                return self._finalize_content(content)
+            # Phase 1: Try learned best patterns first
+            learned_patterns = await memory.get_best_patterns_for_domain(domain, limit=3)
             
-            # Strategy 3: Enhanced selectors
-            content = await self._extract_with_enhanced_selectors(url)
-            if self._is_good_content(content):
-                return self._finalize_content(content)
+            for pattern in learned_patterns:
+                if pattern.success_rate > 70:  # High confidence patterns
+                    print(f"  📚 Trying learned pattern: {pattern.selector_pattern[:40]}... ({pattern.success_rate:.1f}%)")
+                    content = await self._extract_with_learned_pattern(url, pattern)
+                    
+                    if self._is_good_content(content):
+                        # Record successful extraction
+                        await self._record_extraction_success(
+                            url, domain, pattern.extraction_strategy, pattern.selector_pattern,
+                            content, int((time.time() - start_time) * 1000)
+                        )
+                        return self._finalize_content(content)
             
-            # Strategy 4: JavaScript rendering (for SPA sites)
-            content = await self._extract_with_browser(url)
-            if self._is_good_content(content):
-                return self._finalize_content(content)
+            # Phase 2: Standard extraction strategies with learning
+            strategies = [
+                ('readability', self._extract_with_readability),
+                ('html_parsing', self._extract_with_enhanced_selectors),
+                ('playwright', self._extract_with_browser)
+            ]
             
-            # Strategy 5: Fallback to basic extraction
-            content = await self._extract_basic_fallback(url)
-            if self._is_good_content(content):
-                return self._finalize_content(content)
+            for strategy_name, strategy_func in strategies:
+                print(f"  🔧 Trying strategy: {strategy_name}")
+                content = await strategy_func(url)
+                
+                if self._is_good_content(content):
+                    # Record successful extraction
+                    await self._record_extraction_success(
+                        url, domain, strategy_name, None, content,
+                        int((time.time() - start_time) * 1000)
+                    )
+                    return self._finalize_content(content)
+                
+                # Record failed attempt
+                await self._record_extraction_failure(
+                    url, domain, strategy_name, int((time.time() - start_time) * 1000)
+                )
             
+            # Phase 3: AI optimization for struggling domains
+            should_optimize, reason = stability_tracker.should_use_ai_optimization(domain)
+            if should_optimize:
+                print(f"  🤖 Triggering AI optimization: {reason}")
+                ai_optimizer = await get_ai_extraction_optimizer()
+                success = await ai_optimizer.optimize_domain_extraction(domain, [url])
+                
+                if success:
+                    # Try again with new AI patterns
+                    new_patterns = await memory.get_best_patterns_for_domain(domain, limit=2)
+                    for pattern in new_patterns:
+                        if pattern.discovered_by == 'ai':
+                            print(f"  🎯 Trying new AI pattern: {pattern.selector_pattern[:40]}...")
+                            content = await self._extract_with_learned_pattern(url, pattern)
+                            
+                            if self._is_good_content(content):
+                                await self._record_extraction_success(
+                                    url, domain, pattern.extraction_strategy, pattern.selector_pattern,
+                                    content, int((time.time() - start_time) * 1000)
+                                )
+                                return self._finalize_content(content)
+            
+            # Complete failure
+            print(f"  💥 All extraction strategies failed for {domain}")
             return None
             
         except Exception as e:
+            print(f"  ❌ Extraction error for {url}: {e}")
             raise ContentExtractionError(f"Failed to extract content from {url}: {e}")
+    
+    async def _extract_with_learned_pattern(self, url: str, pattern) -> Optional[str]:
+        """Extract content using a learned pattern."""
+        try:
+            if pattern.extraction_strategy == 'playwright':
+                return await self._extract_with_playwright_selector(url, pattern.selector_pattern)
+            else:
+                return await self._extract_with_css_selector(url, pattern.selector_pattern)
+        except Exception as e:
+            print(f"    ❌ Learned pattern failed: {e}")
+            return None
+    
+    async def _extract_with_css_selector(self, url: str, selector: str) -> Optional[str]:
+        """Extract content using specific CSS selector."""
+        try:
+            headers = self._get_headers()
+            
+            async with get_http_client() as client:
+                response = await client.session.get(url, headers=headers)
+                response.raise_for_status()
+                html = await response.text()
+            
+            if not html:
+                return None
+            
+            soup = BeautifulSoup(html, 'html.parser')
+            self._remove_unwanted_elements(soup)
+            
+            elements = soup.select(selector)
+            if elements:
+                text = elements[0].get_text(separator='\n', strip=True)
+                return self._clean_text(text) if text else None
+                
+        except Exception as e:
+            print(f"    ❌ CSS selector extraction failed: {e}")
+            
+        return None
+    
+    async def _extract_with_playwright_selector(self, url: str, selector: str) -> Optional[str]:
+        """Extract content using Playwright with specific selector."""
+        try:
+            if not self.browser:
+                playwright = await async_playwright().start()
+                self.browser = await playwright.chromium.launch(
+                    headless=True,
+                    args=['--no-sandbox', '--disable-dev-shm-usage']
+                )
+            
+            page = await self.browser.new_page()
+            await page.set_extra_http_headers(self._get_headers())
+            await page.goto(url, wait_until='networkidle', timeout=30000)
+            await page.wait_for_timeout(1000)
+            
+            element = await page.query_selector(selector)
+            if element:
+                text = await element.inner_text()
+                await page.close()
+                return self._clean_text(text) if text else None
+            
+            await page.close()
+            
+        except Exception as e:
+            print(f"    ❌ Playwright selector extraction failed: {e}")
+            
+        return None
+    
+    async def _record_extraction_success(
+        self, url: str, domain: str, strategy: str, selector: Optional[str],
+        content: str, extraction_time_ms: int
+    ):
+        """Record successful extraction attempt."""
+        try:
+            memory = await get_extraction_memory()
+            stability_tracker = await get_stability_tracker()
+            
+            attempt = ExtractionAttempt(
+                article_url=url,
+                domain=domain,
+                extraction_strategy=strategy,
+                selector_used=selector,
+                success=True,
+                content_length=len(content),
+                quality_score=self._assess_content_quality(content),
+                extraction_time_ms=extraction_time_ms
+            )
+            
+            await memory.record_extraction_attempt(attempt)
+            
+            stability_tracker.update_domain_stats(
+                domain=domain,
+                success=True,
+                extraction_time_ms=extraction_time_ms,
+                content_length=len(content),
+                quality_score=attempt.quality_score,
+                method=strategy
+            )
+            
+        except Exception as e:
+            print(f"    ⚠️ Failed to record extraction success: {e}")
+    
+    async def _record_extraction_failure(
+        self, url: str, domain: str, strategy: str, extraction_time_ms: int,
+        error_message: str = None
+    ):
+        """Record failed extraction attempt."""
+        try:
+            memory = await get_extraction_memory()
+            stability_tracker = await get_stability_tracker()
+            
+            attempt = ExtractionAttempt(
+                article_url=url,
+                domain=domain,
+                extraction_strategy=strategy,
+                success=False,
+                extraction_time_ms=extraction_time_ms,
+                error_message=error_message or "Content extraction failed"
+            )
+            
+            await memory.record_extraction_attempt(attempt)
+            
+            stability_tracker.update_domain_stats(
+                domain=domain,
+                success=False,
+                extraction_time_ms=extraction_time_ms,
+                method=strategy
+            )
+            
+        except Exception as e:
+            print(f"    ⚠️ Failed to record extraction failure: {e}")
+    
+    def _extract_domain(self, url: str) -> str:
+        """Extract domain from URL."""
+        try:
+            parsed = urlparse(url)
+            return parsed.netloc.lower()
+        except:
+            return "unknown"
     
     async def _extract_with_readability(self, url: str) -> Optional[str]:
         """Extract content using Mozilla's readability algorithm with retry."""
@@ -907,6 +1096,75 @@ class ContentExtractor:
         text = re.sub(r'[?]{2,}', '?', text)
         
         return text.strip()
+    
+    def _assess_content_quality(self, text: str) -> float:
+        """Assess content quality with a 0-100 score."""
+        if not text:
+            return 0
+        
+        score = 0
+        
+        # Length scoring (0-40 points)
+        text_length = len(text)
+        if text_length > 3000:
+            score += 40
+        elif text_length > 1500:
+            score += 30
+        elif text_length > 800:
+            score += 20
+        elif text_length > 400:
+            score += 10
+        
+        # Sentence structure scoring (0-20 points)
+        sentence_count = len(re.findall(r'[.!?]+', text))
+        if sentence_count > 15:
+            score += 20
+        elif sentence_count > 8:
+            score += 15
+        elif sentence_count > 4:
+            score += 10
+        
+        # Word count scoring (0-15 points)
+        word_count = len(text.split())
+        if word_count > 500:
+            score += 15
+        elif word_count > 250:
+            score += 10
+        elif word_count > 100:
+            score += 5
+        
+        # Paragraph structure (0-10 points)
+        paragraph_count = len([p for p in text.split('\n\n') if p.strip()])
+        if paragraph_count >= 4:
+            score += 10
+        elif paragraph_count >= 2:
+            score += 5
+        
+        # Content indicators (0-10 points)
+        content_indicators = [
+            r'\b(статья|новость|сообщает|объявил|заявил|отметил)\b',
+            r'\b(article|news|reported|announced|stated|noted)\b',
+            r'\b(согласно|по данным|как сообщает|по информации)\b',
+            r'\b(according to|sources|reports|information)\b'
+        ]
+        
+        for pattern in content_indicators:
+            if re.search(pattern, text, re.IGNORECASE):
+                score += 2.5
+        
+        # Quality deductions
+        if len(text) < 200:
+            score -= 20
+        
+        # Check for excessive repetition
+        words = text.lower().split()
+        if len(words) > 50:
+            unique_words = len(set(words))
+            repetition_ratio = unique_words / len(words)
+            if repetition_ratio < 0.3:
+                score -= 15
+        
+        return max(0, min(100, score))
     
     def _clean_url(self, url: str) -> str:
         """Clean URL from invisible and problematic characters."""

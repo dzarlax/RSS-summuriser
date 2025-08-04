@@ -7,7 +7,7 @@ from ..config import settings
 from ..core.http_client import get_http_client
 from ..core.cache import cached
 from ..core.exceptions import APIError
-from .content_integration import get_content_service
+from .content_extractor import get_content_extractor
 
 
 class AIClient:
@@ -24,7 +24,7 @@ class AIClient:
         
         self.enabled = True
         
-        self.content_service = None
+        self.content_extractor = None
     
     @cached(ttl=86400, key_prefix="ai_summary")
     async def get_article_summary(self, article_url: str) -> Optional[str]:
@@ -43,10 +43,10 @@ class AIClient:
         try:
             print(f"  🔗 Extracting content from URL: {article_url}")
             # Step 1: Extract article content using enhanced extractor
-            if not self.content_service:
-                self.content_service = await get_content_service()
+            if not self.content_extractor:
+                self.content_extractor = await get_content_extractor()
             
-            content = await self.content_service.extract_content(article_url)
+            content = await self.content_extractor.extract_article_content(article_url)
             if not content:
                 print(f"  ⚠️ Could not extract content from {article_url}")
                 return None
@@ -233,6 +233,59 @@ class AIClient:
         except Exception as e:
             print(f"  ⚠️ Error generating digest: {e}")
             raise APIError(f"Failed to generate digest: {e}")
+    
+    async def _make_raw_ai_request(self, prompt: str, model: str = None) -> dict:
+        """
+        Make raw AI API request for custom analysis (like DOM structure analysis).
+        
+        Args:
+            prompt: Raw prompt text
+            model: Model to use (defaults to summarization_model)
+            
+        Returns:
+            Raw API response dict
+        """
+        if not model:
+            model = self.summarization_model
+        
+        payload = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "user", 
+                    "content": prompt
+                }
+            ],
+            "max_tokens": 2000,
+            "temperature": 0.1  # Low temperature for consistent analysis
+        }
+        
+        headers = {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-KM-AccessKey': self.api_key
+        }
+        
+        async with get_http_client() as client:
+            response = await client.post(
+                str(self.endpoint),
+                json=payload,
+                headers=headers
+            )
+            
+            async with response:
+                if response.status == 200:
+                    data = await response.json()
+                    return data
+                elif response.status == 429:
+                    raise APIError("Rate limit exceeded", status_code=429)
+                else:
+                    error_text = await response.text()
+                    raise APIError(
+                        f"AI API error: {response.status}",
+                        status_code=response.status,
+                        response_text=error_text
+                    )
     
     async def test_connection(self) -> bool:
         """Test AI API connectivity."""
