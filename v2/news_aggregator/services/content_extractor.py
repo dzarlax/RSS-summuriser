@@ -119,6 +119,75 @@ class ContentExtractor:
             await self.browser.close()
             self.browser = None
     
+    async def extract_article_content_with_metadata(self, url: str) -> Dict[str, Optional[str]]:
+        """
+        Extract article content with metadata using AI-enhanced extraction.
+        
+        Args:
+            url: Article URL
+            
+        Returns:
+            Dictionary with 'content', 'publication_date', and 'full_article_url' keys
+        """
+        result = {
+            'content': None,
+            'publication_date': None,
+            'full_article_url': None
+        }
+        
+        if not url:
+            return result
+        
+        # Clean URL from invisible/problematic characters
+        url = self._clean_url(url)
+        domain = self._extract_domain(url)
+        
+        print(f"🧠 AI-enhanced extraction with metadata for {domain}")
+        
+        try:
+            # First, get the page HTML for analysis
+            html_content = await self._fetch_html_content(url)
+            if not html_content:
+                return result
+            
+            # Import AI client dynamically
+            from .ai_client import get_ai_client
+            ai_client = get_ai_client()
+            
+            # Phase 1: Try to extract publication date with AI
+            try:
+                pub_date = await ai_client.extract_publication_date(html_content, url)
+                if pub_date:
+                    result['publication_date'] = pub_date
+                    print(f"  📅 Publication date found: {pub_date}")
+            except Exception as e:
+                print(f"  ⚠️ Error extracting publication date: {e}")
+            
+            # Phase 2: Check if we need to follow a link for full content
+            try:
+                full_article_url = await ai_client.extract_full_article_link(html_content, url)
+                if full_article_url and full_article_url != url:
+                    result['full_article_url'] = full_article_url
+                    print(f"  🔗 Full article link found: {full_article_url}")
+                    
+                    # Extract content from the full article page
+                    content = await self.extract_article_content(full_article_url)
+                    if content:
+                        result['content'] = content
+                        return result
+            except Exception as e:
+                print(f"  ⚠️ Error extracting full article link: {e}")
+            
+            # Phase 3: Extract content from current page
+            content = await self.extract_article_content(url)
+            result['content'] = content
+            
+            return result
+            
+        except Exception as e:
+            print(f"  ❌ Error in enhanced extraction for {url}: {e}")
+            return result
+    
     async def extract_article_content(self, url: str) -> Optional[str]:
         """
         Extract main article content using AI-optimized strategies.
@@ -213,6 +282,27 @@ class ContentExtractor:
         except Exception as e:
             print(f"  ❌ Extraction error for {url}: {e}")
             raise ContentExtractionError(f"Failed to extract content from {url}: {e}")
+    
+    async def _fetch_html_content(self, url: str) -> Optional[str]:
+        """Fetch raw HTML content from URL."""
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate',
+                'Connection': 'keep-alive'
+            }
+            
+            async with get_http_client() as client:
+                response = await client.session.get(url, headers=headers, timeout=15)
+                if response.status == 200:
+                    return await response.text()
+            
+            return None
+        except Exception as e:
+            print(f"  ⚠️ Error fetching HTML from {url}: {e}")
+            return None
     
     async def _extract_with_learned_pattern(self, url: str, pattern) -> Optional[str]:
         """Extract content using a learned pattern."""

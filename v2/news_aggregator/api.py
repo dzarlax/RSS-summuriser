@@ -3,6 +3,7 @@
 import os
 import asyncio
 import subprocess
+import html
 from datetime import datetime, timedelta
 from typing import List, Optional
 from pathlib import Path
@@ -78,7 +79,12 @@ async def get_main_feed(
     
     # Apply category filter
     if category and category.lower() != 'all':
-        query = query.where(func.lower(Article.category) == category.lower())
+        if category.lower() == 'advertisements':
+            # Filter for advertising content
+            query = query.where(Article.is_advertisement == True)
+        else:
+            # Filter by regular category
+            query = query.where(func.lower(Article.category) == category.lower())
     
     # Apply pagination
     query = query.offset(offset).limit(limit)
@@ -92,17 +98,25 @@ async def get_main_feed(
     for article in articles:
         domain = extract_domain(article.url) if article.url else "unknown"
         
+        # Clean summary from service text
+        cleaned_summary = clean_summary_text(article.summary) if article.summary else None
+        
         feed_items.append({
             "article_id": article.id,
-            "title": article.title,
-            "summary": article.summary,
-            "content": article.content[:500] + "..." if article.content and len(article.content) > 500 else article.content,
+            "title": clean_html_entities(article.title) if article.title else None,
+            "summary": clean_html_entities(cleaned_summary) if cleaned_summary else None,
+            "content": clean_html_entities(article.content[:500] + "..." if article.content and len(article.content) > 500 else article.content) if article.content else None,
             "image_url": article.image_url,
             "url": article.url,
             "domain": domain,
             "category": article.category,
             "published_at": article.published_at.isoformat() if article.published_at else None,
-            "fetched_at": article.fetched_at.isoformat() if article.fetched_at else None
+            "fetched_at": article.fetched_at.isoformat() if article.fetched_at else None,
+            # Advertising detection data
+            "is_advertisement": bool(getattr(article, 'is_advertisement', False)),
+            "ad_confidence": float(getattr(article, 'ad_confidence', 0.0)),
+            "ad_type": getattr(article, 'ad_type', None),
+            "ad_reasoning": getattr(article, 'ad_reasoning', None)
         })
     
     return {
@@ -148,9 +162,9 @@ async def get_rss_feed(
     # Add items
     for article in articles:
         item = SubElement(channel, "item")
-        SubElement(item, "title").text = article.title
+        SubElement(item, "title").text = clean_html_entities(article.title) if article.title else ""
         SubElement(item, "link").text = article.url
-        SubElement(item, "description").text = article.summary or article.title
+        SubElement(item, "description").text = clean_html_entities(article.summary or article.title) if (article.summary or article.title) else ""
         SubElement(item, "guid").text = str(article.id)
         if article.published_at:
             SubElement(item, "pubDate").text = article.published_at.strftime("%a, %d %b %Y %H:%M:%S GMT")
@@ -169,6 +183,7 @@ async def get_rss_feed(
 @router.get("/categories")
 async def get_categories(db: AsyncSession = Depends(get_db)):
     """Get all available categories with article counts."""
+    # Get regular categories
     result = await db.execute(
         select(Article.category, func.count(Article.id).label('count'))
         .where(Article.category.isnot(None))
@@ -186,9 +201,24 @@ async def get_categories(db: AsyncSession = Depends(get_db)):
         })
         total_count += count
     
+    # Get advertising count
+    ad_result = await db.execute(
+        select(func.count(Article.id).label('ad_count'))
+        .where(Article.is_advertisement == True)
+    )
+    ad_count = ad_result.scalar() or 0
+    
+    # Add advertising as a special category if there are any ads
+    if ad_count > 0:
+        categories.append({
+            "category": "advertisements",
+            "count": ad_count
+        })
+    
     return {
         "categories": categories,
-        "total_articles": total_count
+        "total_articles": total_count,
+        "advertisements": ad_count
     }
 
 
@@ -438,8 +468,8 @@ async def export_daily_data(
         "articles": [
             {
                 "id": article.id,
-                "title": article.title,
-                "summary": article.summary,
+                "title": clean_html_entities(article.title) if article.title else None,
+                "summary": clean_html_entities(article.summary) if article.summary else None,
                 "url": article.url,
                 "published_at": article.published_at.isoformat() if article.published_at else None,
                 "fetched_at": article.fetched_at.isoformat() if article.fetched_at else None
@@ -833,6 +863,89 @@ def extract_domain(url: str) -> str:
         return urlparse(url).netloc.lower()
     except Exception:
         return "unknown"
+
+
+def clean_html_entities(text: str) -> str:
+    """Clean HTML entities from text, preventing double escaping issues."""
+    if not text:
+        return text
+    
+    # First, unescape any existing HTML entities
+    cleaned = html.unescape(text)
+    
+    # Clean up any remaining problematic sequences that might cause display issues
+    import re
+    from bs4 import BeautifulSoup
+    
+    # Remove sequences like "> or '> that might appear from malformed entities
+    cleaned = re.sub(r'["\']>', ' ', cleaned)
+    
+    # Remove problematic HTML sequences manually instead of using BeautifulSoup
+    # This is more reliable for malformed HTML
+    import re
+    
+    # Remove malformed HTML links like "a href='url text /a"
+    cleaned = re.sub(r'<?\s*a\s+href=[\'"]?[^\s\'"<>]*[\'"]?\s*[^<>]*/?a\s*>?', ' ', cleaned)
+    
+    # Remove any remaining HTML tags
+    cleaned = re.sub(r'<[^>]*>', '', cleaned)
+    
+    # Remove patterns like "@serbia /url_path Читать оригинал"
+    cleaned = re.sub(r'@\w+\s+/[^\s]*\s+Читать оригинал', '', cleaned)
+    
+    # Remove any remaining < > characters
+    cleaned = cleaned.replace('<', ' ').replace('>', ' ')
+    
+    # Clean up extra whitespace
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    
+    return cleaned
+
+
+def clean_summary_text(raw_summary: str) -> str:
+    """Clean AI-generated summary from service text and prompt repetition."""
+    if not raw_summary:
+        return ""
+    
+    import re
+    
+    # Remove common service phrases that AI sometimes includes
+    service_phrases = [
+        r'^Краткое содержание статьи на русском языке с основными тезисами:\s*',
+        r'^Краткое содержание статьи на русском языке:\s*',
+        r'^Краткое содержание:\s*',
+        r'^Основные тезисы статьи:\s*',
+        r'^Основные тезисы:\s*',
+        r'^Суммаризация статьи:\s*',
+        r'^Пересказ статьи:\s*',
+        r'^Содержание статьи:\s*',
+        r'^Вот краткое содержание:\s*',
+        r'^Вот основные тезисы:\s*',
+        r'^Статья содержит следующие основные моменты:\s*',
+        r'^Статья рассказывает о следующем:\s*',
+        r'^ПЕРЕСКАЗ:\s*'
+    ]
+    
+    cleaned_summary = raw_summary
+    
+    # Remove service phrases from the beginning
+    for phrase_pattern in service_phrases:
+        cleaned_summary = re.sub(phrase_pattern, '', cleaned_summary, flags=re.IGNORECASE | re.MULTILINE)
+    
+    # Remove leading/trailing whitespace and newlines
+    cleaned_summary = cleaned_summary.strip()
+    
+    # Remove empty bullet points or dashes at the beginning
+    cleaned_summary = re.sub(r'^[-•·*]\s*', '', cleaned_summary, flags=re.MULTILINE)
+    cleaned_summary = re.sub(r'^\d+\.\s*$', '', cleaned_summary, flags=re.MULTILINE)
+    
+    # Clean up multiple newlines
+    cleaned_summary = re.sub(r'\n\s*\n', '\n\n', cleaned_summary)
+    
+    # Remove trailing periods/colons if they look like service text endings
+    cleaned_summary = re.sub(r':\s*$', '', cleaned_summary)
+    
+    return cleaned_summary.strip()
 
 
 # Backup/Restore API Endpoints

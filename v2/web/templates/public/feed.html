@@ -238,6 +238,29 @@
 .category-marketing { background: rgba(255, 193, 7, 0.9); }
 .category-other { background: rgba(108, 117, 125, 0.9); }
 
+/* Advertising badge */
+.ad-badge {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 700;
+    color: white;
+    background: rgba(220, 53, 69, 0.95);
+    backdrop-filter: blur(10px);
+    z-index: 3;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    animation: pulse-ad 2s infinite;
+    cursor: help;
+}
+
+@keyframes pulse-ad {
+    0%, 100% { opacity: 0.95; }
+    50% { opacity: 0.8; }
+}
+
 .news-content {
     padding: 20px;
 }
@@ -466,6 +489,20 @@
     font-size: 0.875rem;
     font-weight: 600;
     color: white;
+}
+
+.modal-ad-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 12px;
+    border-radius: 16px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: white;
+    background: rgba(220, 53, 69, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    animation: pulse-ad 2s infinite;
+    cursor: help;
 }
 
 .modal-close {
@@ -751,6 +788,11 @@ async function loadCategories() {
             allCategories[cat.category.toLowerCase()] = cat.count;
         });
         
+        // Add advertising count if available
+        if (data.advertisements && data.advertisements > 0) {
+            allCategories.advertisements = data.advertisements;
+        }
+        
         // Update filter buttons with all available categories
         updateAllCategoryFilters();
         
@@ -863,12 +905,17 @@ function createNewsItem(article) {
         <article class="news-item" data-category="${category}" onclick="showArticleModal('${article.article_id}')">
             <div class="news-image">
                 ${imageUrl ? 
-                    `<img src="${imageUrl}" alt="${escapeHtml(article.title)}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=\\"image-placeholder\\">📰</div>'">` :
+                    `<img src="${imageUrl}" alt="${escapeHtml(article.title)}" loading="lazy" onerror="this.parentElement.innerHTML='&lt;div class=&quot;image-placeholder&quot;&gt;📰&lt;/div&gt;'">` :
                     `<div class="image-placeholder">📰</div>`
                 }
                 <div class="category-badge category-${category}">
                     ${categoryInfo.icon} ${categoryInfo.name}
                 </div>
+                ${article.is_advertisement ? `
+                    <div class="ad-badge" title="Рекламный контент (Уверенность: ${Math.round((article.ad_confidence || 0) * 100)}%)">
+                        🚨 РЕКЛАМА
+                    </div>
+                ` : ''}
             </div>
             <div class="news-content">
                 <h2 class="news-title">
@@ -902,6 +949,11 @@ function updateAllCategoryFilters() {
             <span class="filter-icon">🔍</span>
             <span>Все</span>
             <span class="count">${allCategories.all || 0}</span>
+        </button>
+        <button class="filter-btn ${currentCategory === 'advertisements' ? 'active' : ''}" data-category="advertisements" onclick="filterByCategory('advertisements')">
+            <span class="filter-icon">🚨</span>
+            <span>Реклама</span>
+            <span class="count">${allCategories.advertisements || 0}</span>
         </button>
     `;
     
@@ -983,6 +1035,19 @@ function formatDate(dateString) {
 function extractImageFromContent(content) {
     if (!content) return null;
     
+    // If content is already a direct URL, return it
+    if (typeof content === 'string' && (content.startsWith('http://') || content.startsWith('https://'))) {
+        // Check if it looks like an image URL
+        const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'];
+        const imagePatterns = ['telegram.space/file/', 'cdn.telegram', 'imgur.com/', 'images.', 'img.', 'static.', 'media.', 'photo'];
+        
+        const lowerContent = content.toLowerCase();
+        if (imageExtensions.some(ext => lowerContent.includes(ext)) || 
+            imagePatterns.some(pattern => lowerContent.includes(pattern))) {
+            return content;
+        }
+    }
+    
     // Extract image URL from HTML content
     const imgRegex = /<img[^>]+src=['"]([^'"]+)['"][^>]*>/i;
     const match = content.match(imgRegex);
@@ -1004,6 +1069,28 @@ function cleanHtmlSummary(html) {
     // Remove HTML tags but keep basic formatting
     let clean = html;
     
+    // Remove common AI service phrases at the beginning
+    const servicePatterns = [
+        /^Краткое содержание статьи на русском языке с основными тезисами:\s*/i,
+        /^Краткое содержание статьи на русском языке:\s*/i,
+        /^Краткое содержание:\s*/i,
+        /^Основные тезисы статьи:\s*/i,
+        /^Основные тезисы:\s*/i,
+        /^Суммаризация статьи:\s*/i,
+        /^Пересказ статьи:\s*/i,
+        /^Содержание статьи:\s*/i,
+        /^Вот краткое содержание:\s*/i,
+        /^Вот основные тезисы:\s*/i,
+        /^Статья содержит следующие основные моменты:\s*/i,
+        /^Статья рассказывает о следующем:\s*/i,
+        /^ПЕРЕСКАЗ:\s*/i
+    ];
+    
+    // Remove service phrases
+    servicePatterns.forEach(pattern => {
+        clean = clean.replace(pattern, '');
+    });
+    
     // Remove figure tags and their contents
     clean = clean.replace(/<figure[^>]*>[\s\S]*?<\/figure>/gi, '');
     
@@ -1021,13 +1108,20 @@ function cleanHtmlSummary(html) {
     // Remove other HTML tags
     clean = clean.replace(/<[^>]*>/g, '');
     
-    // Decode HTML entities
-    clean = clean.replace(/&quot;/g, '"')
+    // Decode HTML entities (order matters: &amp; first to avoid double decoding)
+    clean = clean.replace(/&amp;/g, '&')
+                 .replace(/&#038;/g, '&')
+                 .replace(/&quot;/g, '"')
                  .replace(/&apos;/g, "'")
                  .replace(/&lt;/g, '<')
-                 .replace(/&gt;/g, '>')
-                 .replace(/&amp;/g, '&')
-                 .replace(/&#038;/g, '&');
+                 .replace(/&gt;/g, '>');
+    
+    // Clean up any remaining problematic sequences
+    clean = clean.replace(/["']>/g, ' '); // Remove sequences like "> or '>
+    clean = clean.replace(/[<>]/g, ''); // Remove any remaining < or > characters
+    clean = clean.replace(/"">/g, ' '); // Remove exact ""&gt; sequence
+    clean = clean.replace(/\u201D\u201D>/g, ' '); // Remove Unicode quotes
+    clean = clean.replace(/&#8221;&#8221;>/g, ' '); // Remove encoded quotes
     
     // Clean up whitespace
     clean = clean.replace(/\s+/g, ' ').trim();
@@ -1058,6 +1152,11 @@ function showArticleModal(articleId) {
                     <div class="modal-category category-${category}">
                         ${categoryInfo.icon} ${categoryInfo.name}
                     </div>
+                    ${article.is_advertisement ? `
+                        <div class="modal-ad-badge" title="Рекламный контент (Уверенность: ${Math.round((article.ad_confidence || 0) * 100)}%)">
+                            🚨 РЕКЛАМА
+                        </div>
+                    ` : ''}
                     <button class="modal-close" onclick="closeArticleModal()">×</button>
                 </div>
                 
@@ -1109,6 +1208,22 @@ function formatHtmlContent(html) {
     if (!html) return 'Содержимое недоступно';
     
     let formatted = html;
+    
+    // Clean HTML entities first (same logic as cleanHtmlSummary)
+    formatted = formatted.replace(/&amp;/g, '&')
+                       .replace(/&#038;/g, '&')
+                       .replace(/&quot;/g, '"')
+                       .replace(/&apos;/g, "'")
+                       .replace(/&lt;/g, '<')
+                       .replace(/&gt;/g, '>');
+    
+    // Clean up any remaining problematic sequences
+    formatted = formatted.replace(/["']>/g, ' '); // Remove sequences like "> or '>
+    formatted = formatted.replace(/"">/g, ' '); // Remove exact ""&gt; sequence
+    formatted = formatted.replace(/\u201D\u201D>/g, ' '); // Remove Unicode quotes
+    formatted = formatted.replace(/&#8221;&#8221;>/g, ' '); // Remove encoded quotes
+    // For safety, remove isolated < and > characters (simplified approach)
+    formatted = formatted.replace(/</g, '').replace(/>/g, '');
     
     // Convert markdown bold syntax **text** to HTML <strong>text</strong>
     formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');

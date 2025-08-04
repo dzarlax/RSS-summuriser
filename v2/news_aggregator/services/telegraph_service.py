@@ -61,9 +61,14 @@ class TelegraphService:
                         headline = article.get('headline', '')
                         description = article.get('description', '')
                         links = article.get('links', [])
+                        image_url = article.get('image_url', '')
                         
                         if headline:
                             content_html += f"<h4>{self._escape_html(headline)}</h4>\n"
+                        
+                        # Add image if available
+                        if image_url and self._is_valid_image_url(image_url):
+                            content_html += f'<img src="{image_url}" alt="{self._escape_html(headline[:100])}">\n'
                         
                         if description:
                             # Clean and format description
@@ -135,6 +140,37 @@ class TelegraphService:
                    .replace('>', '&gt;')
                    .replace('"', '&quot;')
                    .replace("'", '&#x27;'))
+    
+    def _is_valid_image_url(self, url: str) -> bool:
+        """Check if URL looks like a valid image URL."""
+        if not url or not isinstance(url, str):
+            return False
+        
+        url = url.lower()
+        
+        # Check if URL starts with http/https
+        if not url.startswith(('http://', 'https://')):
+            return False
+        
+        # Check for image file extensions
+        image_extensions = ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg')
+        if any(url.endswith(ext) for ext in image_extensions):
+            return True
+        
+        # Check for known image CDN patterns
+        image_cdns = [
+            'telegram.space/file/',  # Telegram CDN
+            'cdn.telegram',
+            'imgur.com/',
+            'i.imgur.com/',
+            'images.',
+            'img.',
+            'static.',
+            'media.',
+            'photo'
+        ]
+        
+        return any(pattern in url for pattern in image_cdns)
     
     def _extract_domain(self, url: str) -> str:
         """Extract domain from URL."""

@@ -53,6 +53,14 @@ class Article(Base):
     summary_processed = Column(Boolean, default=False)  # True if AI summarization was attempted
     category_processed = Column(Boolean, default=False)  # True if AI categorization was attempted
     hash_content = Column(String(64))
+    
+    # Advertising detection fields
+    is_advertisement = Column(Boolean, default=False, index=True)  # True if content is advertising
+    ad_confidence = Column(Float, default=0.0)  # Confidence score (0.0-1.0)
+    ad_type = Column(String(50))  # Type of advertising (product_promotion, affiliate_marketing, etc.)
+    ad_reasoning = Column(Text)  # AI reasoning for advertising classification
+    ad_markers = Column(JSON, default=list)  # List of advertising markers found
+    ad_processed = Column(Boolean, default=False)  # True if advertising detection was attempted
 
     # Relationships
     source = relationship("Source", back_populates="articles")

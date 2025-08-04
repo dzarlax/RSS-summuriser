@@ -94,7 +94,7 @@ class TelegramSource(BaseSource):
         return username
     
     async def fetch_articles(self, limit: Optional[int] = None) -> AsyncGenerator[Article, None]:
-        """Fetch messages from public Telegram channel with multiple fallbacks."""
+        """Fetch messages from public Telegram channel with multiple fallbacks and advertising detection."""
         articles_found = []
         
         # Strategy 1: Try HTTP requests with smart retry
@@ -135,10 +135,13 @@ class TelegramSource(BaseSource):
             method_info = "HTTP + Browser" if PLAYWRIGHT_AVAILABLE else "HTTP only"
             raise SourceError(f"All access methods ({method_info}) failed for channel: {self.channel_username}")
         
-        # Sort by date and yield
-        articles_found.sort(key=lambda x: x.published_at or datetime.min, reverse=True)
+        # Apply advertising detection to all articles
+        articles_with_ad_detection = await self._apply_advertising_detection(articles_found)
         
-        for i, article in enumerate(articles_found):
+        # Sort by date and yield
+        articles_with_ad_detection.sort(key=lambda x: x.published_at or datetime.min, reverse=True)
+        
+        for i, article in enumerate(articles_with_ad_detection):
             if limit and i >= limit:
                 break
             yield article
@@ -321,6 +324,9 @@ class TelegramSource(BaseSource):
             if not content:
                 content = message_div.get_text(separator=' ', strip=True)
             
+            # Clean up content from HTML artifacts and weird characters
+            content = self._clean_message_content(content)
+            
             if len(content) < 10:
                 return None
             
@@ -417,33 +423,59 @@ class TelegramSource(BaseSource):
         return datetime.utcnow()
     
     def _extract_image_url(self, message_div) -> Optional[str]:
-        """Extract image URL from message div with enhanced media support."""
-        # Enhanced image selectors
-        img_selectors = [
-            'img[src]',                    # Standard images
-            '.media img',                  # Media container images
-            '.photo img',                  # Photo-specific images
-            '.video-thumb img',            # Video thumbnails
-            '.document-thumb img',         # Document thumbnails
-            'a[style*="background-image"] img',  # Background image links
-            '.attachment img',             # Attachment images
-            '.preview img'                 # Preview images
+        """Extract image URL from message div with enhanced media support, excluding channel avatars."""
+        # Enhanced image selectors - prioritize content images over avatars
+        content_img_selectors = [
+            '.media img',                  # Media container images (content)
+            '.photo img',                  # Photo-specific images (content)
+            '.video-thumb img',            # Video thumbnails (content)
+            '.document-thumb img',         # Document thumbnails (content)
+            '.attachment img',             # Attachment images (content)
+            '.message_media img',          # Message media (content)
+            '.tgme_widget_message_photo img',  # Telegram preview photos (content)
+        ]
+        
+        # Avatar/profile selectors to exclude
+        avatar_selectors = [
+            '.tgme_widget_message_user_photo img',  # User profile photos
+            '.tgme_widget_message_owner_photo img', # Channel owner photos
+            '.message_author_photo img',            # Author photos
+            '.avatar img',                          # Generic avatars
+            '.profile img',                         # Profile images
+            '.channel_photo img'                    # Channel photos
         ]
         
         image_urls = []
         
-        for selector in img_selectors:
+        # First, collect avatar URLs to exclude them
+        avatar_urls = set()
+        for selector in avatar_selectors:
+            avatar_imgs = message_div.select(selector)
+            for img in avatar_imgs:
+                src = img.get('src') or img.get('data-src') or img.get('data-lazy-src')
+                if src:
+                    avatar_urls.add(src)
+        
+        # Then collect content images, excluding avatars
+        for selector in content_img_selectors:
             imgs = message_div.select(selector)
             for img in imgs:
                 src = img.get('src') or img.get('data-src') or img.get('data-lazy-src')
-                if src:
+                if src and src not in avatar_urls:
                     # Clean and normalize URL
-                    if src.startswith('http'):
-                        image_urls.append(src)
-                    elif src.startswith('//'):
-                        image_urls.append(f"https:{src}")
-                    elif src.startswith('/'):
-                        image_urls.append(f"https://t.me{src}")
+                    normalized_url = self._normalize_image_url(src)
+                    if normalized_url and self._is_content_image(normalized_url):
+                        image_urls.append(normalized_url)
+        
+        # If no specific content images found, try general img selector but exclude avatars
+        if not image_urls:
+            general_imgs = message_div.select('img[src]')
+            for img in general_imgs:
+                src = img.get('src') or img.get('data-src') or img.get('data-lazy-src')
+                if src and src not in avatar_urls:
+                    normalized_url = self._normalize_image_url(src)
+                    if normalized_url and self._is_content_image(normalized_url):
+                        image_urls.append(normalized_url)
         
         # Also check for background-image in style attributes
         style_elements = message_div.select('[style*="background-image"]')
@@ -453,19 +485,101 @@ class TelegramSource(BaseSource):
             import re
             bg_matches = re.findall(r'background-image:\s*url\(["\']?(.*?)["\']?\)', style)
             for match in bg_matches:
-                if match.startswith('http'):
-                    image_urls.append(match)
-                elif match.startswith('//'):
-                    image_urls.append(f"https:{match}")
+                if match not in avatar_urls:
+                    normalized_url = self._normalize_image_url(match)
+                    if normalized_url and self._is_content_image(normalized_url):
+                        image_urls.append(normalized_url)
         
-        # Return the first valid high-quality image
+        # Return the first valid high-quality content image
         for url in image_urls:
             # Prefer full-size images over thumbnails
             if 'thumb' not in url.lower() and 'preview' not in url.lower():
                 return url
         
-        # Fallback to any image
+        # Fallback to any content image
         return image_urls[0] if image_urls else None
+    
+    def _normalize_image_url(self, url: str) -> Optional[str]:
+        """Normalize image URL to absolute format."""
+        if not url:
+            return None
+            
+        if url.startswith('http'):
+            return url
+        elif url.startswith('//'):
+            return f"https:{url}"
+        elif url.startswith('/'):
+            return f"https://t.me{url}"
+        else:
+            return None
+    
+    def _is_content_image(self, url: str) -> bool:
+        """Check if URL is likely a content image (not avatar/profile)."""
+        if not url:
+            return False
+            
+        url_lower = url.lower()
+        
+        # Exclude known avatar/profile patterns
+        avatar_patterns = [
+            '/userpic/',           # User profile pictures
+            '/profile/',           # Profile images
+            '/avatar/',            # Avatar images
+            '/channel_photo/',     # Channel photos
+            '/user_photo/',        # User photos
+            '_userpic.',           # Userpic files
+            '_avatar.',            # Avatar files
+            '_profile.',           # Profile files
+        ]
+        
+        for pattern in avatar_patterns:
+            if pattern in url_lower:
+                return False
+        
+        # Check for content image indicators
+        content_patterns = [
+            '/file/',              # General file storage
+            '/photo/',             # Photo files
+            '/media/',             # Media files
+            '/document/',          # Document files
+            '/video/',             # Video files
+        ]
+        
+        for pattern in content_patterns:
+            if pattern in url_lower:
+                return True
+        
+        # If no specific pattern matches, assume it's content if it's from telegram CDN
+        return 'cdn' in url_lower and 'telegram' in url_lower
+    
+    def _clean_message_content(self, content: str) -> str:
+        """Clean message content from HTML artifacts and weird characters."""
+        if not content:
+            return ""
+        
+        import re
+        
+        # Remove HTML entities
+        content = content.replace('&nbsp;', ' ')
+        content = content.replace('&amp;', '&')
+        content = content.replace('&lt;', '<')
+        content = content.replace('&gt;', '>')
+        content = content.replace('&quot;', '"')
+        content = content.replace('&#39;', "'")
+        
+        # Remove weird characters and HTML artifacts
+        content = re.sub(r'[^\w\s\.\,\!\?\;\:\-\(\)\[\]\"\'а-яА-ЯёЁ\d\+\=\#\@\%\&\*\/\\\|]', '', content, flags=re.UNICODE)
+        
+        # Remove specific patterns that cause issues
+        content = re.sub(r'!!!"?>', '', content)  # Remove the specific artifact seen in screenshot
+        content = re.sub(r'<[^>]*>', '', content)  # Remove any remaining HTML tags
+        content = re.sub(r'\s+', ' ', content)      # Normalize whitespace
+        
+        # Remove navigation text
+        content = re.sub(r'Please open Telegram to view this post.*?VIEW IN TELEGRAM', '', content, flags=re.IGNORECASE)
+        content = re.sub(r'\d+\s+views?\s+\d{2}:\d{2}', '', content)  # Remove "X views XX:XX"
+        
+        return content.strip()
     
     def _extract_media_info(self, message_div) -> Dict[str, Any]:
         """Extract comprehensive media information from message."""
@@ -493,7 +607,7 @@ class TelegramSource(BaseSource):
         for selector in video_selectors:
             video = message_div.select_one(selector)
             if video and video.get('src'):
-                media_info['video_url'] = self._normalize_url(video['src'])
+                media_info['video_url'] = self._normalize_image_url(video['src'])
                 media_info['media_type'] = 'video'
                 if video.get('duration'):
                     media_info['duration'] = video['duration']
@@ -510,7 +624,7 @@ class TelegramSource(BaseSource):
         for selector in doc_selectors:
             doc_link = message_div.select_one(selector)
             if doc_link and doc_link.get('href'):
-                media_info['document_url'] = self._normalize_url(doc_link['href'])
+                media_info['document_url'] = self._normalize_image_url(doc_link['href'])
                 media_info['media_type'] = 'document'
                 
                 # Try to extract file name
@@ -534,7 +648,7 @@ class TelegramSource(BaseSource):
         for selector in audio_selectors:
             audio = message_div.select_one(selector)
             if audio and audio.get('src'):
-                media_info['audio_url'] = self._normalize_url(audio['src'])
+                media_info['audio_url'] = self._normalize_image_url(audio['src'])
                 media_info['media_type'] = 'audio'
                 if audio.get('duration'):
                     media_info['duration'] = audio['duration']
@@ -543,7 +657,7 @@ class TelegramSource(BaseSource):
         # Sticker extraction
         sticker = message_div.select_one('.sticker img, .animated-sticker img')
         if sticker and sticker.get('src'):
-            media_info['sticker_url'] = self._normalize_url(sticker['src'])
+            media_info['sticker_url'] = self._normalize_image_url(sticker['src'])
             media_info['media_type'] = 'sticker'
         
         # Poll extraction
@@ -574,17 +688,6 @@ class TelegramSource(BaseSource):
             media_info['media_type'] = 'location'
         
         return media_info
-    
-    def _normalize_url(self, url: str) -> str:
-        """Normalize URL to absolute format."""
-        if url.startswith('http'):
-            return url
-        elif url.startswith('//'):
-            return f"https:{url}"
-        elif url.startswith('/'):
-            return f"https://t.me{url}"
-        else:
-            return url
     
     def _extract_title(self, text: str) -> str:
         """Extract title from message text."""
@@ -622,6 +725,79 @@ class TelegramSource(BaseSource):
         except Exception:
             return False
     
+    async def _apply_advertising_detection(self, articles: List[Article]) -> List[Article]:
+        """Apply AI-powered advertising detection to articles."""
+        if not articles:
+            return articles
+        
+        try:
+            # Import AI client dynamically to avoid circular import
+            from ..services.ai_client import get_ai_client
+            ai_client = get_ai_client()
+            
+            print(f"🎯 Applying advertising detection to {len(articles)} articles...")
+            
+            enhanced_articles = []
+            
+            for article in articles:
+                try:
+                    # Prepare source context
+                    source_info = {
+                        'channel': self.channel_username,
+                        'source_name': self.name,
+                        'source_type': 'telegram'
+                    }
+                    
+                    # Detect advertising in content
+                    ad_detection = await ai_client.detect_advertising(article.content, source_info)
+                    
+                    # Update article's raw_data with advertising information
+                    if not hasattr(article, 'raw_data') or article.raw_data is None:
+                        article.raw_data = {}
+                    
+                    article.raw_data.update({
+                        'advertising_detection': ad_detection,
+                        'is_advertisement': ad_detection.get('is_advertisement', False),
+                        'ad_confidence': ad_detection.get('confidence', 0.0),
+                        'ad_type': ad_detection.get('ad_type'),
+                        'ad_reasoning': ad_detection.get('reasoning', ''),
+                        'ad_markers': ad_detection.get('markers', [])
+                    })
+                    
+                    enhanced_articles.append(article)
+                    
+                except Exception as e:
+                    print(f"  ⚠️ Failed to detect advertising for article: {e}")
+                    # Still add the article even if advertising detection fails
+                    enhanced_articles.append(article)
+            
+            # Report advertising statistics
+            total_articles = len(enhanced_articles)
+            advertising_count = sum(1 for article in enhanced_articles 
+                                   if article.raw_data and article.raw_data.get('is_advertisement', False))
+            
+            if advertising_count > 0:
+                print(f"  🚨 Detected {advertising_count}/{total_articles} advertising messages ({advertising_count/total_articles*100:.1f}%)")
+                
+                # Break down by ad type
+                ad_types = {}
+                for article in enhanced_articles:
+                    if article.raw_data and article.raw_data.get('is_advertisement', False):
+                        ad_type = article.raw_data.get('ad_type', 'unknown')
+                        ad_types[ad_type] = ad_types.get(ad_type, 0) + 1
+                
+                for ad_type, count in ad_types.items():
+                    print(f"    - {ad_type}: {count}")
+            else:
+                print(f"  ✅ No advertising detected in {total_articles} messages")
+            
+            return enhanced_articles
+            
+        except Exception as e:
+            print(f"  ⚠️ Advertising detection failed: {e}")
+            # Return original articles if detection fails
+            return articles
+
     async def cleanup(self):
         """Clean up resources (browser, etc.)."""
         if self.browser:

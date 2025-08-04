@@ -24,6 +24,11 @@ class AIAnalysisResult:
     tokens_used: int
     analysis_time_ms: int
     recommended_strategy: str = "html_parsing"
+    # New fields for metadata extraction
+    date_selectors: List[str] = None
+    date_confidence_scores: Dict[str, float] = None
+    requires_link_following: bool = False
+    link_patterns: List[str] = None
 
 
 @dataclass
@@ -192,10 +197,12 @@ DOMAIN ANALYSIS:
         
         prompt += """REQUIREMENTS:
 1. Suggest 3-5 CSS selectors that likely contain main article content
-2. Focus on semantic HTML elements and common content patterns
-3. Avoid navigation, ads, sidebars, comments, related articles
-4. Consider modern CSS frameworks (Tailwind, Bootstrap) and CMS patterns
-5. Prioritize selectors that work across multiple pages on the domain
+2. Find selectors for publication date/time metadata
+3. Detect if content requires following links to get full article text
+4. Focus on semantic HTML elements and common content patterns
+5. Avoid navigation, ads, sidebars, comments, related articles
+6. Consider modern CSS frameworks (Tailwind, Bootstrap) and CMS patterns
+7. Prioritize selectors that work across multiple pages on the domain
 
 RESPONSE FORMAT (JSON):
 {
@@ -204,6 +211,21 @@ RESPONSE FORMAT (JSON):
       "selector": ".article-content",
       "confidence": 0.8,
       "reasoning": "Common CMS pattern for main content"
+    }
+  ],
+  "date_selectors": [
+    {
+      "selector": ".published-date",
+      "confidence": 0.9,
+      "reasoning": "Publication date metadata"
+    }
+  ],
+  "requires_link_following": false,
+  "link_patterns": [
+    {
+      "selector": ".read-more-link",
+      "confidence": 0.7,
+      "reasoning": "Links to full article content"
     }
   ],
   "recommended_strategy": "html_parsing",
@@ -243,6 +265,27 @@ Focus on finding robust, reliable selectors that will work consistently across t
                         selectors.append(selector)
                         confidence_scores[selector] = 0.5
             
+            # Parse date selectors
+            date_selectors = []
+            date_confidence_scores = {}
+            
+            for date_data in data.get('date_selectors', []):
+                if isinstance(date_data, dict):
+                    selector = date_data.get('selector', '').strip()
+                    confidence = float(date_data.get('confidence', 0.5))
+                    
+                    if selector and confidence >= self.min_confidence_threshold:
+                        date_selectors.append(selector)
+                        date_confidence_scores[selector] = confidence
+            
+            # Parse link patterns for full article content
+            link_patterns = []
+            for link_data in data.get('link_patterns', []):
+                if isinstance(link_data, dict):
+                    selector = link_data.get('selector', '').strip()
+                    if selector:
+                        link_patterns.append(selector)
+            
             if not selectors:
                 print("  ⚠️ No valid selectors found in AI response")
                 return None
@@ -254,7 +297,12 @@ Focus on finding robust, reliable selectors that will work consistently across t
                 analysis_reasoning=data.get('analysis', 'AI-generated selector analysis'),
                 tokens_used=0,  # Will be set by caller
                 analysis_time_ms=0,  # Will be set by caller
-                recommended_strategy=data.get('recommended_strategy', 'html_parsing')
+                recommended_strategy=data.get('recommended_strategy', 'html_parsing'),
+                # New fields
+                date_selectors=date_selectors,
+                date_confidence_scores=date_confidence_scores,
+                requires_link_following=data.get('requires_link_following', False),
+                link_patterns=link_patterns
             )
             
         except json.JSONDecodeError as e:

@@ -9,7 +9,15 @@ from typing import List, Dict, Optional, Set, Tuple, Any
 from dataclasses import dataclass
 from urllib.parse import urljoin, urlparse
 
-from playwright.async_api import async_playwright, Browser, Page
+try:
+    from playwright.async_api import async_playwright, Browser, Page
+    PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    PLAYWRIGHT_AVAILABLE = False
+    async_playwright = None
+    Browser = None
+    Page = None
+
 from bs4 import BeautifulSoup
 
 from .base import BaseSource, SourceInfo, Article, SourceType

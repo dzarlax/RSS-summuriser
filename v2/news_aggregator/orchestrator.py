@@ -49,16 +49,20 @@ class NewsOrchestrator:
                     all_articles.extend(articles)
                     stats['articles_fetched'] += len(articles)
                 
-                # Step 2: Get articles that need processing (new + unprocessed + without categories)
-                from sqlalchemy import select, or_
+                # Step 2: Get articles that need processing (new + unprocessed + without categories + need ad detection)
+                from sqlalchemy import select, or_, and_
                 from sqlalchemy.orm import selectinload
                 unprocessed_result = await db.execute(
                     select(Article).options(selectinload(Article.source)).where(
                         or_(
                             (Article.summary.is_(None)) | (Article.summary == ''),  # No summary
-                            (Article.category.is_(None)) | (Article.category == '') | (Article.category == 'Other')  # No category or default
+                            (Article.category.is_(None)) | (Article.category == '') | (Article.category == 'Other'),  # No category or default
+                            and_(
+                                Article.ad_processed.is_(False),  # Need advertising detection
+                                Article.source.has(Source.source_type == 'telegram')  # Only for Telegram sources
+                            )
                         )
-                    ).limit(200)  # Process max 200 at once (increased for category processing)
+                    ).limit(200)  # Process max 200 at once
                 )
                 unprocessed_articles = list(unprocessed_result.scalars().all())
                 
@@ -163,8 +167,10 @@ class NewsOrchestrator:
                 needs_summary = not getattr(article, 'summary_processed', False) and (not article.summary or article.summary == '')
                 # Check if article needs categorization (not processed yet)
                 needs_category = not getattr(article, 'category_processed', False)
+                # Check if article needs advertising detection (not processed yet and is from telegram)
+                needs_ad_detection = not getattr(article, 'ad_processed', False) and source_type == 'telegram'
                 
-                print(f"  🔍 Processing needs: {'✅ Summary' if needs_summary else '❌ Summary'}, {'✅ Category' if needs_category else '❌ Category'}")
+                print(f"  🔍 Processing needs: {'✅ Summary' if needs_summary else '❌ Summary'}, {'✅ Category' if needs_category else '❌ Category'}, {'✅ Ad Detection' if needs_ad_detection else '❌ Ad Detection'}")
                 if getattr(article, 'summary_processed', False):
                     print(f"  ⏭️ Skipping summarization - already processed")
                 if getattr(article, 'category_processed', False):
@@ -219,6 +225,70 @@ class NewsOrchestrator:
                         article.category = self._get_fallback_category(article.title)
                         # Do NOT mark as processed - allow retry on next run
                         print(f"  🔄 Using fallback categorization: '{article.category}' (will retry AI next time)")
+                
+                # Process advertising detection for Telegram sources
+                if needs_ad_detection:
+                    print(f"  🎯 Processing advertising detection from raw_data...")
+                    try:
+                        # Advertising detection should already be done in TelegramSource
+                        # Just extract the data from raw_data and save to database columns
+                        ad_detection = None
+                        if hasattr(article, 'raw_data') and article.raw_data:
+                            ad_detection = article.raw_data.get('advertising_detection')
+                        
+                        if ad_detection:
+                            # Save advertising detection results to database columns
+                            article.is_advertisement = ad_detection.get('is_advertisement', False)
+                            article.ad_confidence = ad_detection.get('confidence', 0.0)
+                            article.ad_type = ad_detection.get('ad_type')
+                            article.ad_reasoning = ad_detection.get('reasoning', '')
+                            article.ad_markers = ad_detection.get('markers', [])
+                            article.ad_processed = True
+                            
+                            if article.is_advertisement:
+                                print(f"  🚨 Advertising data found: {article.ad_type} (confidence: {article.ad_confidence:.2f})")
+                            else:
+                                print(f"  ✅ No advertising detected (confidence: {article.ad_confidence:.2f})")
+                        else:
+                            # No detection data available - this might be an old article
+                            # For existing articles without detection, run AI analysis once
+                            print(f"  🎯 No raw_data found, running AI detection for existing article...")
+                            start_time = time.time()
+                            
+                            source_info = {
+                                'channel': source_name,
+                                'source_name': source_name,
+                                'source_type': source_type
+                            }
+                            ad_detection = await self.ai_client.detect_advertising(
+                                article.content or article.title or '', 
+                                source_info
+                            )
+                            stats['api_calls_made'] += 1
+                            
+                            # Save results to database columns
+                            article.is_advertisement = ad_detection.get('is_advertisement', False)
+                            article.ad_confidence = ad_detection.get('confidence', 0.0)
+                            article.ad_type = ad_detection.get('ad_type')
+                            article.ad_reasoning = ad_detection.get('reasoning', '')
+                            article.ad_markers = ad_detection.get('markers', [])
+                            article.ad_processed = True
+                            
+                            duration = time.time() - start_time
+                            
+                            if article.is_advertisement:
+                                print(f"  🚨 Advertising detected in {duration:.2f}s: {article.ad_type} (confidence: {article.ad_confidence:.2f})")
+                            else:
+                                print(f"  ✅ No advertising detected in {duration:.2f}s (confidence: {article.ad_confidence:.2f})")
+                            
+                    except Exception as e:
+                        print(f"  ❌ Advertising detection processing failed: {str(e)}")
+                        logging.warning(f"Advertising detection processing failed for {article.url}: {e}")
+                        # Mark as processed with default values to avoid retry
+                        article.is_advertisement = False
+                        article.ad_confidence = 0.0
+                        article.ad_processed = True
+                        print(f"  🔄 Using default advertising detection values")
                 
                 article.processed = True
                 processed_articles.append(article)
@@ -387,7 +457,8 @@ class NewsOrchestrator:
                     'link': article.url,
                     'links': [article.url],  # For Telegraph compatibility
                     'description': article.summary or article.content[:500] + "..." if article.content else "",
-                    'category': category
+                    'category': category,
+                    'image_url': article.image_url  # Add image URL for Telegraph
                 })
             
             # Generate and save daily summaries by category

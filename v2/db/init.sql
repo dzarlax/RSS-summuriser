@@ -33,6 +33,15 @@ CREATE TABLE articles (
     summary_processed BOOLEAN DEFAULT FALSE,
     category_processed BOOLEAN DEFAULT FALSE,
     hash_content VARCHAR(64), -- Хеш для дедупликации
+    
+    -- Advertising detection fields
+    is_advertisement BOOLEAN DEFAULT FALSE,
+    ad_confidence REAL DEFAULT 0.0, -- Confidence score (0.0-1.0)
+    ad_type VARCHAR(50), -- Type of advertising (product_promotion, affiliate_marketing, etc.)
+    ad_reasoning TEXT, -- AI reasoning for advertising classification
+    ad_markers JSONB DEFAULT '[]', -- List of advertising markers found
+    ad_processed BOOLEAN DEFAULT FALSE, -- True if advertising detection was attempted
+    
     UNIQUE(url)
 );
 
@@ -174,3 +183,9 @@ CREATE TRIGGER update_daily_summaries_updated_at BEFORE UPDATE ON daily_summarie
 
 CREATE TRIGGER update_schedule_settings_updated_at BEFORE UPDATE ON schedule_settings
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Indexes for advertising detection queries
+CREATE INDEX idx_articles_is_advertisement ON articles(is_advertisement);
+CREATE INDEX idx_articles_ad_type ON articles(ad_type);
+CREATE INDEX idx_articles_ad_processed ON articles(ad_processed);
+CREATE INDEX idx_articles_source_advertisement ON articles(source_id, is_advertisement);
