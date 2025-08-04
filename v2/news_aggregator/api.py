@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks, UploadFile, File
+from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks, UploadFile, File, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +18,7 @@ from sqlalchemy.orm import selectinload
 from .database import get_db
 from .models import Article, Source, ProcessingStat, DailySummary, ScheduleSettings
 from .services.source_manager import SourceManager
+# from .security import require_api_read, require_api_write, require_admin, limiter
 
 
 class CreateSourceRequest(BaseModel):
@@ -223,7 +224,9 @@ async def get_categories(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/sources")
-async def get_sources_api(db: AsyncSession = Depends(get_db)):
+async def get_sources_api(
+    db: AsyncSession = Depends(get_db)
+):
     """Get all news sources."""
     source_manager = SourceManager()
     sources = await source_manager.get_sources(db)
@@ -259,6 +262,7 @@ async def get_sources_api(db: AsyncSession = Depends(get_db)):
 async def create_source(
     source_data: CreateSourceRequest,
     db: AsyncSession = Depends(get_db)
+    # TODO: Add admin auth when security is fixed
 ):
     """Create a new news source."""
     try:
@@ -409,7 +413,11 @@ async def toggle_source_status(source_id: int, db: AsyncSession = Depends(get_db
 
 
 @router.delete("/sources/{source_id}")
-async def delete_source(source_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_source(
+    source_id: int, 
+    db: AsyncSession = Depends(get_db)
+    # TODO: Add admin auth when security is fixed
+):
     """Delete a source."""
     try:
         source_manager = SourceManager()
@@ -601,6 +609,7 @@ async def get_dashboard_stats(db: AsyncSession = Depends(get_db)):
 
 @router.post("/process/run")
 async def run_manual_processing():
+    # TODO: Add admin auth when security is fixed
     """Run manual news processing."""
     try:
         from .orchestrator import NewsOrchestrator

@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     development: bool = Field(default=False, alias="DEVELOPMENT")
     
+    # Admin authentication
+    admin_username: str = Field(default="admin", alias="ADMIN_USERNAME")
+    admin_password: Optional[str] = Field(default=None, alias="ADMIN_PASSWORD")
+    
     # Processing
     max_workers: int = Field(default=5, alias="MAX_WORKERS")
     cache_ttl: int = Field(default=86400, alias="CACHE_TTL")
@@ -42,7 +46,7 @@ class Settings(BaseSettings):
         env_file = ".env"
         case_sensitive = False
         
-    @field_validator('api_endpoint', 'constructor_km_api', 's3_endpoint', mode='before')
+    @field_validator('constructor_km_api', mode='before')
     @classmethod
     def empty_str_to_none(cls, v):
         """Convert empty strings to None for optional URL fields."""
@@ -53,18 +57,13 @@ class Settings(BaseSettings):
     def get_legacy_config(self, key: str) -> Optional[str]:
         """Метод для совместимости со старой системой load_config."""
         legacy_mapping = {
-            "endpoint_300": self.api_endpoint,
-            "token_300": self.api_token.get_secret_value() if self.api_token else None,
-            "RPS": str(self.api_rate_limit),
-            "BUCKET_NAME": self.s3_bucket,
-            "ENDPOINT_URL": self.s3_endpoint,
-            "ACCESS_KEY": self.s3_access_key,
-            "SECRET_KEY": self.s3_secret_key.get_secret_value() if self.s3_secret_key else None,
+            "CONSTRUCTOR_KM_API": self.constructor_km_api,
+            "CONSTRUCTOR_KM_API_KEY": self.constructor_km_api_key,
+            "MODEL": self.model,
             "TELEGRAM_BOT_TOKEN": self.telegram_token.get_secret_value() if self.telegram_token else None,
             "TELEGRAM_TOKEN": self.telegram_token.get_secret_value() if self.telegram_token else None,
             "TELEGRAM_CHAT_ID": self.telegram_chat_id,
-            "RSS_LINKS": self.rss_links,
-            "logo_url": self.logo_url,
+            "TELEGRAPH_ACCESS_TOKEN": self.telegraph_access_token,
         }
         return legacy_mapping.get(key)
 

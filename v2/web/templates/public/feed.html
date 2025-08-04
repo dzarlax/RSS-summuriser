@@ -775,29 +775,36 @@ document.addEventListener('DOMContentLoaded', function() {
 
 async function loadCategories() {
     try {
-        const response = await fetch('/api/v1/categories');
+        // Load all articles to calculate category counts (max 100 per request)
+        const response = await fetch('/api/public/feed?limit=100');
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         
         const data = await response.json();
-        allCategories = { all: data.total_articles };
+        const articles = data.articles || [];
         
-        // Convert categories to counts object
-        data.categories.forEach(cat => {
-            allCategories[cat.category.toLowerCase()] = cat.count;
+        // Calculate category counts from articles
+        allCategories = { all: articles.length };
+        
+        articles.forEach(article => {
+            const category = (article.category || 'Other').toLowerCase();
+            allCategories[category] = (allCategories[category] || 0) + 1;
+            
+            // Count advertisements
+            if (article.is_advertisement) {
+                allCategories.advertisements = (allCategories.advertisements || 0) + 1;
+            }
         });
-        
-        // Add advertising count if available
-        if (data.advertisements && data.advertisements > 0) {
-            allCategories.advertisements = data.advertisements;
-        }
         
         // Update filter buttons with all available categories
         updateAllCategoryFilters();
         
     } catch (error) {
         console.error('Error loading categories:', error);
+        // Set default values if loading fails
+        allCategories = { all: 0 };
+        updateAllCategoryFilters();
     }
 }
 
@@ -820,7 +827,7 @@ async function loadNews(reset = false) {
         const limit = 20;
         const offset = currentPage * limit;
         
-        let url = `/api/v1/feed?limit=${limit}&offset=${offset}`;
+        let url = `/api/public/feed?limit=${limit}&offset=${offset}`;
         if (currentCategory !== 'all') {
             url += `&category=${currentCategory}`;
         }
@@ -833,15 +840,15 @@ async function loadNews(reset = false) {
         const data = await response.json();
         
         if (reset) {
-            renderNews(data.items || [], true);
-            updateCurrentCategoryCounts(data.items || []);
+            renderNews(data.articles || [], true);
+            updateCurrentCategoryCounts(data.articles || []);
         } else {
-            renderNews(data.items || [], false);
+            renderNews(data.articles || [], false);
         }
         
         // Show/hide load more button
         const loadMoreContainer = document.getElementById('load-more-container');
-        if (data.items && data.items.length === limit) {
+        if (data.articles && data.articles.length === limit) {
             loadMoreContainer.style.display = 'block';
         } else {
             loadMoreContainer.style.display = 'none';
@@ -875,7 +882,7 @@ function renderNews(articles, reset = false) {
     
     // Store articles data for modal
     articles.forEach(article => {
-        articlesData[article.article_id] = article;
+        articlesData[article.id] = article;
     });
     
     const newsHtml = articles.map(article => createNewsItem(article)).join('');
@@ -884,7 +891,7 @@ function renderNews(articles, reset = false) {
         container.innerHTML = newsHtml;
         articlesData = {}; // Reset data when resetting view
         articles.forEach(article => {
-            articlesData[article.article_id] = article;
+            articlesData[article.id] = article;
         });
     } else {
         container.insertAdjacentHTML('beforeend', newsHtml);
@@ -902,7 +909,7 @@ function createNewsItem(article) {
     const cleanSummary = cleanHtmlSummary(article.summary || '');
     
     return `
-        <article class="news-item" data-category="${category}" onclick="showArticleModal('${article.article_id}')">
+        <article class="news-item" data-category="${category}" onclick="showArticleModal('${article.id}')">
             <div class="news-image">
                 ${imageUrl ? 
                     `<img src="${imageUrl}" alt="${escapeHtml(article.title)}" loading="lazy" onerror="this.parentElement.innerHTML='&lt;div class=&quot;image-placeholder&quot;&gt;📰&lt;/div&gt;'">` :
@@ -925,12 +932,12 @@ function createNewsItem(article) {
                     <p class="news-summary">${cleanSummary}</p>
                 ` : ''}
                 <div class="news-meta">
-                    <span class="news-source">${article.domain || 'Неизвестно'}</span>
+                    <span class="news-source">Источник ${article.source_id}</span>
                     <span class="news-date">${formatDate(article.published_at)}</span>
                 </div>
             </div>
             <div class="news-actions">
-                <button class="btn-read-more" onclick="event.stopPropagation(); showArticleModal('${article.article_id}')">
+                <button class="btn-read-more" onclick="event.stopPropagation(); showArticleModal('${article.id}')">
                     📖 Подробнее
                 </button>
                 <a href="${article.url}" target="_blank" rel="noopener noreferrer" class="btn-original" onclick="event.stopPropagation()">
@@ -1170,7 +1177,7 @@ function showArticleModal(articleId) {
                     <h1 class="modal-title">${escapeHtml(article.title)}</h1>
                     
                     <div class="modal-meta">
-                        <span class="modal-source">📰 ${article.domain || 'Неизвестно'}</span>
+                        <span class="modal-source">📰 Источник ${article.source_id}</span>
                         <span class="modal-date">📅 ${formatDate(article.published_at)}</span>
                     </div>
                     

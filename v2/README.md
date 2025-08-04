@@ -61,10 +61,11 @@ python -m news_aggregator
 ## 💻 Использование
 
 ### Веб-интерфейс
-- **Админ-панель**: http://localhost:8000/admin
+- **Главная страница (новости)**: http://localhost:8000
+- **Админ-панель**: http://localhost:8000/admin (защищена паролем)
 - **API документация**: http://localhost:8000/docs  
-- **Публичная лента**: http://localhost:8000/feed
 - **API endpoints**: http://localhost:8000/api/*
+- **Статус аутентификации**: http://localhost:8000/auth-status
 
 ### CLI команды
 ```bash
@@ -103,6 +104,10 @@ CONSTRUCTOR_KM_API=https://training.constructor.app/api/platform-kmapi/v1/knowle
 CONSTRUCTOR_KM_API_KEY=Bearer your_api_key_here
 TELEGRAM_TOKEN=your_bot_token
 TELEGRAM_CHAT_ID=your_chat_id
+
+# Аутентификация админки (ОБЯЗАТЕЛЬНО!)
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=your_secure_password
 
 # AI модели для разных задач
 SUMMARIZATION_MODEL=gpt-4o-mini    # Суммаризация статей

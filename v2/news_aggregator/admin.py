@@ -1,63 +1,70 @@
 """Admin interface routes."""
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
+
+from .auth import get_current_admin_user
 
 router = APIRouter()
 templates = Jinja2Templates(directory="web/templates")
 
 
 @router.get("/", response_class=HTMLResponse)
-async def admin_dashboard(request: Request):
+async def admin_dashboard(request: Request, admin_user: str = Depends(get_current_admin_user)):
     """Admin dashboard."""
     return templates.TemplateResponse("admin/dashboard.html", {
         "request": request,
-        "title": "RSS Summarizer v2 - Admin"
+        "title": "RSS Summarizer v2 - Admin",
+        "admin_user": admin_user
     })
 
 
 @router.get("/sources", response_class=HTMLResponse)
-async def admin_sources(request: Request):
+async def admin_sources(request: Request, admin_user: str = Depends(get_current_admin_user)):
     """Manage sources."""
     return templates.TemplateResponse("admin/sources.html", {
         "request": request,
-        "title": "Управление Источниками"
+        "title": "Управление Источниками",
+        "admin_user": admin_user
     })
 
 
-
 @router.get("/summaries", response_class=HTMLResponse)
-async def admin_summaries(request: Request):
+async def admin_summaries(request: Request, admin_user: str = Depends(get_current_admin_user)):
     """Daily summaries page."""
     return templates.TemplateResponse("admin/summaries.html", {
         "request": request,
-        "title": "Дневные Сводки"
+        "title": "Дневные Сводки",
+        "admin_user": admin_user
     })
 
 
 @router.get("/schedule", response_class=HTMLResponse)
-async def admin_schedule(request: Request):
+async def admin_schedule(request: Request, admin_user: str = Depends(get_current_admin_user)):
     """Schedule settings page."""
     return templates.TemplateResponse("admin/schedule.html", {
         "request": request,
-        "title": "Расписание Задач"
+        "title": "Расписание Задач",
+        "admin_user": admin_user
     })
 
 
 @router.get("/stats", response_class=HTMLResponse)
-async def admin_stats(request: Request):
+async def admin_stats(request: Request, admin_user: str = Depends(get_current_admin_user)):
     """Statistics page."""
     return templates.TemplateResponse("admin/stats.html", {
         "request": request,
-        "title": "Статистика Системы"
+        "title": "Статистика Системы",
+        "admin_user": admin_user
     })
 
 
 @router.get("/backup", response_class=HTMLResponse)
-async def admin_backup(request: Request):
+async def admin_backup(request: Request, admin_user: str = Depends(get_current_admin_user)):
     """Backup and restore page."""
     return templates.TemplateResponse("admin/backup.html", {
         "request": request,
-        "title": "Резервные Копии"
+        "title": "Резервные Копии",
+        "admin_user": admin_user
     })

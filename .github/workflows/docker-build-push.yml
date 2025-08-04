@@ -81,6 +81,7 @@ jobs:
       - name: Update Docker Hub description
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: peter-evans/dockerhub-description@v3
+        continue-on-error: true  # Не прерывать workflow при ошибке
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}

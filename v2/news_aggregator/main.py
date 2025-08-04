@@ -2,9 +2,10 @@
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.responses import HTMLResponse
 
 from .config import settings
 from .database import init_db
@@ -44,6 +45,10 @@ templates = Jinja2Templates(directory="web/templates")
 from .api import router as api_router
 app.include_router(api_router, prefix="/api/v1")
 
+# Auth routes
+from .auth_api import router as auth_router
+app.include_router(auth_router)
+
 # Admin routes
 from .admin import router as admin_router
 app.include_router(admin_router, prefix="/admin")
@@ -53,22 +58,65 @@ from .public import router as public_router
 app.include_router(public_router)
 
 
-@app.get("/")
-async def root():
-    """Root endpoint."""
-    return {
-        "message": "RSS Summarizer v2.0",
-        "status": "running",
-        "admin": "/admin",
-        "api": "/api/v1",
-        "docs": "/docs"
-    }
+@app.get("/", response_class=HTMLResponse)
+async def root(request: Request):
+    """Main page - news feed."""
+    return templates.TemplateResponse("public/feed.html", {
+        "request": request,
+        "title": "Новости"
+    })
 
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy"}
+
+
+@app.get("/auth-status")
+async def auth_status():
+    """Check authentication configuration status."""
+    from .auth import get_admin_auth_status
+    return get_admin_auth_status()
+
+
+@app.get("/test-db")
+async def test_db():
+    """Test database connection."""
+    from .database import AsyncSessionLocal
+    from .models import Article
+    from sqlalchemy import select, func
+    
+    try:
+        async with AsyncSessionLocal() as session:
+            # Count articles
+            count_result = await session.execute(select(func.count(Article.id)))
+            count = count_result.scalar()
+            
+            # Get latest articles
+            result = await session.execute(
+                select(Article).order_by(Article.fetched_at.desc()).limit(3)
+            )
+            articles = result.scalars().all()
+            
+            return {
+                "status": "success",
+                "total_articles": count,
+                "latest_articles": [
+                    {
+                        "id": a.id,
+                        "title": a.title[:50] + "..." if len(a.title) > 50 else a.title,
+                        "source_id": a.source_id,
+                        "fetched_at": a.fetched_at.isoformat() if a.fetched_at else None
+                    }
+                    for a in articles
+                ]
+            }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e)
+        }
 
 
 if __name__ == "__main__":
