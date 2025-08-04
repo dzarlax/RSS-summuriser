@@ -1,10 +1,11 @@
 """Public interface routes."""
 
+import logging
 from fastapi import APIRouter, Request, Query, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func, text
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -30,7 +31,7 @@ async def public_feed_alias(request: Request):
     })
 
 
-@router.get("/api/public/feed")
+@router.get("/api/public/feed") 
 async def get_public_feed(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
@@ -39,6 +40,7 @@ async def get_public_feed(
 ):
     """Public feed endpoint without authentication (for main page)."""
     from .database import AsyncSessionLocal
+    
     
     try:
         async with AsyncSessionLocal() as session:
@@ -55,7 +57,9 @@ async def get_public_feed(
                 if category.lower() == 'advertisements':
                     query = query.where(Article.is_advertisement == True)
                 else:
-                    query = query.where(Article.category == category)
+                    # Simple case conversion - capitalize first letter to match database format
+                    category_capitalized = category.capitalize()
+                    query = query.where(Article.category == category_capitalized)
             else:
                 # By default, exclude advertisements from public feed
                 query = query.where(Article.is_advertisement != True)

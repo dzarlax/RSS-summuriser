@@ -1,4 +1,5 @@
-FROM python:3.12-slim
+# Use official Playwright image with Python 3.12
+FROM mcr.microsoft.com/playwright/python:v1.40.0-jammy
 
 # Build arguments for metadata
 ARG BUILDTIME
@@ -17,25 +18,15 @@ LABEL org.opencontainers.image.created=$BUILDTIME \
 
 WORKDIR /app
 
-# Установка системных зависимостей и Python пакетов в одном слое
-COPY requirements.txt .
-RUN apt-get update && apt-get install -y \
-    curl \
-    cron \
-    wget \
-    gnupg \
-    ca-certificates \
-    libnss3 \
-    libatk-bridge2.0-0 \
-    libdrm2 \
-    libxkbcommon0 \
-    libgtk-3-0 \
-    libgbm1 \
-    libasound2 \
+# Install additional system dependencies (PostgreSQL client)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir -r requirements.txt \
-    && playwright install-deps chromium
+    && apt-get clean
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
 
 # Копирование приложения
 COPY news_aggregator/ ./news_aggregator/
@@ -43,10 +34,8 @@ COPY web/ ./web/
 COPY db/ ./db/
 COPY scripts/ ./scripts/
 
-# Создание пользователя и финальная настройка
-RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
-USER appuser
-RUN playwright install chromium && mkdir -p /app/logs /app/data /app/cache
+# Create directories and set permissions
+RUN mkdir -p /app/logs /app/data /app/cache
 
 EXPOSE 8000
 
