@@ -52,7 +52,7 @@ class AIPageAnalyzer:
             
             # Get AI analysis
             ai_client = get_ai_client()
-            response = await ai_client._make_raw_ai_request(prompt, model="gpt-4o-mini")
+            response = await ai_client._make_raw_ai_request(prompt, model=ai_client.summarization_model)
             
             if response and 'choices' in response:
                 analysis_text = response['choices'][0]['message']['content']
@@ -237,7 +237,7 @@ Significance: "high", "medium", "low"
 """
             
             ai_client = get_ai_client()
-            response = await ai_client._make_raw_ai_request(prompt, model="gpt-4o-mini")
+            response = await ai_client._make_raw_ai_request(prompt, model=ai_client.summarization_model)
             
             if response and 'choices' in response:
                 analysis_text = response['choices'][0]['message']['content']

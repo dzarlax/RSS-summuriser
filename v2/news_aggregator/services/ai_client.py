@@ -17,7 +17,8 @@ class AIClient:
         # Use Constructor KM API for everything
         self.endpoint = getattr(settings, 'constructor_km_api', None)
         self.api_key = getattr(settings, 'constructor_km_api_key', None)
-        self.summarization_model = getattr(settings, 'model', 'gpt-4o-mini')
+        self.summarization_model = getattr(settings, 'summarization_model', 'gpt-4o-mini')
+        self.digest_model = getattr(settings, 'digest_model', 'gpt-4.1')
         
         if not self.endpoint or not self.api_key:
             raise APIError("Constructor KM API endpoint and key must be configured")
@@ -473,7 +474,7 @@ Return the complete, absolute URL. If the link is relative, make it absolute usi
 Создай связную сводку главных событий дня в виде единого текста."""
 
             payload = {
-                "model": "gpt-4.1",  # Full model for final digest
+                "model": self.digest_model,  # Configurable model for final digest
                 "messages": [
                     {
                         "role": "user", 

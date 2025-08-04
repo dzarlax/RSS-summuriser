@@ -13,22 +13,15 @@ class Settings(BaseSettings):
     # Database
     database_url: str = Field(default="postgresql://newsuser:newspass123@localhost:5432/newsdb")
     
-    
-    # API settings (legacy Yandex - deprecated)
-    api_endpoint: Optional[str] = Field(default=None, alias="API_ENDPOINT")
-    api_token: Optional[SecretStr] = Field(default=None, alias="API_TOKEN")
-    api_rate_limit: int = Field(default=3, alias="RPS")  # Сохраняем совместимость с RPS
-    
     # Constructor KM API (primary AI)
     constructor_km_api: Optional[str] = Field(default=None, alias="CONSTRUCTOR_KM_API") 
     constructor_km_api_key: Optional[str] = Field(default=None, alias="CONSTRUCTOR_KM_API_KEY")
     model: str = Field(default="gpt-4o-mini", alias="MODEL")
     
-    # S3 settings (legacy compatibility only)
-    s3_bucket: Optional[str] = Field(default=None, alias="S3_BUCKET")
-    s3_endpoint: Optional[str] = Field(default=None, alias="S3_ENDPOINT")
-    s3_access_key: Optional[str] = Field(default=None, alias="S3_ACCESS_KEY")
-    s3_secret_key: Optional[SecretStr] = Field(default=None, alias="S3_SECRET_KEY")
+    # Specific AI models for different tasks
+    summarization_model: str = Field(default="gpt-4o-mini", alias="SUMMARIZATION_MODEL")
+    categorization_model: str = Field(default="gpt-4o-mini", alias="CATEGORIZATION_MODEL") 
+    digest_model: str = Field(default="gpt-4.1", alias="DIGEST_MODEL")
     
     # Telegram
     telegram_token: Optional[SecretStr] = Field(default=None, alias="TELEGRAM_TOKEN")
@@ -44,9 +37,6 @@ class Settings(BaseSettings):
     cache_ttl: int = Field(default=86400, alias="CACHE_TTL")
     cache_dir: str = Field(default="/tmp/rss_cache", alias="CACHE_DIR")
     
-    # Legacy compatibility - для миграции со старой версии
-    rss_links: Optional[str] = Field(default=None, alias="RSS_LINKS")
-    logo_url: Optional[str] = Field(default=None, alias="logo_url")
     
     class Config:
         env_file = ".env"

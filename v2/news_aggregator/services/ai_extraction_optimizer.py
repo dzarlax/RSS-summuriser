@@ -100,7 +100,7 @@ class AIExtractionOptimizer:
             # Import and get AI client dynamically to avoid circular import
             from .ai_client import get_ai_client
             ai_client = get_ai_client()
-            response = await ai_client._make_raw_ai_request(prompt, model="gpt-4o-mini")
+            response = await ai_client._make_raw_ai_request(prompt, model=ai_client.summarization_model)
             
             if not response or 'choices' not in response:
                 print(f"  ❌ No valid AI response for {domain}")

@@ -42,6 +42,8 @@ python -m news_aggregator
 - [x] **Docker контейнеризация** - dev/prod окружения
 - [x] **Система источников** - Plugin архитектура (RSS, Telegram, Generic)
 - [x] **AI интеграция** - Constructor KM API с rate limiting
+- [x] **AI-enhanced контент экстракция** - Публикация дат, полные статьи
+- [x] **Реклама detection** - ИИ-детекция рекламы в Telegram каналах
 - [x] **Telegraph публикация** - Автоматическая публикация статей
 - [x] **Backup система** - Автоматические бэкапы БД
 - [x] **Async обработка** - Все операции асинхронные
@@ -97,10 +99,15 @@ async def get_news():
 ### Обязательные переменные окружения
 ```bash
 DATABASE_URL=postgresql://user:pass@localhost:5432/newsdb
-CONSTRUCTOR_KM_API=https://api.constructor.km/v1
-CONSTRUCTOR_KM_API_KEY=your_api_key
+CONSTRUCTOR_KM_API=https://training.constructor.app/api/platform-kmapi/v1/knowledge-models/your-model-id/chat/completions/direct_llm
+CONSTRUCTOR_KM_API_KEY=Bearer your_api_key_here
 TELEGRAM_TOKEN=your_bot_token
 TELEGRAM_CHAT_ID=your_chat_id
+
+# AI модели для разных задач
+SUMMARIZATION_MODEL=gpt-4o-mini    # Суммаризация статей
+CATEGORIZATION_MODEL=gpt-4o-mini   # Категоризация новостей
+DIGEST_MODEL=gpt-4.1               # Финальные дайджесты
 ```
 
 ### Docker Compose Override
@@ -115,6 +122,8 @@ cp docker-compose.override.yml.example docker-compose.override.yml
 - **QUICKSTART.md** - Быстрый старт для разработчиков
 - **BACKUP_SYSTEM.md** - Система бэкапов и восстановления
 - **MIGRATION_GUIDE.md** - Руководство по миграции данных
+- **CONTENT_EXTRACTOR_IMPROVEMENTS.md** - AI-enhanced экстракция контента
+- **AI_ENHANCEMENTS.md** - Система ИИ-улучшений и детекции рекламы
 
 ## 🐛 Известные проблемы
 
