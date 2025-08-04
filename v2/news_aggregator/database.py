@@ -7,11 +7,15 @@ from sqlalchemy import text
 
 from .config import settings
 
-# Create async engine
+# Create async engine with connection pool settings
 engine = create_async_engine(
     settings.database_url.replace("postgresql://", "postgresql+asyncpg://"),
     echo=settings.development,
-    future=True
+    future=True,
+    pool_size=settings.db_pool_size,
+    max_overflow=settings.db_max_overflow,
+    pool_timeout=settings.db_pool_timeout,
+    pool_pre_ping=True  # Проверка соединений перед использованием
 )
 
 # Create async session factory

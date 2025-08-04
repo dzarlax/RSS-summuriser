@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     # API Rate Limiting
     api_rate_limit: int = Field(default=3, alias="RPS")  # Requests per second
     
+    # Database Connection Pool (минимальные настройки)
+    db_pool_size: int = Field(default=2, alias="DB_POOL_SIZE") 
+    db_max_overflow: int = Field(default=2, alias="DB_MAX_OVERFLOW")
+    db_pool_timeout: int = Field(default=30, alias="DB_POOL_TIMEOUT")
+    
     
     class Config:
         env_file = ".env"

@@ -60,3 +60,4 @@ docker-compose.production.yml
 exports/
 backups/
 .claude/
+SOURCES_FROM_BACKUPS.md

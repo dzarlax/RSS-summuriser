@@ -3,6 +3,13 @@ name: Summarization
 on:
   schedule:
     - cron: '*/30 * * * *'
+  workflow_dispatch:
+  push:
+    paths:
+      - 'src/**'
+  pull_request:
+    paths:
+      - 'src/**'
 
 jobs:
   run-script:

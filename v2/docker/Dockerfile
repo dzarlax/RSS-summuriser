@@ -11,7 +11,7 @@ LABEL org.opencontainers.image.created=$BUILDTIME \
       org.opencontainers.image.revision=$REVISION \
       org.opencontainers.image.title="RSS News Aggregator" \
       org.opencontainers.image.description="AI-powered news aggregation system with web interface" \
-      org.opencontainers.image.source="https://github.com/dzarlax/RSS-summuriser-1" \
+      org.opencontainers.image.source="https://github.com/dzarlax/RSS-summuriser" \
       org.opencontainers.image.vendor="Dzarlax" \
       org.opencontainers.image.licenses="MIT"
 
