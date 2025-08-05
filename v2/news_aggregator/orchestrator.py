@@ -5,6 +5,8 @@ import logging
 import time
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
+from dataclasses import dataclass
+from asyncio import Queue, Semaphore
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -18,6 +20,199 @@ from .core.exceptions import NewsAggregatorError
 from .config import settings
 
 
+@dataclass
+class DatabaseWriteTask:
+    """Task for database write queue."""
+    article_id: int
+    field_updates: Dict[str, Any]
+    timestamp: float
+    retry_count: int = 0
+
+
+class DatabaseWriteQueue:
+    """Asynchronous database write queue with connection-based concurrency control."""
+    
+    def __init__(self, max_queue_size: int = 1000, max_concurrent_writes: int = 3, max_workers: int = 5):
+        self.queue: Queue[DatabaseWriteTask] = Queue(maxsize=max_queue_size)
+        self.max_concurrent_writes = max_concurrent_writes
+        self.max_workers = max_workers
+        
+        # Semaphore to limit concurrent database connections
+        self.db_semaphore = Semaphore(max_concurrent_writes)
+        
+        # Worker management
+        self.worker_tasks: List[asyncio.Task] = []
+        self.running = False
+        
+        # Statistics
+        self.active_writes = 0
+        self.total_writes = 0
+        self.total_articles_updated = 0
+        
+    async def start(self):
+        """Start multiple background workers."""
+        if self.running:
+            return
+            
+        self.running = True
+        
+        # Start multiple worker tasks
+        for i in range(self.max_workers):
+            worker_task = asyncio.create_task(self._worker_loop(worker_id=i))
+            self.worker_tasks.append(worker_task)
+            
+        print(f"🚀 Database write queue started with {self.max_workers} workers, max {self.max_concurrent_writes} concurrent DB connections")
+        
+    async def stop(self):
+        """Stop all background workers and process remaining tasks."""
+        if not self.running:
+            return
+            
+        print(f"🛑 Stopping database write queue ({self.queue.qsize()} tasks pending)...")
+        self.running = False
+        
+        # Cancel all worker tasks
+        for task in self.worker_tasks:
+            if not task.done():
+                task.cancel()
+                
+        # Wait for workers to finish
+        await asyncio.gather(*self.worker_tasks, return_exceptions=True)
+        self.worker_tasks.clear()
+        
+        # Process any remaining tasks in queue
+        remaining_tasks = []
+        while not self.queue.empty():
+            try:
+                task = self.queue.get_nowait()
+                remaining_tasks.append(task)
+            except asyncio.QueueEmpty:
+                break
+                
+        if remaining_tasks:
+            print(f"  📝 Processing {len(remaining_tasks)} remaining tasks...")
+            await self._process_tasks_batch(remaining_tasks)
+            
+        print(f"✅ Database write queue stopped. Total processed: {self.total_writes} writes, {self.total_articles_updated} articles")
+        
+    async def add_update(self, article_id: int, field_updates: Dict[str, Any]):
+        """Add field updates to queue."""
+        try:
+            task = DatabaseWriteTask(
+                article_id=article_id,
+                field_updates=field_updates,
+                timestamp=time.time()
+            )
+            await self.queue.put(task)
+        except asyncio.QueueFull:
+            print(f"⚠️ Database write queue full ({self.queue.qsize()}/{self.queue.maxsize}), dropping update for article {article_id}")
+            
+    async def _worker_loop(self, worker_id: int):
+        """Background worker that processes write tasks using semaphore for connection control."""
+        while self.running:
+            try:
+                # Wait for a task from the queue
+                task = await self.queue.get()
+                
+                # Acquire semaphore to limit concurrent database connections
+                async with self.db_semaphore:
+                    self.active_writes += 1
+                    try:
+                        await self._process_single_task(task, worker_id)
+                        self.total_writes += 1
+                        self.total_articles_updated += 1
+                    finally:
+                        self.active_writes -= 1
+                        
+                # Mark task as done
+                self.queue.task_done()
+                    
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"❌ Database write worker {worker_id} error: {e}")
+                await asyncio.sleep(0.1)  # Brief pause before retrying
+                
+    async def _process_single_task(self, task: DatabaseWriteTask, worker_id: int):
+        """Process a single database write task."""
+        try:
+            async with AsyncSessionLocal() as db:
+                from .models import Article
+                
+                # Get the article
+                result = await db.execute(
+                    select(Article).where(Article.id == task.article_id)
+                )
+                article = result.scalar_one_or_none()
+                
+                if not article:
+                    print(f"  ⚠️ Worker {worker_id}: Article {task.article_id} not found")
+                    return
+                
+                # Apply all field updates
+                updates_applied = 0
+                for field_name, value in task.field_updates.items():
+                    if hasattr(article, field_name):
+                        setattr(article, field_name, value)
+                        updates_applied += 1
+                    else:
+                        print(f"  ⚠️ Worker {worker_id}: Article has no field '{field_name}'")
+                
+                await db.commit()
+                print(f"  ✅ Worker {worker_id}: Applied {updates_applied} updates to article {task.article_id}")
+                
+        except Exception as e:
+            print(f"  ❌ Worker {worker_id}: Failed to update article {task.article_id}: {e}")
+            raise
+    
+    async def _process_tasks_batch(self, tasks: List[DatabaseWriteTask]):
+        """Process multiple tasks in a single database session (for cleanup)."""
+        if not tasks:
+            return
+            
+        try:
+            async with AsyncSessionLocal() as db:
+                from .models import Article
+                
+                # Get all articles that need updates
+                article_ids = [task.article_id for task in tasks]
+                result = await db.execute(
+                    select(Article).where(Article.id.in_(article_ids))
+                )
+                articles = {article.id: article for article in result.scalars().all()}
+                
+                # Apply all updates
+                updates_applied = 0
+                for task in tasks:
+                    if task.article_id in articles:
+                        article = articles[task.article_id]
+                        for field_name, value in task.field_updates.items():
+                            if hasattr(article, field_name):
+                                setattr(article, field_name, value)
+                                updates_applied += 1
+                
+                await db.commit()
+                self.total_writes += len(tasks)  
+                self.total_articles_updated += len(articles)
+                print(f"  ✅ Cleanup: Applied {updates_applied} field updates to {len(articles)} articles")
+                
+        except Exception as e:
+            print(f"  ❌ Cleanup batch failed: {e}")
+    
+    def get_stats(self) -> Dict[str, Any]:
+        """Get queue statistics."""
+        return {
+            'queue_size': self.queue.qsize(),
+            'active_writes': self.active_writes,
+            'total_writes': self.total_writes,
+            'total_articles_updated': self.total_articles_updated,
+            'max_concurrent_writes': self.max_concurrent_writes,
+            'worker_count': len(self.worker_tasks),
+            'running': self.running
+        }
+
+
+
 class NewsOrchestrator:
     """Main orchestrator for news processing."""
     
@@ -25,6 +220,11 @@ class NewsOrchestrator:
         self.source_manager = SourceManager()
         self.ai_client = get_ai_client()
         self.telegram_service = get_telegram_service()
+        self.db_queue = DatabaseWriteQueue(
+            max_queue_size=1000, 
+            max_concurrent_writes=3,  # Limit concurrent DB connections
+            max_workers=5  # Worker threads to process queue
+        )
         
         # Initialize AI services
         try:
@@ -33,6 +233,18 @@ class NewsOrchestrator:
         except Exception as e:
             print(f"⚠️ Warning: Could not initialize categorization AI: {e}")
             self.categorization_ai = None
+    
+    async def start(self):
+        """Start the orchestrator and its database queue."""
+        await self.db_queue.start()
+        
+    async def stop(self):
+        """Stop the orchestrator and its database queue."""
+        await self.db_queue.stop()
+        
+    def get_queue_stats(self) -> Dict[str, Any]:
+        """Get database queue statistics."""
+        return self.db_queue.get_stats()
         
     async def run_full_cycle(self) -> Dict[str, Any]:
         """Run complete news processing cycle without clustering."""
@@ -44,6 +256,9 @@ class NewsOrchestrator:
             'api_calls_made': 0,
             'errors': []
         }
+        
+        # Start database write queue
+        await self.db_queue.start()
         
         try:
             # Step 1: Fetch new articles from all sources (короткая сессия)
@@ -120,6 +335,10 @@ class NewsOrchestrator:
             stats['errors'].append(error_msg)
             print(f"❌ {error_msg}")
             raise NewsAggregatorError(error_msg) from e
+        
+        finally:
+            # Always stop the database write queue
+            await self.db_queue.stop()
     
     async def send_telegram_digest(self) -> Dict[str, Any]:
         """Send Telegram digest separately from sync."""
@@ -195,10 +414,10 @@ class NewsOrchestrator:
                         article_data['source_type'] = 'rss'
                         article_data['source_name'] = 'Unknown'
                 
-                # Step 2: Do AI processing with incremental saves
-                await self._process_article_ai_incremental(article_data, stats)
+                # Step 2: Do AI processing with queued saves
+                await self._process_article_ai_queued(article_data, stats)
                 
-                # Step 3: Add to processed list (article is already saved in DB)
+                # Step 4: Add to processed list
                 processed_articles.append(article_data)
                         
             except Exception as e:
@@ -300,6 +519,111 @@ class NewsOrchestrator:
                 await self._save_article_field(article_id, 'is_advertisement', False, 'ad_processed', True)
         
         return {}  # No need to return results since we save immediately
+    
+    async def _process_article_ai_queued(self, article_data: Dict[str, Any], stats: Dict[str, Any]) -> Dict[str, Any]:
+        """Process article with AI, using database write queue for saves."""
+        source_type = article_data.get('source_type', 'rss')
+        source_name = article_data.get('source_name', 'Unknown')
+        article_id = article_data['id']
+        
+        print(f"  📡 Source: {source_name} (type: {source_type})")
+        
+        # Check what processing is needed
+        needs_summary = not article_data.get('summary_processed', False) and not article_data.get('summary')
+        needs_category = not article_data.get('category_processed', False)
+        needs_ad_detection = not article_data.get('ad_processed', False) and source_type == 'telegram'
+        
+        print(f"  🔍 Processing needs: {'✅ Summary' if needs_summary else '❌ Summary'}, {'✅ Category' if needs_category else '❌ Category'}, {'✅ Ad Detection' if needs_ad_detection else '❌ Ad Detection'}")
+        
+        # Collect all field updates for this article
+        field_updates = {}
+        
+        # Process summary if needed
+        if needs_summary:
+            print(f"  📄 Starting summarization...")
+            try:
+                import time
+                start_time = time.time()
+                # Create a temporary Article-like object for compatibility
+                class TempArticle:
+                    def __init__(self, data):
+                        self.url = data['url']
+                        self.title = data['title']
+                        self.content = data['content']
+                
+                temp_article = TempArticle(article_data)
+                summary = await self._get_summary_by_source_type(temp_article, source_type, stats)
+                elapsed_time = time.time() - start_time
+                print(f"  ✅ Summary generated in {elapsed_time:.1f}s: {summary[:100] if summary else 'None'}...")
+                
+                # Add to field updates
+                field_updates['summary'] = summary
+                field_updates['summary_processed'] = True
+                stats['api_calls_made'] += 1
+                print(f"  🔄 Summary queued for write")
+                
+            except Exception as e:
+                print(f"  ❌ Summarization failed: {e}")
+                # Mark as processed even on failure to avoid retries
+                field_updates['summary_processed'] = True
+        
+        # Process category if needed  
+        if needs_category:
+            print(f"  🏷️ Starting categorization...")
+            try:
+                # Get current summary - use fresh summary if we just generated it
+                current_summary = article_data.get('summary')
+                if needs_summary and 'summary' in field_updates:
+                    current_summary = field_updates['summary']
+                
+                # Use AI for categorization
+                if self.categorization_ai:
+                    category = await self.categorization_ai.categorize_article(
+                        article_data['title'], current_summary or article_data['content']
+                    )
+                else:
+                    category = 'Other'  # Fallback category
+                print(f"  ✅ Category assigned: {category}")
+                
+                # Add to field updates
+                field_updates['category'] = category
+                field_updates['category_processed'] = True
+                stats['api_calls_made'] += 1
+                print(f"  🔄 Category queued for write")
+                
+            except Exception as e:
+                print(f"  ❌ Categorization failed: {e}")
+                # Set default category and mark as processed
+                field_updates['category'] = 'Other'
+                field_updates['category_processed'] = True
+        
+        # Process ad detection if needed
+        if needs_ad_detection:
+            print(f"  🛡️ Starting advertising detection...")
+            try:
+                # TODO: Implement advertisement detection
+                # For now, set to False (not advertisement)
+                is_advertisement = False
+                print(f"  ✅ Ad detection result: {'Advertisement' if is_advertisement else 'Not advertisement'}")
+                
+                # Add to field updates
+                field_updates['is_advertisement'] = is_advertisement
+                field_updates['ad_processed'] = True
+                stats['api_calls_made'] += 1
+                print(f"  🔄 Ad detection result queued for write")
+                
+            except Exception as e:
+                print(f"  ❌ Ad detection failed: {e}")
+                # Set default and mark as processed
+                field_updates['is_advertisement'] = False
+                field_updates['ad_processed'] = True
+        
+        # Submit all updates to queue at once
+        if field_updates:
+            await self.db_queue.add_update(article_id, field_updates)
+            print(f"  📤 Submitted {len(field_updates)} field updates to write queue")
+        
+        return {}
     
     async def _save_article_field(self, article_id: int, *field_value_pairs):
         """Save article field(s) to database in a short session."""

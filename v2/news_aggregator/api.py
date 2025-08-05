@@ -1514,3 +1514,29 @@ async def restore_from_uploaded_backup(filename: str, background_tasks: Backgrou
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to start restore: {str(e)}")
+
+
+@router.get("/stats/queue")
+async def get_queue_stats():
+    """Get database write queue statistics."""
+    try:
+        # Get global orchestrator instance from scheduler
+        from .services.scheduler import get_scheduler
+        scheduler = get_scheduler()
+        
+        if not scheduler.orchestrator:
+            return {
+                "success": False,
+                "message": "Orchestrator not available"
+            }
+            
+        stats = scheduler.orchestrator.get_queue_stats()
+        
+        return {
+            "success": True,
+            "stats": stats,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get queue stats: {str(e)}")

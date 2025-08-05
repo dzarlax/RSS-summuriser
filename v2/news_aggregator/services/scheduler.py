@@ -38,6 +38,9 @@ class TaskScheduler:
         self.running = True
         logger.info("Starting task scheduler")
         
+        # Start orchestrator's database queue
+        await self.orchestrator.start()
+        
         # Start main scheduler loop
         self._tasks['main'] = asyncio.create_task(self._scheduler_loop())
         
@@ -59,6 +62,9 @@ class TaskScheduler:
                     pass
         
         self._tasks.clear()
+        
+        # Stop orchestrator's database queue
+        await self.orchestrator.stop()
         
     async def _scheduler_loop(self):
         """Main scheduler loop."""
