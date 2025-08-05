@@ -28,6 +28,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
 
+# Install Playwright browsers
+RUN playwright install chromium chromium-headless-shell --with-deps
+
 # Копирование приложения
 COPY news_aggregator/ ./news_aggregator/
 COPY web/ ./web/
