@@ -151,16 +151,20 @@ class DomainExtractionStats:
 class DomainStabilityTracker:
     """Tracks extraction stability and performance across domains."""
     
-    def __init__(self):
+    def __init__(self, persistence_file: str = "/app/data/domain_stats.json"):
         self.domain_stats: Dict[str, DomainExtractionStats] = {}
         self.ai_analysis_credits_used = 0
         self.ai_analysis_credits_saved = 0
         self.last_cleanup_time = time.time()
+        self.persistence_file = persistence_file
         
         # Configuration
         self.cleanup_interval_hours = 24
         self.max_domain_age_days = 30
         self.min_attempts_for_stability = 5
+        
+        # Load existing stats on startup
+        self._load_stats()
     
     def get_domain_stats(self, domain: str) -> DomainExtractionStats:
         """Get or create domain statistics."""
@@ -179,6 +183,9 @@ class DomainStabilityTracker:
         else:
             stats.update_failure(method, extraction_time_ms)
         
+        # Save stats after each update
+        self._save_stats()
+        
         # Periodic cleanup
         if time.time() - self.last_cleanup_time > self.cleanup_interval_hours * 3600:
             self._cleanup_old_domains()
@@ -188,6 +195,44 @@ class DomainStabilityTracker:
         if domain not in self.domain_stats:
             return None
         return self.domain_stats[domain].get_best_method()
+    
+    def get_ineffective_methods_for_domain(self, domain: str, failure_threshold: float = 0.8, min_attempts: int = 2) -> List[str]:
+        """Get methods that consistently fail for this domain."""
+        if domain not in self.domain_stats:
+            return []
+        
+        stats = self.domain_stats[domain]
+        ineffective_methods = []
+        
+        for method, failure_count in stats.method_failure_counts.items():
+            success_count = stats.method_success_counts.get(method, 0)
+            total_attempts = failure_count + success_count
+            
+            # Lower threshold for immediate session learning
+            if total_attempts >= min_attempts:
+                failure_rate = failure_count / total_attempts
+                if failure_rate >= failure_threshold:
+                    ineffective_methods.append(method)
+        
+        return ineffective_methods
+    
+    def get_recently_failed_methods(self, domain: str, recent_failures_threshold: int = 2) -> List[str]:
+        """Get methods that failed recently and should be deprioritized."""
+        if domain not in self.domain_stats:
+            return []
+        
+        stats = self.domain_stats[domain]
+        recently_failed = []
+        
+        # Check methods that have recent consecutive failures
+        for method, failure_count in stats.method_failure_counts.items():
+            success_count = stats.method_success_counts.get(method, 0)
+            
+            # If method has recent failures without recent successes, deprioritize
+            if failure_count >= recent_failures_threshold and success_count == 0:
+                recently_failed.append(method)
+        
+        return recently_failed
     
     def should_use_ai_optimization(self, domain: str) -> tuple[bool, str]:
         """Determine if AI optimization should be used for this domain."""
@@ -330,6 +375,30 @@ class DomainStabilityTracker:
         self.ai_analysis_credits_used = data.get('ai_credits_used', 0)
         self.ai_analysis_credits_saved = data.get('ai_credits_saved', 0)
         self.last_cleanup_time = data.get('last_cleanup_time', time.time())
+    
+    def _load_stats(self):
+        """Load statistics from persistent storage."""
+        try:
+            import os
+            if os.path.exists(self.persistence_file):
+                with open(self.persistence_file, 'r') as f:
+                    data = json.loads(f.read())
+                    self.import_stats(data)
+                print(f"📊 Loaded domain stats from {self.persistence_file}: {len(self.domain_stats)} domains")
+        except Exception as e:
+            print(f"⚠️ Failed to load domain stats: {e}")
+    
+    def _save_stats(self):
+        """Save statistics to persistent storage."""
+        try:
+            import os
+            os.makedirs(os.path.dirname(self.persistence_file), exist_ok=True)
+            
+            data = self.export_stats()
+            with open(self.persistence_file, 'w') as f:
+                f.write(json.dumps(data, indent=2))
+        except Exception as e:
+            print(f"⚠️ Failed to save domain stats: {e}")
 
 
 # Global instance

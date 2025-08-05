@@ -33,7 +33,7 @@ async def public_feed_alias(request: Request):
 
 @router.get("/api/public/feed") 
 async def get_public_feed(
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     since_hours: Optional[int] = Query(None, ge=1, le=168),
     category: Optional[str] = Query(None)
@@ -44,8 +44,11 @@ async def get_public_feed(
     
     try:
         async with AsyncSessionLocal() as session:
-            # Build query for articles
-            query = select(Article).order_by(desc(Article.published_at))
+            # Import Source model
+            from .models import Source
+            
+            # Build query for articles with source information
+            query = select(Article, Source).join(Source, Article.source_id == Source.id).order_by(desc(Article.published_at))
             
             # Apply time filter
             if since_hours:
@@ -69,17 +72,18 @@ async def get_public_feed(
             
             # Execute query
             result = await session.execute(query)
-            articles = result.scalars().all()
+            rows = result.all()
             
             # Convert to dict format
             articles_data = []
-            for article in articles:
+            for article, source in rows:
                 article_dict = {
                     "id": article.id,
                     "title": article.title,
                     "summary": article.summary,
                     "url": article.url,
                     "source_id": article.source_id,
+                    "source_name": source.name,
                     "category": article.category,
                     "published_at": article.published_at.isoformat() if article.published_at else None,
                     "fetched_at": article.fetched_at.isoformat() if article.fetched_at else None,
@@ -121,3 +125,48 @@ async def get_public_feed(
             "limit": limit,
             "offset": offset
         }
+
+
+@router.get("/api/public/categories")
+async def get_public_categories():
+    """Get category statistics for public feed."""
+    from .database import AsyncSessionLocal
+    
+    try:
+        async with AsyncSessionLocal() as session:
+            # Count total articles (excluding advertisements)
+            total_query = select(func.count(Article.id)).where(Article.is_advertisement != True)
+            total_result = await session.execute(total_query)
+            total_count = total_result.scalar() or 0
+            
+            # Count by category (excluding advertisements)
+            category_query = select(
+                Article.category, 
+                func.count(Article.id).label('count')
+            ).where(
+                Article.is_advertisement != True
+            ).group_by(Article.category)
+            
+            category_result = await session.execute(category_query)
+            categories = category_result.all()
+            
+            # Count advertisements
+            ads_query = select(func.count(Article.id)).where(Article.is_advertisement == True)
+            ads_result = await session.execute(ads_query)
+            ads_count = ads_result.scalar() or 0
+            
+            # Build category stats
+            category_stats = {"all": total_count}
+            
+            for category, count in categories:
+                if category:
+                    category_stats[category.lower()] = count
+            
+            if ads_count > 0:
+                category_stats["advertisements"] = ads_count
+            
+            return {"categories": category_stats}
+            
+    except Exception as e:
+        print(f"Categories error: {e}")
+        return {"categories": {"all": 0}}

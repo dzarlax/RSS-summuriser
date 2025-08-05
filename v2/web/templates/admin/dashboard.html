@@ -290,15 +290,18 @@
     overflow: hidden;
 }
 
-.stat-card::before {
+.admin-main .stat-card::before {
     content: '';
     position: absolute;
     top: 0;
     left: 0;
-    width: 4px;
+    right: auto;     /* переопределяем right из main.css */
+    width: 3px;
     height: 100%;
     background: var(--primary-color);
     transition: width 0.3s ease;
+    border-radius: 0 2px 2px 0;
+    transform: none; /* убираем transform из main.css */
 }
 
 .stat-card:hover {
@@ -306,8 +309,8 @@
     transform: translateY(-2px);
 }
 
-.stat-card:hover::before {
-    width: 8px;
+.admin-main .stat-card:hover::before {
+    width: 5px;
 }
 
 .stat-icon {

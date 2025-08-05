@@ -1137,6 +1137,13 @@ body {
     cursor: help;
 }
 
+/* Buttons with tooltips should still be clickable */
+button[data-tooltip],
+.btn[data-tooltip],
+a[data-tooltip] {
+    cursor: pointer;
+}
+
 [data-tooltip]:hover::after {
     content: attr(data-tooltip);
     position: absolute;

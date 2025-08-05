@@ -775,27 +775,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
 async function loadCategories() {
     try {
-        // Load all articles to calculate category counts (max 100 per request)
-        const response = await fetch('/api/public/feed?limit=100');
+        // Load category statistics from dedicated endpoint
+        const response = await fetch('/api/public/categories');
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         
         const data = await response.json();
-        const articles = data.articles || [];
-        
-        // Calculate category counts from articles
-        allCategories = { all: articles.length };
-        
-        articles.forEach(article => {
-            const category = (article.category || 'Other').toLowerCase();
-            allCategories[category] = (allCategories[category] || 0) + 1;
-            
-            // Count advertisements
-            if (article.is_advertisement) {
-                allCategories.advertisements = (allCategories.advertisements || 0) + 1;
-            }
-        });
+        allCategories = data.categories || { all: 0 };
         
         // Update filter buttons with all available categories
         updateAllCategoryFilters();
@@ -932,7 +919,7 @@ function createNewsItem(article) {
                     <p class="news-summary">${cleanSummary}</p>
                 ` : ''}
                 <div class="news-meta">
-                    <span class="news-source">Источник ${article.source_id}</span>
+                    <span class="news-source">${article.source_name || 'Неизвестный источник'}</span>
                     <span class="news-date">${formatDate(article.published_at)}</span>
                 </div>
             </div>
@@ -1038,6 +1025,7 @@ function formatDate(dateString) {
         return 'Неизвестно';
     }
 }
+
 
 function extractImageFromContent(content) {
     if (!content) return null;
@@ -1177,7 +1165,7 @@ function showArticleModal(articleId) {
                     <h1 class="modal-title">${escapeHtml(article.title)}</h1>
                     
                     <div class="modal-meta">
-                        <span class="modal-source">📰 Источник ${article.source_id}</span>
+                        <span class="modal-source">📰 ${article.source_name || 'Неизвестный источник'}</span>
                         <span class="modal-date">📅 ${formatDate(article.published_at)}</span>
                     </div>
                     

@@ -230,11 +230,36 @@ class ContentExtractor:
                         return self._finalize_content(content)
             
             # Phase 2: Standard extraction strategies with learning
-            strategies = [
-                ('readability', self._extract_with_readability),
-                ('html_parsing', self._extract_with_enhanced_selectors),
-                ('playwright', self._extract_with_browser)
-            ]
+            # Get the best method for this domain and try it first
+            best_method = stability_tracker.get_best_method_for_domain(domain)
+            ineffective_methods = stability_tracker.get_ineffective_methods_for_domain(domain, min_attempts=2)
+            recently_failed_methods = stability_tracker.get_recently_failed_methods(domain, recent_failures_threshold=1)
+            
+            # Define all available strategies
+            all_strategies = {
+                'readability': self._extract_with_readability,
+                'html_parsing': self._extract_with_enhanced_selectors,
+                'playwright': self._extract_with_browser
+            }
+            
+            # Filter out ineffective and recently failed methods
+            methods_to_skip = set(ineffective_methods + recently_failed_methods)
+            if methods_to_skip:
+                print(f"  ⚠️ Skipping failing methods for {domain}: {', '.join(methods_to_skip)}")
+                all_strategies = {name: func for name, func in all_strategies.items() if name not in methods_to_skip}
+            
+            # Prioritize strategies based on domain history
+            if best_method and best_method in all_strategies:
+                print(f"  🎯 Prioritizing best method for {domain}: {best_method}")
+                # Try best method first
+                strategies = [(best_method, all_strategies[best_method])]
+                # Add remaining strategies
+                remaining_strategies = [(name, func) for name, func in all_strategies.items() if name != best_method]
+                strategies.extend(remaining_strategies)
+            else:
+                # Use available strategies in default order
+                default_order = ['readability', 'html_parsing', 'playwright']
+                strategies = [(name, all_strategies[name]) for name in default_order if name in all_strategies]
             
             for strategy_name, strategy_func in strategies:
                 print(f"  🔧 Trying strategy: {strategy_name}")
