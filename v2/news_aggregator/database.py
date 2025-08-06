@@ -15,7 +15,15 @@ engine = create_async_engine(
     pool_size=settings.db_pool_size,
     max_overflow=settings.db_max_overflow,
     pool_timeout=settings.db_pool_timeout,
-    pool_pre_ping=True  # Проверка соединений перед использованием
+    pool_pre_ping=True,  # Проверка соединений перед использованием
+    pool_recycle=3600,   # Переиспользование соединений каждый час
+    connect_args={
+        "server_settings": {
+            "application_name": "RSS_Aggregator_V2",
+        },
+        # Более агрессивные настройки таймаутов для asyncpg
+        "command_timeout": 60,
+    }
 )
 
 # Create async session factory

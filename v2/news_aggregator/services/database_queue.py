@@ -204,13 +204,22 @@ class DatabaseQueueManager:
         """Process a database task."""
         start_time = datetime.now()
         
+        # Check if task was already cancelled before processing
+        if task.result_future.cancelled():
+            logger.debug(f"⚠️ Task {task.task_id} was cancelled before processing")
+            return
+        
+        session = None
         try:
             # Acquire connection semaphore
             async with semaphore:
                 # Execute database operation
-                async with AsyncSessionLocal() as session:
-                    try:
-                        result = await task.operation(session)
+                session = AsyncSessionLocal()
+                try:
+                    result = await task.operation(session)
+                    
+                    # Double-check task wasn't cancelled during operation
+                    if not task.result_future.cancelled() and not task.result_future.done():
                         task.result_future.set_result(result)
                         
                         # Update stats
@@ -223,8 +232,11 @@ class DatabaseQueueManager:
                         
                         duration = (datetime.now() - start_time).total_seconds()
                         logger.debug(f"✅ {worker_name} completed {task.task_id} in {duration:.3f}s")
+                    else:
+                        logger.debug(f"⚠️ Task {task.task_id} was cancelled during processing")
                         
-                    except Exception as e:
+                except Exception as e:
+                    if not task.result_future.cancelled() and not task.result_future.done():
                         task.result_future.set_exception(e)
                         
                         # Update error stats
@@ -234,12 +246,24 @@ class DatabaseQueueManager:
                             self.stats['write_errors'] += 1
                             
                         logger.error(f"❌ {worker_name} failed {task.task_id}: {e}")
+                    else:
+                        logger.debug(f"⚠️ Task {task.task_id} failed but was already cancelled: {e}")
+                finally:
+                    if session:
+                        await session.close()
                         
         except Exception as e:
             # This shouldn't happen, but just in case
-            if not task.result_future.done():
+            if not task.result_future.cancelled() and not task.result_future.done():
                 task.result_future.set_exception(e)
             logger.error(f"💥 Fatal error processing {task.task_id}: {e}")
+        finally:
+            # Ensure session is closed
+            if session:
+                try:
+                    await session.close()
+                except Exception as e:
+                    logger.debug(f"Error closing session for {task.task_id}: {e}")
             
     def get_stats(self) -> Dict[str, Any]:
         """Get queue statistics."""
@@ -264,10 +288,10 @@ def get_database_queue() -> DatabaseQueueManager:
     
     if _queue_manager is None:
         _queue_manager = DatabaseQueueManager(
-            read_pool_size=8,   # Reads are fast, allow more concurrent
-            write_pool_size=3,  # Writes need careful control
-            read_workers=6,     # More read workers
-            write_workers=4     # Fewer write workers
+            read_pool_size=12,   # Reads are fast, allow more concurrent
+            write_pool_size=4,   # Writes need careful control  
+            read_workers=10,     # Much more read workers for web requests
+            write_workers=3      # Fewer write workers
         )
     
     return _queue_manager

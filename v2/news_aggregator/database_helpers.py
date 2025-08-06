@@ -10,38 +10,50 @@ T = TypeVar('T')
 
 
 # Read operations (SELECT queries)
-async def fetch_one(query, timeout: Optional[float] = 60.0) -> Optional[Any]:
+async def fetch_one(query, timeout: Optional[float] = 30.0) -> Optional[Any]:
     """Fetch one row using read queue."""
     async def operation(session: AsyncSession):
         result = await session.execute(query)
-        return result.scalar_one_or_none()
+        row = result.scalar_one_or_none()
+        # Force close result to release connection immediately
+        result.close()
+        return row
     
     return await execute_read_query(operation, timeout)
 
 
-async def fetch_all(query, timeout: Optional[float] = 60.0) -> List[Any]:
+async def fetch_all(query, timeout: Optional[float] = 30.0) -> List[Any]:
     """Fetch all rows using read queue."""
     async def operation(session: AsyncSession):
         result = await session.execute(query)
-        return result.scalars().all()
+        rows = list(result.scalars().all())  # Force list materialization
+        # Force close result to release connection immediately
+        result.close()
+        return rows
     
     return await execute_read_query(operation, timeout)
 
 
-async def fetch_raw_all(query, timeout: Optional[float] = 60.0) -> List[Any]:
+async def fetch_raw_all(query, timeout: Optional[float] = 30.0) -> List[Any]:
     """Fetch all raw rows (tuples) using read queue."""
     async def operation(session: AsyncSession):
         result = await session.execute(query)
-        return result.all()
+        rows = list(result.all())  # Force list materialization
+        # Force close result to release connection immediately
+        result.close()
+        return rows
     
     return await execute_read_query(operation, timeout)
 
 
-async def count_query(query, timeout: Optional[float] = 60.0) -> int:
+async def count_query(query, timeout: Optional[float] = 15.0) -> int:
     """Execute count query using read queue."""
     async def operation(session: AsyncSession):
         result = await session.execute(query)
-        return result.scalar() or 0
+        count = result.scalar() or 0
+        # Force close result to release connection immediately
+        result.close()
+        return count
     
     return await execute_read_query(operation, timeout)
 
