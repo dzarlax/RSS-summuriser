@@ -213,6 +213,12 @@ class ContentExtractor:
             memory = await get_extraction_memory()
             stability_tracker = await get_stability_tracker()
             
+            # Check if domain should be temporarily skipped due to consecutive failures
+            should_skip, skip_reason = stability_tracker.should_skip_domain_temporarily(domain)
+            if should_skip:
+                print(f"  ⏰ Skipping {domain}: {skip_reason}")
+                return None
+            
             # Phase 1: Try learned best patterns first
             learned_patterns = await memory.get_best_patterns_for_domain(domain, limit=3)
             
@@ -300,8 +306,9 @@ class ContentExtractor:
                                 )
                                 return self._finalize_content(content)
             
-            # Complete failure
+            # Complete failure - record for exponential backoff
             print(f"  💥 All extraction strategies failed for {domain}")
+            stability_tracker.record_all_methods_failure(domain)
             return None
             
         except Exception as e:

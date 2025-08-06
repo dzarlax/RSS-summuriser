@@ -28,6 +28,10 @@ class DomainExtractionStats:
     average_content_length: float = 0.0
     average_quality_score: float = 0.0
     
+    # Retry logic for complete failures
+    consecutive_all_methods_failures: int = 0
+    last_all_methods_failure_timestamp: Optional[float] = None
+    
     def __post_init__(self):
         if self.method_success_counts is None:
             self.method_success_counts = {}
@@ -180,6 +184,8 @@ class DomainStabilityTracker:
         
         if success:
             stats.update_success(method, extraction_time_ms, content_length, quality_score)
+            # Reset consecutive failures counter on any success
+            self.reset_all_methods_failures(domain)
         else:
             stats.update_failure(method, extraction_time_ms)
         
@@ -232,6 +238,59 @@ class DomainStabilityTracker:
                     ineffective_methods.append(method)
         
         return ineffective_methods
+    
+    def should_skip_domain_temporarily(self, domain: str) -> tuple[bool, str]:
+        """Check if domain should be temporarily skipped due to consecutive failures."""
+        if domain not in self.domain_stats:
+            return False, ""
+        
+        stats = self.domain_stats[domain]
+        current_time = time.time()
+        
+        # No consecutive failures recorded
+        if stats.consecutive_all_methods_failures == 0:
+            return False, ""
+        
+        # Calculate exponential backoff delay
+        # 1st failure: 10 min, 2nd: 30 min, 3rd: 1 hour, 4th: 2 hours, max: 6 hours
+        base_delay = 600  # 10 minutes
+        max_delay = 21600  # 6 hours
+        
+        failures = min(stats.consecutive_all_methods_failures, 8)  # Cap at reasonable level
+        delay_seconds = min(base_delay * (1.5 ** (failures - 1)), max_delay)
+        
+        if stats.last_all_methods_failure_timestamp:
+            time_since_last_failure = current_time - stats.last_all_methods_failure_timestamp
+            if time_since_last_failure < delay_seconds:
+                remaining_minutes = int((delay_seconds - time_since_last_failure) / 60)
+                return True, f"Exponential backoff: {remaining_minutes} minutes remaining"
+        
+        return False, ""
+    
+    def record_all_methods_failure(self, domain: str):
+        """Record when all extraction methods failed for a domain."""
+        if domain not in self.domain_stats:
+            self.domain_stats[domain] = DomainExtractionStats(domain=domain)
+        
+        stats = self.domain_stats[domain]
+        stats.consecutive_all_methods_failures += 1
+        stats.last_all_methods_failure_timestamp = time.time()
+        
+        self._save_stats()
+        
+        print(f"  📈 Consecutive all-methods failures for {domain}: {stats.consecutive_all_methods_failures}")
+    
+    def reset_all_methods_failures(self, domain: str):
+        """Reset consecutive failure counter when any method succeeds."""
+        if domain not in self.domain_stats:
+            return
+        
+        stats = self.domain_stats[domain]
+        if stats.consecutive_all_methods_failures > 0:
+            print(f"  ✅ Resetting failure counter for {domain} (was {stats.consecutive_all_methods_failures})")
+            stats.consecutive_all_methods_failures = 0
+            stats.last_all_methods_failure_timestamp = None
+            self._save_stats()
     
     def get_recently_failed_methods(self, domain: str, recent_failures_threshold: int = 2) -> List[str]:
         """Get methods that failed recently and should be deprioritized."""
