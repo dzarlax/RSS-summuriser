@@ -5,8 +5,6 @@ import logging
 import time
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
-from dataclasses import dataclass
-from asyncio import Queue, Semaphore
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -22,196 +20,7 @@ from .core.exceptions import NewsAggregatorError
 from .config import settings
 
 
-@dataclass
-class DatabaseWriteTask:
-    """Task for database write queue."""
-    article_id: int
-    field_updates: Dict[str, Any]
-    timestamp: float
-    retry_count: int = 0
-
-
-class DatabaseWriteQueue:
-    """Asynchronous database write queue with connection-based concurrency control."""
-    
-    def __init__(self, max_queue_size: int = 1000, max_concurrent_writes: int = 3, max_workers: int = 5):
-        self.queue: Queue[DatabaseWriteTask] = Queue(maxsize=max_queue_size)
-        self.max_concurrent_writes = max_concurrent_writes
-        self.max_workers = max_workers
-        
-        # Semaphore to limit concurrent database connections
-        self.db_semaphore = Semaphore(max_concurrent_writes)
-        
-        # Worker management
-        self.worker_tasks: List[asyncio.Task] = []
-        self.running = False
-        
-        # Statistics
-        self.active_writes = 0
-        self.total_writes = 0
-        self.total_articles_updated = 0
-        
-    async def start(self):
-        """Start multiple background workers."""
-        if self.running:
-            return
-            
-        self.running = True
-        
-        # Start multiple worker tasks
-        for i in range(self.max_workers):
-            worker_task = asyncio.create_task(self._worker_loop(worker_id=i))
-            self.worker_tasks.append(worker_task)
-            
-        print(f"🚀 Database write queue started with {self.max_workers} workers, max {self.max_concurrent_writes} concurrent DB connections")
-        
-    async def stop(self):
-        """Stop all background workers and process remaining tasks."""
-        if not self.running:
-            return
-            
-        print(f"🛑 Stopping database write queue ({self.queue.qsize()} tasks pending)...")
-        self.running = False
-        
-        # Cancel all worker tasks
-        for task in self.worker_tasks:
-            if not task.done():
-                task.cancel()
-                
-        # Wait for workers to finish
-        await asyncio.gather(*self.worker_tasks, return_exceptions=True)
-        self.worker_tasks.clear()
-        
-        # Process any remaining tasks in queue
-        remaining_tasks = []
-        while not self.queue.empty():
-            try:
-                task = self.queue.get_nowait()
-                remaining_tasks.append(task)
-            except asyncio.QueueEmpty:
-                break
-                
-        if remaining_tasks:
-            print(f"  📝 Processing {len(remaining_tasks)} remaining tasks...")
-            await self._process_tasks_batch(remaining_tasks)
-            
-        print(f"✅ Database write queue stopped. Total processed: {self.total_writes} writes, {self.total_articles_updated} articles")
-        
-    async def add_update(self, article_id: int, field_updates: Dict[str, Any]):
-        """Add field updates to queue."""
-        try:
-            task = DatabaseWriteTask(
-                article_id=article_id,
-                field_updates=field_updates,
-                timestamp=time.time()
-            )
-            await self.queue.put(task)
-        except asyncio.QueueFull:
-            print(f"⚠️ Database write queue full ({self.queue.qsize()}/{self.queue.maxsize}), dropping update for article {article_id}")
-            
-    async def _worker_loop(self, worker_id: int):
-        """Background worker that processes write tasks using semaphore for connection control."""
-        while self.running:
-            try:
-                # Wait for a task from the queue
-                task = await self.queue.get()
-                
-                # Acquire semaphore to limit concurrent database connections
-                async with self.db_semaphore:
-                    self.active_writes += 1
-                    try:
-                        await self._process_single_task(task, worker_id)
-                        self.total_writes += 1
-                        self.total_articles_updated += 1
-                    finally:
-                        self.active_writes -= 1
-                        
-                # Mark task as done
-                self.queue.task_done()
-                    
-            except asyncio.CancelledError:
-                break
-            except Exception as e:
-                print(f"❌ Database write worker {worker_id} error: {e}")
-                await asyncio.sleep(0.1)  # Brief pause before retrying
-                
-    async def _process_single_task(self, task: DatabaseWriteTask, worker_id: int):
-        """Process a single database write task."""
-        try:
-            async with AsyncSessionLocal() as db:
-                from .models import Article
-                
-                # Get the article
-                result = await db.execute(
-                    select(Article).where(Article.id == task.article_id)
-                )
-                article = result.scalar_one_or_none()
-                
-                if not article:
-                    print(f"  ⚠️ Worker {worker_id}: Article {task.article_id} not found")
-                    return
-                
-                # Apply all field updates
-                updates_applied = 0
-                for field_name, value in task.field_updates.items():
-                    if hasattr(article, field_name):
-                        setattr(article, field_name, value)
-                        updates_applied += 1
-                    else:
-                        print(f"  ⚠️ Worker {worker_id}: Article has no field '{field_name}'")
-                
-                await db.commit()
-                print(f"  ✅ Worker {worker_id}: Applied {updates_applied} updates to article {task.article_id}")
-                
-        except Exception as e:
-            print(f"  ❌ Worker {worker_id}: Failed to update article {task.article_id}: {e}")
-            raise
-    
-    async def _process_tasks_batch(self, tasks: List[DatabaseWriteTask]):
-        """Process multiple tasks in a single database session (for cleanup)."""
-        if not tasks:
-            return
-            
-        try:
-            async with AsyncSessionLocal() as db:
-                from .models import Article
-                
-                # Get all articles that need updates
-                article_ids = [task.article_id for task in tasks]
-                result = await db.execute(
-                    select(Article).where(Article.id.in_(article_ids))
-                )
-                articles = {article.id: article for article in result.scalars().all()}
-                
-                # Apply all updates
-                updates_applied = 0
-                for task in tasks:
-                    if task.article_id in articles:
-                        article = articles[task.article_id]
-                        for field_name, value in task.field_updates.items():
-                            if hasattr(article, field_name):
-                                setattr(article, field_name, value)
-                                updates_applied += 1
-                
-                await db.commit()
-                self.total_writes += len(tasks)  
-                self.total_articles_updated += len(articles)
-                print(f"  ✅ Cleanup: Applied {updates_applied} field updates to {len(articles)} articles")
-                
-        except Exception as e:
-            print(f"  ❌ Cleanup batch failed: {e}")
-    
-    def get_stats(self) -> Dict[str, Any]:
-        """Get queue statistics."""
-        return {
-            'queue_size': self.queue.qsize(),
-            'active_writes': self.active_writes,
-            'total_writes': self.total_writes,
-            'total_articles_updated': self.total_articles_updated,
-            'max_concurrent_writes': self.max_concurrent_writes,
-            'worker_count': len(self.worker_tasks),
-            'running': self.running
-        }
+# Legacy database write queue classes removed - now using universal DatabaseQueueManager
 
 
 
@@ -260,8 +69,7 @@ class NewsOrchestrator:
             'errors': []
         }
         
-        # Start database write queue
-        await self.db_queue.start()
+        # Database queue is managed globally, no need to start/stop here
         
         try:
             # Step 1: Fetch new articles from all sources (короткая сессия)
@@ -340,8 +148,8 @@ class NewsOrchestrator:
             raise NewsAggregatorError(error_msg) from e
         
         finally:
-            # Always stop the database write queue
-            await self.db_queue.stop()
+            # Database queue is managed globally, cleanup not needed here
+            pass
     
     async def send_telegram_digest(self) -> Dict[str, Any]:
         """Send Telegram digest separately from sync."""
@@ -621,10 +429,18 @@ class NewsOrchestrator:
                 field_updates['is_advertisement'] = False
                 field_updates['ad_processed'] = True
         
-        # Submit all updates to queue at once
+        # Submit all updates through write queue
         if field_updates:
-            await self.db_queue.add_update(article_id, field_updates)
-            print(f"  📤 Submitted {len(field_updates)} field updates to write queue")
+            async def update_operation(session):
+                from sqlalchemy import select, update
+                # Update article fields
+                stmt = update(Article).where(Article.id == article_id).values(**field_updates)
+                await session.execute(stmt)
+                await session.commit()
+                return len(field_updates)
+            
+            await execute_custom_write(update_operation)
+            print(f"  📤 Applied {len(field_updates)} field updates through write queue")
         
         return {}
     
