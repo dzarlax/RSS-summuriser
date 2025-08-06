@@ -309,24 +309,67 @@ class ContentExtractor:
             raise ContentExtractionError(f"Failed to extract content from {url}: {e}")
     
     async def _fetch_html_content(self, url: str) -> Optional[str]:
-        """Fetch raw HTML content from URL."""
+        """Fetch raw HTML content from URL with Brotli support."""
         try:
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
                 'Accept-Language': 'en-US,en;q=0.9',
-                'Accept-Encoding': 'gzip, deflate',
-                'Connection': 'keep-alive'
+                'Accept-Encoding': 'gzip, deflate, br',  # Brotli support
+                'Connection': 'keep-alive',
+                'Cache-Control': 'no-cache',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1',
+                'Upgrade-Insecure-Requests': '1'
+            }
+            
+            async with get_http_client() as client:
+                response = await client.session.get(url, headers=headers, timeout=15)
+                if response.status == 200:
+                    # aiohttp should automatically decode Brotli if library is available
+                    return await response.text()
+                    
+            return None
+            
+        except Exception as e:
+            error_msg = str(e)
+            
+            # Check if it's a Brotli-related error and try fallback
+            if 'brotli' in error_msg.lower() or 'br' in error_msg.lower():
+                print(f"  🔄 Brotli error detected, trying fallback without br encoding for {url}")
+                return await self._fetch_html_content_fallback(url)
+            else:
+                print(f"  ⚠️ Error fetching HTML from {url}: {e}")
+                return None
+    
+    async def _fetch_html_content_fallback(self, url: str) -> Optional[str]:
+        """Fallback fetch without Brotli support."""
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate',  # Without Brotli as fallback
+                'Connection': 'keep-alive',
+                'Cache-Control': 'no-cache',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1',
+                'Upgrade-Insecure-Requests': '1'
             }
             
             async with get_http_client() as client:
                 response = await client.session.get(url, headers=headers, timeout=15)
                 if response.status == 200:
                     return await response.text()
-            
+                    
             return None
+            
         except Exception as e:
-            print(f"  ⚠️ Error fetching HTML from {url}: {e}")
+            print(f"  ❌ Fallback fetch also failed for {url}: {e}")
             return None
     
     async def _extract_with_learned_pattern(self, url: str, pattern) -> Optional[str]:

@@ -82,6 +82,7 @@ async def get_public_feed(
                     "title": article.title,
                     "summary": article.summary,
                     "url": article.url,
+                    "image_url": article.image_url,
                     "source_id": article.source_id,
                     "source_name": source.name,
                     "category": article.category,

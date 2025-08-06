@@ -11,6 +11,7 @@ sqlalchemy[asyncio]>=2.0.23
 aiohttp>=3.9.1
 httpx>=0.25.2
 tenacity>=8.2.3
+Brotli>=1.1.0                   # Brotli compression support
 
 # Cache (using file-based cache instead of Redis)
 
