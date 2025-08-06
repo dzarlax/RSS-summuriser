@@ -57,15 +57,12 @@ async def get_public_feed(
             
             # Apply category filter 
             if category and category.lower() != 'all':
-                if category.lower() == 'advertisements':
-                    query = query.where(Article.is_advertisement == True)
-                else:
-                    # Simple case conversion - capitalize first letter to match database format
-                    category_capitalized = category.capitalize()
-                    query = query.where(Article.category == category_capitalized)
-            else:
-                # By default, exclude advertisements from public feed
+                # Simple case conversion - capitalize first letter to match database format
+                category_capitalized = category.capitalize()
+                query = query.where(Article.category == category_capitalized)
+                # Exclude advertisements from specific categories (they show as badges in "All")
                 query = query.where(Article.is_advertisement != True)
+            # For "All" category, show everything including advertisements with badges
             
             # Apply pagination
             query = query.offset(offset).limit(limit)
@@ -135,8 +132,8 @@ async def get_public_categories():
     
     try:
         async with AsyncSessionLocal() as session:
-            # Count total articles (excluding advertisements)
-            total_query = select(func.count(Article.id)).where(Article.is_advertisement != True)
+            # Count total articles (including advertisements for "All" category)
+            total_query = select(func.count(Article.id))
             total_result = await session.execute(total_query)
             total_count = total_result.scalar() or 0
             
@@ -151,20 +148,12 @@ async def get_public_categories():
             category_result = await session.execute(category_query)
             categories = category_result.all()
             
-            # Count advertisements
-            ads_query = select(func.count(Article.id)).where(Article.is_advertisement == True)
-            ads_result = await session.execute(ads_query)
-            ads_count = ads_result.scalar() or 0
-            
-            # Build category stats
+            # Build category stats (advertisements are excluded, shown as badges)
             category_stats = {"all": total_count}
             
             for category, count in categories:
                 if category:
                     category_stats[category.lower()] = count
-            
-            if ads_count > 0:
-                category_stats["advertisements"] = ads_count
             
             return {"categories": category_stats}
             

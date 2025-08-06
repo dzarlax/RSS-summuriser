@@ -944,11 +944,6 @@ function updateAllCategoryFilters() {
             <span>Все</span>
             <span class="count">${allCategories.all || 0}</span>
         </button>
-        <button class="filter-btn ${currentCategory === 'advertisements' ? 'active' : ''}" data-category="advertisements" onclick="filterByCategory('advertisements')">
-            <span class="filter-icon">🚨</span>
-            <span>Реклама</span>
-            <span class="count">${allCategories.advertisements || 0}</span>
-        </button>
     `;
     
     // Add buttons for all categories that exist in database
