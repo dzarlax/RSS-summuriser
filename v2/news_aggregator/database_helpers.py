@@ -10,7 +10,7 @@ T = TypeVar('T')
 
 
 # Read operations (SELECT queries)
-async def fetch_one(query, timeout: Optional[float] = 30.0) -> Optional[Any]:
+async def fetch_one(query, timeout: Optional[float] = 60.0) -> Optional[Any]:
     """Fetch one row using read queue."""
     async def operation(session: AsyncSession):
         result = await session.execute(query)
@@ -19,7 +19,7 @@ async def fetch_one(query, timeout: Optional[float] = 30.0) -> Optional[Any]:
     return await execute_read_query(operation, timeout)
 
 
-async def fetch_all(query, timeout: Optional[float] = 30.0) -> List[Any]:
+async def fetch_all(query, timeout: Optional[float] = 60.0) -> List[Any]:
     """Fetch all rows using read queue."""
     async def operation(session: AsyncSession):
         result = await session.execute(query)
@@ -28,7 +28,7 @@ async def fetch_all(query, timeout: Optional[float] = 30.0) -> List[Any]:
     return await execute_read_query(operation, timeout)
 
 
-async def fetch_raw_all(query, timeout: Optional[float] = 30.0) -> List[Any]:
+async def fetch_raw_all(query, timeout: Optional[float] = 60.0) -> List[Any]:
     """Fetch all raw rows (tuples) using read queue."""
     async def operation(session: AsyncSession):
         result = await session.execute(query)
@@ -37,7 +37,7 @@ async def fetch_raw_all(query, timeout: Optional[float] = 30.0) -> List[Any]:
     return await execute_read_query(operation, timeout)
 
 
-async def count_query(query, timeout: Optional[float] = 30.0) -> int:
+async def count_query(query, timeout: Optional[float] = 60.0) -> int:
     """Execute count query using read queue."""
     async def operation(session: AsyncSession):
         result = await session.execute(query)

@@ -1518,19 +1518,13 @@ async def restore_from_uploaded_backup(filename: str, background_tasks: Backgrou
 
 @router.get("/stats/queue")
 async def get_queue_stats():
-    """Get database write queue statistics."""
+    """Get universal database queue statistics."""
     try:
-        # Get global orchestrator instance from scheduler
-        from .services.scheduler import get_scheduler
-        scheduler = get_scheduler()
+        # Get global database queue manager
+        from .services.database_queue import get_database_queue
+        queue_manager = get_database_queue()
         
-        if not scheduler.orchestrator:
-            return {
-                "success": False,
-                "message": "Orchestrator not available"
-            }
-            
-        stats = scheduler.orchestrator.get_queue_stats()
+        stats = queue_manager.get_stats()
         
         return {
             "success": True,

@@ -246,6 +246,55 @@
                     </button>
                 </div>
             </section>
+            
+            <section class="dashboard-section queue-section">
+                <div class="section-header">
+                    <h2>🚀 Статистика очередей БД</h2>
+                    <button class="btn btn-sm btn-outline" onclick="loadQueueStats()">
+                        🔄 Обновить
+                    </button>
+                </div>
+                <div class="queue-stats">
+                    <div class="queue-stat-item" id="read-queue">
+                        <div class="queue-indicator">
+                            <span class="queue-type">Чтение</span>
+                            <span class="queue-details" id="read-queue-details">Загрузка...</span>
+                        </div>
+                        <div class="queue-metrics">
+                            <span class="metric" id="read-operations">-</span>
+                            <span class="metric-label">операций</span>
+                        </div>
+                    </div>
+                    <div class="queue-stat-item" id="write-queue">
+                        <div class="queue-indicator">
+                            <span class="queue-type">Запись</span>
+                            <span class="queue-details" id="write-queue-details">Загрузка...</span>
+                        </div>
+                        <div class="queue-metrics">
+                            <span class="metric" id="write-operations">-</span>
+                            <span class="metric-label">операций</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="queue-details-grid">
+                    <div class="queue-detail">
+                        <span class="label">Общий размер очереди:</span>
+                        <span class="value" id="total-queue-size">-</span>
+                    </div>
+                    <div class="queue-detail">
+                        <span class="label">Доступные соединения:</span>
+                        <span class="value" id="available-connections">-</span>
+                    </div>
+                    <div class="queue-detail">
+                        <span class="label">Активные воркеры:</span>
+                        <span class="value" id="active-workers">-</span>
+                    </div>
+                    <div class="queue-detail">
+                        <span class="label">Всего обработано:</span>
+                        <span class="value" id="total-processed">-</span>
+                    </div>
+                </div>
+            </section>
         </div>
     </div>
 </div>
@@ -896,6 +945,95 @@
         padding: 1rem;
     }
 }
+
+/* Queue Statistics Styles */
+.queue-section {
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-md);
+    padding: 1.5rem;
+}
+
+.queue-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.queue-stat-item {
+    background: var(--surface-hover);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-sm);
+    padding: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.queue-indicator .queue-type {
+    font-weight: 600;
+    color: var(--text-color);
+    display: block;
+    margin-bottom: 0.25rem;
+}
+
+.queue-indicator .queue-details {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.queue-metrics {
+    text-align: right;
+}
+
+.queue-metrics .metric {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--primary-color);
+    display: block;
+}
+
+.queue-metrics .metric-label {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.queue-details-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+}
+
+.queue-detail {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.queue-detail .label {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
+
+.queue-detail .value {
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+@media (max-width: 768px) {
+    .queue-stats {
+        grid-template-columns: 1fr;
+    }
+    
+    .queue-details-grid {
+        grid-template-columns: 1fr;
+    }
+}
 </style>
 
 <script>
@@ -1314,5 +1452,52 @@ function getNotificationIcon(type) {
         default: return 'ℹ️';
     }
 }
+
+async function loadQueueStats() {
+    try {
+        const response = await apiRequest('/api/v1/stats/queue');
+        
+        if (response.success && response.stats) {
+            const stats = response.stats;
+            
+            // Update read queue stats
+            document.getElementById('read-operations').textContent = stats.read_operations || 0;
+            document.getElementById('read-queue-details').textContent = 
+                `Очередь: ${stats.read_queue_size || 0}, Ошибок: ${stats.read_errors || 0}`;
+            
+            // Update write queue stats  
+            document.getElementById('write-operations').textContent = stats.write_operations || 0;
+            document.getElementById('write-queue-details').textContent = 
+                `Очередь: ${stats.write_queue_size || 0}, Ошибок: ${stats.write_errors || 0}`;
+            
+            // Update summary stats
+            document.getElementById('total-queue-size').textContent = 
+                `${(stats.read_queue_size || 0) + (stats.write_queue_size || 0)}`;
+            document.getElementById('available-connections').textContent = 
+                `Ч: ${stats.read_connections_available || 0}, З: ${stats.write_connections_available || 0}`;
+            document.getElementById('active-workers').textContent = 
+                `${stats.total_workers || 0} (${stats.running ? 'активны' : 'остановлены'})`;
+            document.getElementById('total-processed').textContent = 
+                `${stats.total_processed || 0}`;
+                
+        } else {
+            // Show error state
+            document.getElementById('read-queue-details').textContent = 'Ошибка загрузки';
+            document.getElementById('write-queue-details').textContent = 'Ошибка загрузки';
+        }
+        
+    } catch (error) {
+        console.error('Error loading queue stats:', error);
+        document.getElementById('read-queue-details').textContent = 'Ошибка соединения';
+        document.getElementById('write-queue-details').textContent = 'Ошибка соединения';
+    }
+}
+
+// Load queue stats when page loads and add to dashboard data loading
+document.addEventListener('DOMContentLoaded', function() {
+    loadQueueStats();
+    // Auto-refresh every 30 seconds
+    setInterval(loadQueueStats, 30000);
+});
 </script>
 {% endblock %}
