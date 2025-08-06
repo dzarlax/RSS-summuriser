@@ -100,10 +100,19 @@ class TaskScheduler:
                     if await self._should_run_task(setting, now_utc):
                         logger.info(f"Running scheduled task: {setting.task_name}")
                         
-                        # Mark as running
-                        setting.is_running = True
-                        setting.last_run = now_utc.replace(tzinfo=None)
-                        await db.commit()
+                        # Mark as running through write queue
+                        async def mark_running_operation(session):
+                            from sqlalchemy import update
+                            stmt = update(ScheduleSettings).where(
+                                ScheduleSettings.id == setting.id
+                            ).values(
+                                is_running=True,
+                                last_run=now_utc.replace(tzinfo=None)
+                            )
+                            await session.execute(stmt)
+                            await session.commit()
+                            
+                        await execute_custom_write(mark_running_operation)
                         
                         # Run task in background
                         task_key = f"task_{setting.task_name}_{setting.id}"
