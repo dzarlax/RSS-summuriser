@@ -202,6 +202,15 @@ class DomainStabilityTracker:
             return []
         
         stats = self.domain_stats[domain]
+        
+        # If we had a recent success but it just failed, reset and try all methods
+        current_time = time.time()
+        if (stats.last_success_timestamp and stats.last_failure_timestamp and 
+            stats.last_failure_timestamp > stats.last_success_timestamp and
+            current_time - stats.last_failure_timestamp < 3600):  # Last failure within 1 hour
+            # Recent success followed by failure - don't mark any methods as ineffective
+            return []
+        
         ineffective_methods = []
         
         for method, failure_count in stats.method_failure_counts.items():
@@ -211,7 +220,15 @@ class DomainStabilityTracker:
             # Lower threshold for immediate session learning
             if total_attempts >= min_attempts:
                 failure_rate = failure_count / total_attempts
-                if failure_rate >= failure_threshold:
+                
+                # Special handling for Playwright - be less aggressive on challenging domains
+                if method == 'playwright' and success_count > 0:
+                    # For Playwright, require higher failure rate if it has had recent successes
+                    # This allows Playwright to keep trying on anti-bot protected sites
+                    playwright_threshold = 0.95  # Only blacklist if >95% failure rate
+                    if failure_rate >= playwright_threshold:
+                        ineffective_methods.append(method)
+                elif failure_rate >= failure_threshold:
                     ineffective_methods.append(method)
         
         return ineffective_methods
@@ -223,6 +240,14 @@ class DomainStabilityTracker:
         
         stats = self.domain_stats[domain]
         recently_failed = []
+        
+        # If we had a recent success but it just failed, reset and try all methods
+        current_time = time.time()
+        if (stats.last_success_timestamp and stats.last_failure_timestamp and 
+            stats.last_failure_timestamp > stats.last_success_timestamp and
+            current_time - stats.last_failure_timestamp < 3600):  # Last failure within 1 hour
+            # Recent success followed by failure - don't skip any methods, try everything
+            return []
         
         # Check methods that have recent consecutive failures
         for method, failure_count in stats.method_failure_counts.items():
