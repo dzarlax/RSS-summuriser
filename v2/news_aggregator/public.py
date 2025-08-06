@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from .database import get_db
+from .database_helpers import fetch_raw_all, count_query, execute_custom_read
 from .models import Article
 
 router = APIRouter()
@@ -43,60 +44,58 @@ async def get_public_feed(
     
     
     try:
-        async with AsyncSessionLocal() as session:
-            # Import Source model
-            from .models import Source
-            
-            # Build query for articles with source information
-            query = select(Article, Source).join(Source, Article.source_id == Source.id).order_by(desc(Article.published_at))
-            
-            # Apply time filter
-            if since_hours:
-                since_time = datetime.utcnow() - timedelta(hours=since_hours)
-                query = query.where(Article.published_at >= since_time)
-            
-            # Apply category filter 
-            if category and category.lower() != 'all':
-                # Simple case conversion - capitalize first letter to match database format
-                category_capitalized = category.capitalize()
-                query = query.where(Article.category == category_capitalized)
-                # Exclude advertisements from specific categories (they show as badges in "All")
-                query = query.where(Article.is_advertisement != True)
-            # For "All" category, show everything including advertisements with badges
-            
-            # Apply pagination
-            query = query.offset(offset).limit(limit)
-            
-            # Execute query
-            result = await session.execute(query)
-            rows = result.all()
-            
-            # Convert to dict format
-            articles_data = []
-            for article, source in rows:
-                article_dict = {
-                    "id": article.id,
-                    "title": article.title,
-                    "summary": article.summary,
-                    "url": article.url,
-                    "image_url": article.image_url,
-                    "source_id": article.source_id,
-                    "source_name": source.name,
-                    "category": article.category,
-                    "published_at": article.published_at.isoformat() if article.published_at else None,
-                    "fetched_at": article.fetched_at.isoformat() if article.fetched_at else None,
-                    "is_advertisement": article.is_advertisement or False,
-                    "ad_confidence": article.ad_confidence or 0.0,
-                    "ad_type": article.ad_type
-                }
-                articles_data.append(article_dict)
-            
-            return {
-                "articles": articles_data,
-                "total": len(articles_data),
-                "limit": limit,
-                "offset": offset
+        # Import Source model
+        from .models import Source
+        
+        # Build query for articles with source information
+        query = select(Article, Source).join(Source, Article.source_id == Source.id).order_by(desc(Article.published_at))
+        
+        # Apply time filter
+        if since_hours:
+            since_time = datetime.utcnow() - timedelta(hours=since_hours)
+            query = query.where(Article.published_at >= since_time)
+        
+        # Apply category filter 
+        if category and category.lower() != 'all':
+            # Simple case conversion - capitalize first letter to match database format
+            category_capitalized = category.capitalize()
+            query = query.where(Article.category == category_capitalized)
+            # Exclude advertisements from specific categories (they show as badges in "All")
+            query = query.where(Article.is_advertisement != True)
+        # For "All" category, show everything including advertisements with badges
+        
+        # Apply pagination
+        query = query.offset(offset).limit(limit)
+        
+        # Execute query through read queue
+        rows = await fetch_raw_all(query)
+        
+        # Convert to dict format
+        articles_data = []
+        for article, source in rows:
+            article_dict = {
+                "id": article.id,
+                "title": article.title,
+                "summary": article.summary,
+                "url": article.url,
+                "image_url": article.image_url,
+                "source_id": article.source_id,
+                "source_name": source.name,
+                "category": article.category,
+                "published_at": article.published_at.isoformat() if article.published_at else None,
+                "fetched_at": article.fetched_at.isoformat() if article.fetched_at else None,
+                "is_advertisement": article.is_advertisement or False,
+                "ad_confidence": article.ad_confidence or 0.0,
+                "ad_type": article.ad_type
             }
+            articles_data.append(article_dict)
+        
+        return {
+            "articles": articles_data,
+            "total": len(articles_data),
+            "limit": limit,
+            "offset": offset
+        }
     
     except Exception as e:
         # If DB fails, return mock data
@@ -131,31 +130,28 @@ async def get_public_categories():
     from .database import AsyncSessionLocal
     
     try:
-        async with AsyncSessionLocal() as session:
-            # Count total articles (including advertisements for "All" category)
-            total_query = select(func.count(Article.id))
-            total_result = await session.execute(total_query)
-            total_count = total_result.scalar() or 0
-            
-            # Count by category (excluding advertisements)
-            category_query = select(
-                Article.category, 
-                func.count(Article.id).label('count')
-            ).where(
-                Article.is_advertisement != True
-            ).group_by(Article.category)
-            
-            category_result = await session.execute(category_query)
-            categories = category_result.all()
-            
-            # Build category stats (advertisements are excluded, shown as badges)
-            category_stats = {"all": total_count}
-            
-            for category, count in categories:
-                if category:
-                    category_stats[category.lower()] = count
-            
-            return {"categories": category_stats}
+        # Count total articles (including advertisements for "All" category)
+        total_query = select(func.count(Article.id))
+        total_count = await count_query(total_query)
+        
+        # Count by category (excluding advertisements)
+        category_query = select(
+            Article.category, 
+            func.count(Article.id).label('count')
+        ).where(
+            Article.is_advertisement != True
+        ).group_by(Article.category)
+        
+        categories = await fetch_raw_all(category_query)
+        
+        # Build category stats (advertisements are excluded, shown as badges)
+        category_stats = {"all": total_count}
+        
+        for category, count in categories:
+            if category:
+                category_stats[category.lower()] = count
+        
+        return {"categories": category_stats}
             
     except Exception as e:
         print(f"Categories error: {e}")

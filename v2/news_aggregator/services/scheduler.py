@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import AsyncSessionLocal
+from ..database_helpers import fetch_all, execute_custom_write
 from ..models import ScheduleSettings
 from ..orchestrator import NewsOrchestrator
 from ..services.ai_client import get_ai_client
@@ -85,19 +86,16 @@ class TaskScheduler:
     async def _check_and_run_tasks(self):
         """Check for tasks that need to run and execute them."""
         try:
-            async with AsyncSessionLocal() as db:
-                # Get all enabled schedule settings
-                result = await db.execute(
-                    select(ScheduleSettings).where(
-                        ScheduleSettings.enabled == True,
-                        ScheduleSettings.is_running == False
-                    )
-                )
-                settings = result.scalars().all()
+            # Get all enabled schedule settings (quick DB query through read queue)
+            query = select(ScheduleSettings).where(
+                ScheduleSettings.enabled == True,
+                ScheduleSettings.is_running == False
+            )
+            settings = await fetch_all(query)
                 
-                now_utc = datetime.utcnow().replace(tzinfo=pytz.UTC)
-                
-                for setting in settings:
+            now_utc = datetime.utcnow().replace(tzinfo=pytz.UTC)
+            
+            for setting in settings:
                     # Check if task should run
                     if await self._should_run_task(setting, now_utc):
                         logger.info(f"Running scheduled task: {setting.task_name}")
@@ -214,7 +212,7 @@ class TaskScheduler:
     async def _update_task_schedule(self, setting_id: int):
         """Update task schedule after completion."""
         try:
-            async with AsyncSessionLocal() as db:
+            async def update_operation(db: AsyncSession):
                 result = await db.execute(
                     select(ScheduleSettings).where(ScheduleSettings.id == setting_id)
                 )
@@ -235,7 +233,10 @@ class TaskScheduler:
                     
                 await db.commit()
                 logger.info(f"Updated schedule for {setting.task_name}, next run: {setting.next_run}")
+                return setting
                 
+            await execute_custom_write(update_operation)
+            
         except Exception as e:
             logger.error(f"Error updating task schedule: {e}", exc_info=True)
             
@@ -342,24 +343,23 @@ class TaskScheduler:
             
     async def get_status(self) -> Dict[str, Any]:
         """Get scheduler status."""
-        async with AsyncSessionLocal() as db:
-            result = await db.execute(select(ScheduleSettings))
-            settings = result.scalars().all()
-            
-            return {
-                "running": self.running,
-                "active_tasks": len([s for s in settings if s.enabled]),
-                "total_tasks": len(settings),
-                "running_tasks": len([s for s in settings if s.is_running]),
-                "next_runs": [
-                    {
-                        "task_name": s.task_name,
-                        "next_run": s.next_run.isoformat() if s.next_run else None,
-                        "enabled": s.enabled
-                    }
-                    for s in settings
-                ]
-            }
+        query = select(ScheduleSettings)
+        settings = await fetch_all(query)
+        
+        return {
+            "running": self.running,
+            "active_tasks": len([s for s in settings if s.enabled]),
+            "total_tasks": len(settings),
+            "running_tasks": len([s for s in settings if s.is_running]),
+            "next_runs": [
+                {
+                    "task_name": s.task_name,
+                    "next_run": s.next_run.isoformat() if s.next_run else None,
+                    "enabled": s.enabled
+                }
+                for s in settings
+            ]
+        }
 
 
 # Global scheduler instance

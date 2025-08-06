@@ -94,6 +94,16 @@ async def init_db():
 
 async def get_db():
     """Dependency to get database session."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    # Log pool status before getting connection
+    try:
+        pool_status = engine.pool.status()
+        logger.debug(f"📊 DB Pool before request: {pool_status}")
+    except:
+        pass
+    
     async with AsyncSessionLocal() as session:
         try:
             yield session

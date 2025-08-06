@@ -16,6 +16,8 @@ from .models import Source, Article, ProcessingStat, DailySummary
 from .services.source_manager import SourceManager
 from .services.ai_client import get_ai_client
 from .services.telegram_service import get_telegram_service
+from .services.database_queue import get_database_queue, DatabaseQueueManager
+from .database_helpers import fetch_all, fetch_one, insert_one, update_query, execute_custom_read, execute_custom_write
 from .core.exceptions import NewsAggregatorError
 from .config import settings
 
@@ -220,11 +222,12 @@ class NewsOrchestrator:
         self.source_manager = SourceManager()
         self.ai_client = get_ai_client()
         self.telegram_service = get_telegram_service()
-        self.db_queue = DatabaseWriteQueue(
-            max_queue_size=1000, 
-            max_concurrent_writes=3,  # Limit concurrent DB connections
-            max_workers=5  # Worker threads to process queue
-        )
+        
+        # Use new universal database queue system
+        self.db_queue_manager = get_database_queue()
+        
+        # Legacy queue for backward compatibility (will be removed)
+        self.db_queue = None
         
         # Initialize AI services
         try:
@@ -236,15 +239,15 @@ class NewsOrchestrator:
     
     async def start(self):
         """Start the orchestrator and its database queue."""
-        await self.db_queue.start()
+        await self.db_queue_manager.start()
         
     async def stop(self):
         """Stop the orchestrator and its database queue."""
-        await self.db_queue.stop()
+        await self.db_queue_manager.stop()
         
     def get_queue_stats(self) -> Dict[str, Any]:
         """Get database queue statistics."""
-        return self.db_queue.get_stats()
+        return self.db_queue_manager.get_stats()
         
     async def run_full_cycle(self) -> Dict[str, Any]:
         """Run complete news processing cycle without clustering."""
@@ -1233,34 +1236,31 @@ class NewsOrchestrator:
     
     async def get_processing_stats(self, days: int = 7) -> Dict[str, Any]:
         """Get processing statistics for the last N days."""
-        async with AsyncSessionLocal() as db:
-            since_date = datetime.utcnow().date() - timedelta(days=days)
-            
-            result = await db.execute(
-                select(ProcessingStat)
-                .where(ProcessingStat.date >= since_date)
-                .order_by(ProcessingStat.date.desc())
-            )
-            
-            stats = result.scalars().all()
-            
-            return {
-                'daily_stats': [
-                    {
-                        'date': stat.date.isoformat(),
-                        'articles_fetched': stat.articles_fetched,
-                        'articles_processed': stat.articles_processed,
-                        'api_calls_made': stat.api_calls_made,
-                        'errors_count': stat.errors_count,
-                        'processing_time_seconds': stat.processing_time_seconds
-                    }
-                    for stat in stats
-                ],
-                'totals': {
-                    'articles_fetched': sum(s.articles_fetched for s in stats),
-                    'articles_processed': sum(s.articles_processed for s in stats),
-                    'api_calls_made': sum(s.api_calls_made for s in stats),
-                    'errors_count': sum(s.errors_count for s in stats),
-                    'total_processing_time': sum(s.processing_time_seconds for s in stats)
+        since_date = datetime.utcnow().date() - timedelta(days=days)
+        
+        query = select(ProcessingStat).where(
+            ProcessingStat.date >= since_date
+        ).order_by(ProcessingStat.date.desc())
+        
+        stats = await fetch_all(query)
+        
+        return {
+            'daily_stats': [
+                {
+                    'date': stat.date.isoformat(),
+                    'articles_fetched': stat.articles_fetched,
+                    'articles_processed': stat.articles_processed,
+                    'api_calls_made': stat.api_calls_made,
+                    'errors_count': stat.errors_count,
+                    'processing_time_seconds': stat.processing_time_seconds
                 }
+                for stat in stats
+            ],
+            'totals': {
+                'articles_fetched': sum(s.articles_fetched for s in stats),
+                'articles_processed': sum(s.articles_processed for s in stats),
+                'api_calls_made': sum(s.api_calls_made for s in stats),
+                'errors_count': sum(s.errors_count for s in stats),
+                'total_processing_time': sum(s.processing_time_seconds for s in stats)
             }
+        }

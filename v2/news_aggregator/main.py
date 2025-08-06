@@ -17,6 +17,11 @@ async def lifespan(app: FastAPI):
     # Startup
     await init_db()
     
+    # Start universal database queue system
+    from .services.database_queue import get_database_queue
+    db_queue = get_database_queue()
+    await db_queue.start()
+    
     # Start task scheduler
     from .services.scheduler import start_scheduler
     await start_scheduler()
@@ -26,6 +31,9 @@ async def lifespan(app: FastAPI):
     # Shutdown
     from .services.scheduler import stop_scheduler
     await stop_scheduler()
+    
+    # Stop database queue system
+    await db_queue.stop()
 
 
 app = FastAPI(
