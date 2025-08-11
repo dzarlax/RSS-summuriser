@@ -16,7 +16,21 @@
         <div class="news-filters">
             <div class="filters-header">
                 <h3>📋 Категории</h3>
-                <div class="filter-count" id="filter-count">Всего: 0</div>
+                <div style="display:flex; align-items:center; gap:16px; flex-wrap: wrap; justify-content: flex-end;">
+                    <label style="display:flex; align-items:center; gap:8px; font-size:0.9rem; color:#495057; cursor:pointer;">
+                        <input type="checkbox" id="toggle-hide-ads" checked style="transform:scale(1.1);" onchange="toggleHideAds(this.checked)">
+                        <span>Скрывать рекламу</span>
+                    </label>
+                    <label style="display:flex; align-items:center; gap:8px; font-size:0.9rem; color:#495057; cursor:pointer;">
+                        <input type="checkbox" id="toggle-wide" style="transform:scale(1.1);" onchange="toggleWide(this.checked)">
+                        <span>Широкая лента</span>
+                    </label>
+                    <label style="display:flex; align-items:center; gap:8px; font-size:0.9rem; color:#495057; cursor:pointer;">
+                        <input type="checkbox" id="toggle-compact" style="transform:scale(1.1);" onchange="toggleCompact(this.checked)">
+                        <span>Компактно</span>
+                    </label>
+                    <div class="filter-count" id="filter-count">Всего: 0</div>
+                </div>
             </div>
             <div class="filter-buttons" id="filter-buttons">
                 <button class="filter-btn active" data-category="all">
@@ -77,6 +91,19 @@
     max-width: 1200px;
     margin: 0 auto;
     padding: 0 20px;
+}
+
+/* Wider layout on large screens */
+@media (min-width: 1400px) {
+    .container { max-width: 1400px; }
+}
+@media (min-width: 1680px) {
+    .container { max-width: 1600px; }
+}
+
+/* Optional full-width mode */
+.news-page.wide .container {
+    max-width: 95vw;
 }
 
 /* News Filters */
@@ -170,10 +197,21 @@
 /* News Feed */
 .news-feed {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
     gap: 24px;
     margin-bottom: 40px;
 }
+
+/* Compact mode */
+.news-page.compact .news-feed {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 16px;
+}
+.news-page.compact .news-image { height: 140px; }
+.news-page.compact .news-content { padding: 16px; }
+.news-page.compact .news-title { font-size: 1rem; -webkit-line-clamp: 2; }
+.news-page.compact .news-summary { -webkit-line-clamp: 2; margin-bottom: 12px; }
+.news-page.compact .news-actions { padding: 8px 16px; }
 
 .news-item {
     background: white;
@@ -755,6 +793,9 @@ let isLoading = false;
 let currentCategory = 'all';
 let categoryCounts = {};
 let allCategories = {};
+let hideAds = true;
+let isWide = false;
+let isCompact = false;
 
 // Category mappings
 const categoryConfig = {
@@ -771,6 +812,23 @@ const categoryConfig = {
 document.addEventListener('DOMContentLoaded', function() {
     loadCategories();
     loadNews(true);
+    // restore view settings
+    try {
+        const savedWide = localStorage.getItem('feed_wide');
+        const savedCompact = localStorage.getItem('feed_compact');
+        if (savedWide !== null) {
+            isWide = savedWide === '1';
+            const el = document.getElementById('toggle-wide');
+            if (el) el.checked = isWide;
+            applyWideClass();
+        }
+        if (savedCompact !== null) {
+            isCompact = savedCompact === '1';
+            const el = document.getElementById('toggle-compact');
+            if (el) el.checked = isCompact;
+            applyCompactClass();
+        }
+    } catch {}
 });
 
 async function loadCategories() {
@@ -814,7 +872,7 @@ async function loadNews(reset = false) {
         const limit = 20;
         const offset = currentPage * limit;
         
-        let url = `/api/public/feed?limit=${limit}&offset=${offset}`;
+        let url = `/api/public/feed?limit=${limit}&offset=${offset}&hide_ads=${hideAds ? 'true' : 'false'}`;
         if (currentCategory !== 'all') {
             url += `&category=${currentCategory}`;
         }
@@ -990,6 +1048,35 @@ function filterByCategory(category) {
     loadNews(true);
 }
 
+function toggleHideAds(value) {
+    hideAds = !!value;
+    loadNews(true);
+}
+
+function toggleWide(value) {
+    isWide = !!value;
+    localStorage.setItem('feed_wide', isWide ? '1' : '0');
+    applyWideClass();
+}
+
+function applyWideClass() {
+    const root = document.querySelector('.news-page');
+    if (!root) return;
+    root.classList.toggle('wide', isWide);
+}
+
+function toggleCompact(value) {
+    isCompact = !!value;
+    localStorage.setItem('feed_compact', isCompact ? '1' : '0');
+    applyCompactClass();
+}
+
+function applyCompactClass() {
+    const root = document.querySelector('.news-page');
+    if (!root) return;
+    root.classList.toggle('compact', isCompact);
+}
+
 function loadMoreNews() {
     loadNews(false);
 }
@@ -1163,6 +1250,18 @@ function showArticleModal(articleId) {
                         <span class="modal-source">📰 ${article.source_name || 'Неизвестный источник'}</span>
                         <span class="modal-date">📅 ${formatDate(article.published_at)}</span>
                     </div>
+                    ${article.is_advertisement && (article.ad_reasoning || (article.ad_markers && article.ad_markers.length)) ? `
+                        <div style="margin:-8px 0 12px 0; font-size:0.85rem; color:#6c757d;">
+                            <span style="cursor:help;" title="Причины метки рекламы">
+                                ℹ️ Обоснование: ${escapeHtml((article.ad_reasoning || '').substring(0, 200))}
+                            </span>
+                            ${article.ad_markers && article.ad_markers.length ? `
+                                <div style=\"margin-top:6px; display:flex; flex-wrap:wrap; gap:6px;\">
+                                    ${article.ad_markers.slice(0,8).map(m => `<span style=\"background:#f1f3f5; border:1px solid #e9ecef; border-radius:12px; padding:2px 8px;\">${escapeHtml(m)}</span>`).join('')}
+                                </div>
+                            ` : ''}
+                        </div>
+                    ` : ''}
                     
                     <div class="modal-summary">
                         ${formatHtmlContent(article.summary || article.content || 'Содержимое недоступно')}

@@ -240,7 +240,12 @@ class TaskScheduler:
                 else:
                     setting.next_run = None
                     
-                await db.commit()
+                try:
+                    await db.commit()
+                except Exception as e:
+                    await db.rollback()
+                    logger.error(f"Failed to commit schedule update for {setting.task_name}: {e}")
+                    raise
                 logger.info(f"Updated schedule for {setting.task_name}, next run: {setting.next_run}")
                 return setting
                 
@@ -285,6 +290,14 @@ class TaskScheduler:
                     while next_run.isoweekday() not in setting.weekdays:
                         next_run += timedelta(days=1)
                     next_run = next_run.replace(hour=0, minute=setting.minute)
+            elif setting.schedule_type == "interval":
+                # Generic interval in minutes stored in task_config.interval_minutes (default 30)
+                try:
+                    interval_minutes = int((setting.task_config or {}).get('interval_minutes', 30))
+                except Exception:
+                    interval_minutes = 30
+                interval_minutes = max(1, min(interval_minutes, 24*60))
+                next_run = now + timedelta(minutes=interval_minutes)
                     
             else:
                 logger.warning(f"Unknown schedule type: {setting.schedule_type}")

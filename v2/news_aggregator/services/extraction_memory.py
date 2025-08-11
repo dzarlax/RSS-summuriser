@@ -164,6 +164,64 @@ class ExtractionMemoryService:
             self._patterns[domain].append(pattern)
         
         print(f"  🎯 Updated pattern: {selector[:40]}... for {domain}")
+
+    async def _add_failed_pattern(
+        self, domain: str, selector: str, strategy: str
+    ) -> None:
+        """Record failed usage of an existing pattern to decrease its weight."""
+        if not selector:
+            return
+        if domain not in self._patterns:
+            self._patterns[domain] = []
+        # Find existing pattern or create a new failed one
+        existing = None
+        for pattern in self._patterns[domain]:
+            if pattern.selector_pattern == selector and pattern.extraction_strategy == strategy:
+                existing = pattern
+                break
+        if existing:
+            existing.failure_count += 1
+            existing.consecutive_failures += 1
+            existing.consecutive_successes = 0
+            total_attempts = existing.success_count + existing.failure_count
+            existing.success_rate = (existing.success_count / total_attempts) * 100 if total_attempts > 0 else 0
+            existing.is_stable = False
+            existing.updated_at = datetime.utcnow()
+        else:
+            # Create a new record with one failure to track negatives
+            self._patterns[domain].append(
+                ExtractionMemoryEntry(
+                    domain=domain,
+                    selector_pattern=selector,
+                    extraction_strategy=strategy,
+                    success_count=0,
+                    failure_count=1,
+                    success_rate=0.0,
+                    is_stable=False,
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow(),
+                )
+            )
+
+    async def degrade_pattern(self, domain: str, selector: str, strategy: str) -> None:
+        """Public API to decrease a selector's weight after poor result."""
+        try:
+            await self._add_failed_pattern(domain, selector, strategy)
+            print(f"  ⬇️ Degraded pattern for {domain}: {selector[:40]}... ({strategy})")
+        except Exception as e:
+            print(f"❌ Error degrading pattern: {e}")
+
+    async def record_date_selector_success(self, domain: str, selector: str) -> None:
+        """Record successful date extraction using a selector (stored as 'date_selector')."""
+        await self._add_successful_pattern(domain, selector, 'date_selector', quality_score=0.0, content_length=0)
+
+    async def record_date_selector_failure(self, domain: str, selector: str) -> None:
+        """Record failed date extraction for a selector (stored as 'date_selector')."""
+        await self._add_failed_pattern(domain, selector, 'date_selector')
+
+    async def get_best_date_selectors_for_domain(self, domain: str, limit: int = 5) -> List[ExtractionMemoryEntry]:
+        """Return best date selectors learned for the domain."""
+        return await self.get_best_patterns_for_domain(domain, strategy='date_selector', limit=limit)
     
     async def get_best_patterns_for_domain(
         self, domain: str, strategy: Optional[str] = None, limit: int = 5

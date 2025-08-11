@@ -77,6 +77,33 @@ def process(verbose: bool):
 
 
 @cli.command()
+@click.option('--url', required=True, help='Article URL to extract')
+@async_command
+async def extract_url(url: str):
+    """Extract article content and metadata from a single URL."""
+    try:
+        from .services.content_extractor import get_content_extractor
+        extractor = await get_content_extractor()
+        console.print(f"[cyan]Extracting:[/cyan] {url}")
+        result = await extractor.extract_article_content_with_metadata(url)
+        content = result.get('content')
+        pub_date = result.get('publication_date')
+        full_url = result.get('full_article_url')
+        # Print short summary
+        preview = (content[:400] + '...') if content and len(content) > 400 else (content or '')
+        table = Table(title="Extraction Result")
+        table.add_column("Field", style="cyan")
+        table.add_column("Value")
+        table.add_row("Publication Date", str(pub_date))
+        table.add_row("Full Article URL", str(full_url))
+        table.add_row("Content Preview", preview)
+        console.print(table)
+    except Exception as e:
+        console.print(f"[red]❌ Extraction failed:[/red] {e}")
+        sys.exit(1)
+
+
+@cli.command()
 @async_command
 async def sources():
     """Manage news sources."""

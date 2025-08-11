@@ -1,6 +1,7 @@
 """API routes."""
 
 import os
+import logging
 import asyncio
 import subprocess
 import html
@@ -15,10 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
 from sqlalchemy.orm import selectinload
 
-from .database import get_db
+from .database import get_db, engine, AsyncSessionLocal
+from .config import settings
 from .models import Article, Source, ProcessingStat, DailySummary, ScheduleSettings
 from .services.source_manager import SourceManager
 # from .security import require_api_read, require_api_write, require_admin, limiter
+from .services.extraction_memory import get_extraction_memory
 
 
 class CreateSourceRequest(BaseModel):
@@ -179,6 +182,31 @@ async def get_rss_feed(
         content=reparsed.toprettyxml(indent="  "),
         media_type="application/rss+xml"
     )
+
+
+@router.get("/health/db")
+async def health_db():
+    """Database health and pool metrics."""
+    # Pool metrics
+    pool_status = "unavailable"
+    pool_details = {}
+    try:
+        # Basic aggregate string
+        pool_status = engine.pool.status()
+        # Extended metrics when available
+        # Note: SQLAlchemy's public API exposes only status() string; any deeper
+        # pool internals are implementation details and may not be stable.
+        pool_details = {"raw_status": str(pool_status)}
+    except Exception:
+        pass
+    # Simple connectivity check using a short session
+    try:
+        from sqlalchemy import text
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("SELECT 1"))
+        return {"ok": True, "pool": {"status": str(pool_status), **pool_details}}
+    except Exception as e:
+        return {"ok": False, "pool": {"status": str(pool_status), **pool_details}, "error": str(e)}
 
 
 @router.get("/categories")
@@ -759,7 +787,7 @@ async def get_schedule_settings(db: AsyncSession = Depends(get_db)):
 
 class UpdateScheduleRequest(BaseModel):
     enabled: bool = False
-    schedule_type: str = "daily"
+    schedule_type: str = "daily"  # daily, hourly, interval
     hour: int = 9
     minute: int = 0
     weekdays: List[int] = [1,2,3,4,5,6,7]
@@ -824,6 +852,11 @@ async def update_schedule_setting(
                 next_run = now.replace(minute=schedule_data.minute, second=0, microsecond=0)
                 if next_run <= now:
                     next_run += timedelta(hours=1)
+            elif schedule_data.schedule_type == "interval":
+                # Use interval_minutes from task_config, default 30
+                interval_minutes = int(schedule_data.task_config.get('interval_minutes', 30)) if schedule_data.task_config else 30
+                interval_minutes = max(1, min(interval_minutes, 24*60))
+                next_run = now + timedelta(minutes=interval_minutes)
             else:
                 next_run = None
             
@@ -1039,11 +1072,24 @@ async def run_docker_backup() -> dict:
         # 1. Database Backup using pg_dump
         output_lines.append("📊 Backing up PostgreSQL database...")
         try:
+            # Parse DB URL for connection parameters
+            from urllib.parse import urlparse
+            parsed = urlparse(settings.database_url)
+            host = parsed.hostname or "localhost"
+            port = str(parsed.port or 5432)
+            user = parsed.username or "postgres"
+            password = parsed.password or ""
+            dbname = (parsed.path or "/postgres").lstrip('/')
+
+            env = {**os.environ}
+            if password:
+                env["PGPASSWORD"] = password
+
             result = subprocess.run([
-                "pg_dump", "-h", "postgres", "-U", "newsuser", "-d", "newsdb", 
+                "pg_dump", "-h", host, "-p", port, "-U", user, "-d", dbname,
                 "--data-only", "--column-inserts", "--rows-per-insert=1"
             ], 
-            capture_output=True, text=True, env={"PGPASSWORD": "newspass123"})
+            capture_output=True, text=True, env=env)
             
             if result.returncode == 0:
                 with open(f"{backup_dir}/database.sql", 'w') as f:
@@ -1142,9 +1188,15 @@ async def backup_database_direct(backup_dir: str, output_lines: list):
         import psycopg2
         from psycopg2.extras import RealDictCursor
         
-        # Connect to database
-        conn_str = "postgresql://newsuser:newspass123@postgres:5432/newsdb"
-        conn = psycopg2.connect(conn_str)
+        # Connect to database using settings.database_url
+        from urllib.parse import urlparse
+        parsed = urlparse(settings.database_url)
+        host = parsed.hostname or 'localhost'
+        port = str(parsed.port or 5432)
+        user = parsed.username or 'postgres'
+        password = parsed.password or ''
+        dbname = (parsed.path or '/postgres').lstrip('/')
+        conn = psycopg2.connect(dbname=dbname, user=user, password=password, host=host, port=port)
         cursor = conn.cursor()
         
         output_lines.append("📊 Using direct database connection for backup...")
@@ -1518,19 +1570,52 @@ async def restore_from_uploaded_backup(filename: str, background_tasks: Backgrou
 
 @router.get("/stats/queue")
 async def get_queue_stats():
-    """Get universal database queue statistics."""
+    """Get universal database queue statistics with pool metrics."""
     try:
         # Get global database queue manager
         from .services.database_queue import get_database_queue
         queue_manager = get_database_queue()
-        
         stats = queue_manager.get_stats()
-        
+        # Add engine pool status
+        try:
+            stats["db_pool_status"] = str(engine.pool.status())
+        except Exception:
+            stats["db_pool_status"] = "unavailable"
         return {
             "success": True,
             "stats": stats,
             "timestamp": datetime.utcnow().isoformat()
         }
-        
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get queue stats: {str(e)}")
+
+
+@router.get("/stats/extractor")
+async def get_extractor_stats():
+    """Return aggregated extraction efficiency stats and per-domain breakdown."""
+    try:
+        memory = await get_extraction_memory()
+        overall = await memory.get_extraction_efficiency_stats()
+        # Build per-domain summary (top N domains by attempts)
+        # Note: access internal state carefully; it's an in-memory service
+        domain_stats = []
+        # Best-effort access to internal dict
+        domains = list(getattr(memory, "_domain_stats", {}).items())
+        # Sort by total attempts desc
+        domains.sort(key=lambda kv: kv[1].get('total_attempts', 0), reverse=True)
+        for domain, stats in domains[:50]:
+            domain_stats.append({
+                "domain": domain,
+                "total_attempts": stats.get('total_attempts', 0),
+                "successful_attempts": stats.get('successful_attempts', 0),
+                "success_rate": (stats.get('successful_attempts', 0) / stats.get('total_attempts', 1) * 100) if stats.get('total_attempts', 0) > 0 else 0,
+                "methods": stats.get('methods', {})
+            })
+        return {
+            "success": True,
+            "overall": overall,
+            "domains": domain_stats,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get extractor stats: {str(e)}")

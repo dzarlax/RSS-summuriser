@@ -91,6 +91,17 @@
                     <div class="stat-details" id="performance-details">Загрузка...</div>
                 </div>
             </div>
+
+            <!-- Extraction efficiency card -->
+            <div class="stat-card extractor-card" data-tooltip="Эффективность извлечения контента (сессия)">
+                <div class="stat-icon">🧩</div>
+                <div class="stat-content">
+                    <h3>Извлечение</h3>
+                    <div class="stat-number" id="extractor-success">-</div>
+                    <div class="stat-label">успешность</div>
+                    <div class="stat-details" id="extractor-details">Попыток: -, Выявленные паттерны: -</div>
+                </div>
+            </div>
         </div>
 
         <!-- Управление обработкой -->
@@ -292,6 +303,20 @@
                     <div class="queue-detail">
                         <span class="label">Всего обработано:</span>
                         <span class="value" id="total-processed">-</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Extraction per-domain section -->
+            <section class="dashboard-section extractor-section">
+                <div class="section-header">
+                    <h2>🧠 Извлечение: домены с проблемами</h2>
+                    <button class="btn btn-sm btn-outline" onclick="loadExtractorStats()">🔄 Обновить</button>
+                </div>
+                <div id="extractor-domains" class="recent-news-container">
+                    <div class="loading-state">
+                        <div class="spinner"></div>
+                        <p>Загрузка статистики извлечения...</p>
                     </div>
                 </div>
             </section>
@@ -1166,6 +1191,9 @@ async function loadDashboardData() {
         
         // Load recent news
         loadRecentNews();
+
+        // Load extractor high-level stats and per-domain details
+        loadExtractorStats();
         
     } catch (error) {
         console.error('Error loading dashboard data:', error);
@@ -1499,5 +1527,47 @@ document.addEventListener('DOMContentLoaded', function() {
     // Auto-refresh every 30 seconds
     setInterval(loadQueueStats, 30000);
 });
+
+async function loadExtractorStats() {
+    try {
+        const response = await apiRequest('/api/v1/stats/extractor');
+        if (response.success && response.overall) {
+            const overall = response.overall;
+            // Overall success
+            const successRate = Math.round(overall.success_rate || 0);
+            document.getElementById('extractor-success').textContent = `${successRate}%`;
+            document.getElementById('extractor-details').textContent = 
+                `Попыток: ${overall.total_attempts || 0}, Шаблонов: ${overall.patterns_discovered || 0}`;
+        }
+        // Domains table (top problem domains)
+        const container = document.getElementById('extractor-domains');
+        const domains = (response.domains || []).slice(0, 10);
+        if (domains.length === 0) {
+            container.innerHTML = `<div class="loading-state"><p style="margin:0;">Данные отсутствуют</p></div>`;
+            return;
+        }
+        const rows = domains.map(d => {
+            const rate = Math.round(d.success_rate || 0);
+            const methods = Object.entries(d.methods || {})
+                .map(([name, val]) => `${name}: ${val.successes||0}/${val.attempts||0}`)
+                .join(', ');
+            return `
+                <div class="news-item">
+                    <h4>${d.domain}</h4>
+                    <div class="news-meta">
+                        <span>Попыток: ${d.total_attempts} • Успех: ${rate}%</span>
+                        <span class="news-category">${methods || '—'}</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        container.innerHTML = rows;
+    } catch (error) {
+        console.error('Error loading extractor stats:', error);
+        document.getElementById('extractor-domains').innerHTML = `
+            <div class="loading-state"><p style="margin:0;color:var(--error-color);">❌ Ошибка загрузки</p></div>
+        `;
+    }
+}
 </script>
 {% endblock %}

@@ -1,6 +1,7 @@
 """Main FastAPI application."""
 
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
@@ -15,6 +16,8 @@ from .database import init_db
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     # Startup
+    # Record application start time for health endpoints
+    app.state.started_at = datetime.utcnow()
     await init_db()
     
     # Start universal database queue system
@@ -79,6 +82,19 @@ async def root(request: Request):
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy"}
+
+
+@app.get("/health/app")
+async def health_app():
+    """Application health info with version and start time."""
+    started_at = getattr(app.state, "started_at", None)
+    started_at_iso = started_at.isoformat() if started_at else None
+    uptime_seconds = (datetime.utcnow() - started_at).total_seconds() if started_at else None
+    return {
+        "version": app.version,
+        "started_at": started_at_iso,
+        "uptime_seconds": uptime_seconds
+    }
 
 
 @app.get("/auth-status")

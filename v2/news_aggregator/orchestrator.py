@@ -92,10 +92,7 @@ class NewsOrchestrator:
                         or_(
                             (Article.summary.is_(None)) | (Article.summary == ''),  # No summary
                             (Article.category.is_(None)) | (Article.category == '') | (Article.category == 'Other'),  # No category or default
-                            and_(
-                                Article.ad_processed.is_(False),  # Need advertising detection
-                                Article.source.has(Source.source_type == 'telegram')  # Only for Telegram sources
-                            )
+                            (Article.ad_processed.is_(False))  # Need advertising detection for ALL sources
                         )
                     ).limit(200)  # Process max 200 at once
                 )
@@ -250,7 +247,7 @@ class NewsOrchestrator:
         # Check what processing is needed
         needs_summary = not article_data.get('summary_processed', False) and not article_data.get('summary')
         needs_category = not article_data.get('category_processed', False)
-        needs_ad_detection = not article_data.get('ad_processed', False) and source_type == 'telegram'
+        needs_ad_detection = not article_data.get('ad_processed', False)
         
         print(f"  🔍 Processing needs: {'✅ Summary' if needs_summary else '❌ Summary'}, {'✅ Category' if needs_category else '❌ Category'}, {'✅ Ad Detection' if needs_ad_detection else '❌ Ad Detection'}")
         
@@ -314,20 +311,39 @@ class NewsOrchestrator:
         if needs_ad_detection:
             print(f"  🛡️ Starting advertising detection...")
             try:
-                # TODO: Implement advertisement detection
-                # For now, set to False (not advertisement)
-                is_advertisement = False
-                print(f"  ✅ Ad detection result: {'Advertisement' if is_advertisement else 'Not advertisement'}")
+                from .services.ad_detector import AdDetector
+                detector = AdDetector(enable_ai=True)
+                result = await detector.detect(
+                    title=article_data.get('title'),
+                    content=article_data.get('content') or article_data.get('summary'),
+                    url=article_data.get('url')
+                )
+                is_advertisement = bool(result.get('is_advertisement', False))
+                ad_confidence = float(result.get('ad_confidence', 0.0))
+                ad_type = result.get('ad_type')
+                ad_reasoning = result.get('ad_reasoning')
+                ad_markers = result.get('ad_markers', [])
+                print(f"  ✅ Ad detection result: {'Advertisement' if is_advertisement else 'Not advertisement'} (conf {ad_confidence})")
                 
                 # Save ad detection result immediately
-                await self._save_article_field(article_id, 'is_advertisement', is_advertisement, 'ad_processed', True)
+                await self._save_article_fields(article_id, {
+                    'is_advertisement': is_advertisement,
+                    'ad_confidence': ad_confidence,
+                    'ad_type': ad_type,
+                    'ad_reasoning': ad_reasoning,
+                    'ad_markers': ad_markers,
+                    'ad_processed': True,
+                })
                 stats['api_calls_made'] += 1
                 print(f"  💾 Ad detection result saved to database")
                 
             except Exception as e:
                 print(f"  ❌ Ad detection failed: {e}")
                 # Set default and mark as processed
-                await self._save_article_field(article_id, 'is_advertisement', False, 'ad_processed', True)
+                await self._save_article_fields(article_id, {
+                    'is_advertisement': False,
+                    'ad_processed': True
+                })
         
         return {}  # No need to return results since we save immediately
     
@@ -342,7 +358,7 @@ class NewsOrchestrator:
         # Check what processing is needed
         needs_summary = not article_data.get('summary_processed', False) and not article_data.get('summary')
         needs_category = not article_data.get('category_processed', False)
-        needs_ad_detection = not article_data.get('ad_processed', False) and source_type == 'telegram'
+        needs_ad_detection = not article_data.get('ad_processed', False)
         
         print(f"  🔍 Processing needs: {'✅ Summary' if needs_summary else '❌ Summary'}, {'✅ Category' if needs_category else '❌ Category'}, {'✅ Ad Detection' if needs_ad_detection else '❌ Ad Detection'}")
         
@@ -412,13 +428,26 @@ class NewsOrchestrator:
         if needs_ad_detection:
             print(f"  🛡️ Starting advertising detection...")
             try:
-                # TODO: Implement advertisement detection
-                # For now, set to False (not advertisement)
-                is_advertisement = False
-                print(f"  ✅ Ad detection result: {'Advertisement' if is_advertisement else 'Not advertisement'}")
-                
+                from .services.ad_detector import AdDetector
+                detector = AdDetector(enable_ai=True)
+                result = await detector.detect(
+                    title=article_data.get('title'),
+                    content=article_data.get('content') or article_data.get('summary'),
+                    url=article_data.get('url')
+                )
+                is_advertisement = bool(result.get('is_advertisement', False))
+                ad_confidence = float(result.get('ad_confidence', 0.0))
+                ad_type = result.get('ad_type')
+                ad_reasoning = result.get('ad_reasoning')
+                ad_markers = result.get('ad_markers', [])
+                print(f"  ✅ Ad detection result: {'Advertisement' if is_advertisement else 'Not advertisement'} (conf {ad_confidence})")
+
                 # Add to field updates
                 field_updates['is_advertisement'] = is_advertisement
+                field_updates['ad_confidence'] = ad_confidence
+                field_updates['ad_type'] = ad_type
+                field_updates['ad_reasoning'] = ad_reasoning
+                field_updates['ad_markers'] = ad_markers
                 field_updates['ad_processed'] = True
                 stats['api_calls_made'] += 1
                 print(f"  🔄 Ad detection result queued for write")
@@ -722,10 +751,10 @@ class NewsOrchestrator:
                         article.ad_confidence = 0.0
                         article.ad_processed = True
                         print(f"  🔄 Using default advertising detection values")
-                
+
                 article.processed = True
                 processed_articles.append(article)
-                    
+            
             except Exception as e:
                 error_msg = f"Error processing article {article.url}: {e}"
                 stats['errors'].append(error_msg)
@@ -756,9 +785,15 @@ class NewsOrchestrator:
         """Get article summary based on source type."""
         try:
             if source_type == 'rss':
-                # RSS sources: use AI to extract and summarize full article content
-                ai_summary = await self.ai_client.get_article_summary(article.url)
+                # RSS sources: use AI to extract and summarize full article content with metadata
+                ai_result = await self.ai_client.get_article_summary_with_metadata(article.url)
                 stats['api_calls_made'] += 1
+                
+                ai_summary = ai_result.get('summary')
+                pub_date = ai_result.get('publication_date')
+                
+                # Update published_at if we found a publication date
+                self._update_article_publication_date(article, pub_date, 'RSS')
                 
                 if ai_summary:
                     return ai_summary
@@ -767,13 +802,51 @@ class NewsOrchestrator:
                     return f"{article.content or article.title} <a href='{article.url}'>Читать оригинал</a>"
                     
             elif source_type == 'telegram':
-                # Telegram sources: use original message content as-is
-                return f"{article.content or article.title} <a href='{article.url}'>Читать оригинал</a>"
+                # Telegram sources: avoid heavy AI extraction for Telegram domains (t.me/telegram.me)
+                # Prefer external original link if present and NOT a Telegram domain
+                original_link = None
+                try:
+                    if hasattr(article, 'raw_data') and article.raw_data:
+                        original_link = article.raw_data.get('original_link')
+                except Exception:
+                    original_link = None
+
+                def _is_telegram_domain(url: str) -> bool:
+                    try:
+                        from urllib.parse import urlparse
+                        host = urlparse(url).netloc.lower()
+                        return ('t.me' in host) or ('telegram.me' in host)
+                    except Exception:
+                        return False
+
+                # Only attempt AI metadata extraction when we have a non-Telegram external link
+                if original_link and not _is_telegram_domain(original_link):
+                    try:
+                        ai_result = await self.ai_client.get_article_summary_with_metadata(original_link)
+                        pub_date = ai_result.get('publication_date')
+                        # Update published_at if we found a publication date
+                        self._update_article_publication_date(article, pub_date, 'Telegram')
+                        ai_summary = ai_result.get('summary')
+                        if ai_summary:
+                            # If AI managed to summarize external article, use it and add backlink
+                            return f"{ai_summary} <a href='{original_link}'>Читать оригинал</a>"
+                    except Exception as e:
+                        print(f"  ⚠️ Skipping Telegram AI extraction (external link failed): {e}")
+
+                # Fallback: use Telegram preview content and link to original (message or external)
+                link = original_link or article.url
+                return f"{article.content or article.title} <a href='{link}'>Читать оригинал</a>"
                 
             elif source_type == 'reddit':
-                # Reddit sources: use AI to get full post content + comments context
-                ai_summary = await self.ai_client.get_article_summary(article.url)
+                # Reddit sources: use AI to get full post content + comments context with metadata
+                ai_result = await self.ai_client.get_article_summary_with_metadata(article.url)
                 stats['api_calls_made'] += 1
+                
+                ai_summary = ai_result.get('summary')
+                pub_date = ai_result.get('publication_date')
+                
+                # Update published_at if we found a publication date
+                self._update_article_publication_date(article, pub_date, 'Reddit')
                 
                 if ai_summary:
                     return ai_summary
@@ -782,13 +855,30 @@ class NewsOrchestrator:
                     return f"{article.content or article.title} <a href='{article.url}'>Читать оригинал</a>"
                     
             elif source_type == 'twitter':
-                # Twitter sources: tweet content is usually complete, minimal processing
+                # Twitter sources: extract publication date if URL is available
+                if article.url and article.url.startswith('http'):
+                    try:
+                        ai_result = await self.ai_client.get_article_summary_with_metadata(article.url)
+                        pub_date = ai_result.get('publication_date')
+                        
+                        # Update published_at if we found a publication date
+                        self._update_article_publication_date(article, pub_date, 'Twitter')
+                    except Exception as e:
+                        print(f"  ⚠️ Error extracting Twitter metadata: {e}")
+                
+                # Tweet content is usually complete, minimal processing
                 return f"{article.content or article.title} <a href='{article.url}'>Читать оригинал</a>"
                 
             elif source_type == 'news_api':
-                # News API sources: use AI to get full article content
-                ai_summary = await self.ai_client.get_article_summary(article.url)
+                # News API sources: use AI to get full article content with metadata
+                ai_result = await self.ai_client.get_article_summary_with_metadata(article.url)
                 stats['api_calls_made'] += 1
+                
+                ai_summary = ai_result.get('summary')
+                pub_date = ai_result.get('publication_date')
+                
+                # Update published_at if we found a publication date
+                self._update_article_publication_date(article, pub_date, 'News API')
                 
                 if ai_summary:
                     return ai_summary
@@ -797,9 +887,15 @@ class NewsOrchestrator:
                     return f"{article.content or article.title} <a href='{article.url}'>Читать оригинал</a>"
                     
             else:
-                # Custom or unknown source types: use AI processing
-                ai_summary = await self.ai_client.get_article_summary(article.url)
+                # Custom or unknown source types: use AI processing with metadata
+                ai_result = await self.ai_client.get_article_summary_with_metadata(article.url)
                 stats['api_calls_made'] += 1
+                
+                ai_summary = ai_result.get('summary')
+                pub_date = ai_result.get('publication_date')
+                
+                # Update published_at if we found a publication date
+                self._update_article_publication_date(article, pub_date, source_type)
                 
                 if ai_summary:
                     return ai_summary
@@ -811,6 +907,20 @@ class NewsOrchestrator:
             print(f"  ⚠️ Error getting summary by source type: {e}")
             # Fallback to original content
             return f"{article.content or article.title} <a href='{article.url}'>Читать оригинал</a>"
+    
+    def _update_article_publication_date(self, article: Article, pub_date: str, source_type: str):
+        """Update article publication date from extracted date string."""
+        if not pub_date:
+            return
+            
+        try:
+            from datetime import datetime
+            import dateutil.parser
+            parsed_date = dateutil.parser.parse(pub_date)
+            article.published_at = parsed_date
+            print(f"  📅 Updated {source_type} article published_at: {parsed_date}")
+        except Exception as e:
+            print(f"  ⚠️ Error parsing {source_type} publication date '{pub_date}': {e}")
     
     async def _categorize_by_source_type(self, article: Article, source_type: str, stats: Dict[str, Any]) -> str:
         """Categorize article using AI for all source types."""

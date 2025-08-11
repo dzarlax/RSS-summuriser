@@ -73,38 +73,37 @@ class SourceManager:
     
     async def update_source(self, db: AsyncSession, source_id: int, **updates) -> Optional[Source]:
         """Update source."""
-        source = await self.get_source_by_id(db, source_id)
-        if not source:
-            return None
-        
-        for key, value in updates.items():
-            if hasattr(source, key):
-                setattr(source, key, value)
-        
-        source.updated_at = datetime.utcnow()
-        await db.commit()
-        await db.refresh(source)
-        
-        # Clear cached instance
-        if source_id in self._source_instances:
-            del self._source_instances[source_id]
-        
-        return source
+        try:
+            source = await self.get_source_by_id(db, source_id)
+            if not source:
+                return None
+            for key, value in updates.items():
+                if hasattr(source, key):
+                    setattr(source, key, value)
+            source.updated_at = datetime.utcnow()
+            await db.commit()
+            await db.refresh(source)
+            if source_id in self._source_instances:
+                del self._source_instances[source_id]
+            return source
+        except Exception as e:
+            await db.rollback()
+            raise SourceError(f"Failed to update source {source_id}: {e}")
     
     async def delete_source(self, db: AsyncSession, source_id: int) -> bool:
         """Delete source."""
-        source = await self.get_source_by_id(db, source_id)
-        if not source:
-            return False
-        
-        await db.delete(source)
-        await db.commit()
-        
-        # Clear cached instance
-        if source_id in self._source_instances:
-            del self._source_instances[source_id]
-        
-        return True
+        try:
+            source = await self.get_source_by_id(db, source_id)
+            if not source:
+                return False
+            await db.delete(source)
+            await db.commit()
+            if source_id in self._source_instances:
+                del self._source_instances[source_id]
+            return True
+        except Exception as e:
+            await db.rollback()
+            raise SourceError(f"Failed to delete source {source_id}: {e}")
     
     def _create_source_instance(self, source: Source) -> BaseSource:
         """Create source instance from database record."""
@@ -145,13 +144,20 @@ class SourceManager:
                 source.error_count += 1
                 source.last_error = "Connection test failed"
             
-            await db.commit()
+            try:
+                await db.commit()
+            except Exception as e:
+                await db.rollback()
+                raise SourceError(f"Failed to update source status {source_id}: {e}")
             return is_connected
         
         except Exception as e:
             source.error_count += 1
             source.last_error = str(e)
-            await db.commit()
+            try:
+                await db.commit()
+            except Exception:
+                await db.rollback()
             return False
     
     async def fetch_from_source(self, db: AsyncSession, source: Source, 
@@ -160,17 +166,59 @@ class SourceManager:
         try:
             source_instance = await self.get_source_instance(source)
             articles = []
+            # In-memory deduplication for current batch
+            seen_urls_in_batch: set[str] = set()
+            seen_titles_in_batch: set[str] = set()
             
             # Update fetch time
             source.last_fetch = datetime.utcnow()
             
             async for article in source_instance.fetch_articles(limit=limit):
                 # Check if article already exists
+                urls_to_check = [article.url]
+                try:
+                    if getattr(article, 'raw_data', None):
+                        telegram_url = article.raw_data.get('telegram_url') or article.raw_data.get('message_url')
+                        original_link = article.raw_data.get('original_link')
+                        for u in (telegram_url, original_link):
+                            if u and u not in urls_to_check:
+                                urls_to_check.append(u)
+                except Exception:
+                    pass
+
+                # Fast in-memory batch-level dedup by URLs
+                if any(u in seen_urls_in_batch for u in urls_to_check if u):
+                    continue
+
+                # Fast in-memory batch-level dedup by normalized title per source
+                normalized_title = (article.title or "").strip().lower()
+                if normalized_title and normalized_title in seen_titles_in_batch:
+                    continue
+
+                # Check existence safely across multiple candidate URLs
                 existing = await db.execute(
-                    select(Article).where(Article.url == article.url)
+                    select(Article.id).where(Article.url.in_(urls_to_check)).limit(1)
                 )
-                if existing.scalar_one_or_none():
+                if existing.scalars().first() is not None:
                     continue  # Skip existing articles
+
+                # Additional near-duplicate guard for Telegram: same source + same title (case-insensitive) in recent window
+                try:
+                    from sqlalchemy import func, and_
+                    recent_window_days = 7
+                    normalized_title = (article.title or "").strip().lower()
+                    if normalized_title:
+                        title_dup_q = select(Article.id).where(
+                            and_(
+                                Article.source_id == source.id,
+                                func.lower(Article.title) == normalized_title,
+                            )
+                        ).limit(1)
+                        title_dup = await db.execute(title_dup_q)
+                        if title_dup.scalars().first() is not None:
+                            continue  # Skip near-duplicate by title within same source
+                except Exception:
+                    pass
                 
                 # Create article record
                 db_article = Article(
@@ -184,23 +232,55 @@ class SourceManager:
                     processed=False,
                     hash_content=self._calculate_content_hash(article)
                 )
+
+                # If source already performed advertising detection (e.g., Telegram), persist it now
+                try:
+                    raw = getattr(article, 'raw_data', None)
+                    if isinstance(raw, dict):
+                        if 'advertising_detection' in raw or 'is_advertisement' in raw:
+                            db_article.is_advertisement = bool(raw.get('is_advertisement', False))
+                            if 'ad_confidence' in raw:
+                                db_article.ad_confidence = float(raw.get('ad_confidence') or 0.0)
+                            if 'ad_type' in raw:
+                                db_article.ad_type = raw.get('ad_type')
+                            if 'ad_reasoning' in raw:
+                                db_article.ad_reasoning = raw.get('ad_reasoning')
+                            if 'ad_markers' in raw:
+                                db_article.ad_markers = raw.get('ad_markers')
+                            db_article.ad_processed = True
+                except Exception:
+                    pass
                 
                 db.add(db_article)
                 articles.append(db_article)
+
+                # Record into batch dedup sets
+                for u in urls_to_check:
+                    if u:
+                        seen_urls_in_batch.add(u)
+                if normalized_title:
+                    seen_titles_in_batch.add(normalized_title)
             
             # Update source success status
             source.last_success = datetime.utcnow()
             source.error_count = 0
             source.last_error = None
             
-            await db.commit()
+            try:
+                await db.commit()
+            except Exception as e:
+                await db.rollback()
+                raise SourceError(f"Failed to store fetched articles for source {source.name}: {e}")
             return articles
         
         except Exception as e:
             # Update source error status
             source.error_count += 1
             source.last_error = str(e)
-            await db.commit()
+            try:
+                await db.commit()
+            except Exception:
+                await db.rollback()
             raise SourceError(f"Failed to fetch from source {source.name}: {e}")
     
     async def fetch_from_all_sources(self, db: AsyncSession, 

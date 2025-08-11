@@ -236,6 +236,11 @@ class DatabaseQueueManager:
                         logger.debug(f"⚠️ Task {task.task_id} was cancelled during processing")
                         
                 except Exception as e:
+                    # Ensure transaction is rolled back for safety
+                    try:
+                        await session.rollback()
+                    except Exception:
+                        pass
                     if not task.result_future.cancelled() and not task.result_future.done():
                         task.result_future.set_exception(e)
                         

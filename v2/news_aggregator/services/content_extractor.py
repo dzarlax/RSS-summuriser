@@ -20,15 +20,32 @@ from ..core.exceptions import ContentExtractionError
 from .extraction_memory import get_extraction_memory, ExtractionAttempt
 from .domain_stability_tracker import get_stability_tracker
 from .ai_extraction_optimizer import get_ai_extraction_optimizer
+from .extraction_constants import (
+    MAX_CONTENT_LENGTH,
+    MIN_CONTENT_LENGTH,
+    BROWSER_CONCURRENCY,
+    PLAYWRIGHT_TIMEOUT_FIRST_MS,
+    PLAYWRIGHT_TIMEOUT_RETRY_MS,
+    PLAYWRIGHT_TOTAL_BUDGET_MS,
+    MIN_QUALITY_SCORE,
+    HTML_CACHE_TTL_SECONDS,
+    SELECTOR_CACHE_TTL_SECONDS,
+)
+import dateutil.parser
 
 
 class ContentExtractor:
     """Enhanced content extractor with multiple fallback strategies."""
     
     def __init__(self):
-        self.max_content_length = 8000  # Characters limit for AI
-        self.min_content_length = 200   # Minimum viable content
+        self.max_content_length = MAX_CONTENT_LENGTH
+        self.min_content_length = MIN_CONTENT_LENGTH
         self.browser: Optional[Browser] = None
+        # Limit concurrent browser pages to reduce resource pressure
+        self._browser_semaphore = asyncio.Semaphore(BROWSER_CONCURRENCY)
+        # Lightweight in-process caches
+        self._html_cache: Dict[str, Tuple[float, str]] = {}
+        self._domain_selector_cache: Dict[str, Tuple[float, str]] = {}
         
         # Universal content selectors (ordered by reliability)
         self.content_selectors = [
@@ -150,18 +167,70 @@ class ContentExtractor:
             if not html_content:
                 return result
             
+            # Try canonical/AMP alternatives early (non-AI) to reach full article
+            try:
+                soup_for_links = BeautifulSoup(html_content, 'html.parser')
+                alt_links = self._find_alt_article_links(soup_for_links, url)
+                for alt_url in alt_links:
+                    if alt_url and alt_url != url:
+                        print(f"  🔗 Found alternative article link: {alt_url}")
+                        alt_html = await self._fetch_html_content(alt_url)
+                        alt_content = await self._extract_from_html(alt_html)
+                        if self._is_good_content(alt_content):
+                            result['full_article_url'] = alt_url
+                            result['content'] = alt_content
+                            return result
+            except Exception as e:
+                print(f"  ⚠️ Canonical/AMP link follow failed: {e}")
+            
             # Import AI client dynamically
             from .ai_client import get_ai_client
             ai_client = get_ai_client()
             
-            # Phase 1: Try to extract publication date with AI
+            # Phase 1: Try custom parsers first, then AI and CSS selectors
+            # Try custom parser for publication date only if enabled
             try:
-                pub_date = await ai_client.extract_publication_date(html_content, url)
-                if pub_date:
-                    result['publication_date'] = pub_date
-                    print(f"  📅 Publication date found: {pub_date}")
-            except Exception as e:
-                print(f"  ⚠️ Error extracting publication date: {e}")
+                from ..config import settings
+                if settings.use_custom_parsers:
+                    from .custom_parsers import get_custom_parser_manager
+                    custom_parser_manager = await get_custom_parser_manager()
+                    if custom_parser_manager.can_parse(url):
+                        try:
+                            custom_result = custom_parser_manager.extract_metadata(html_content, url)
+                            custom_date = custom_result.get('publication_date')
+                            if custom_date:
+                                result['publication_date'] = self._normalize_date(custom_date)
+                                print(f"  📅 Custom parser publication date found: {custom_date}")
+                        except Exception as e:
+                            print(f"  ⚠️ Custom parser date extraction failed: {e}")
+            except Exception:
+                pass
+            
+            # If custom parser didn't find date, try AI and CSS
+            if not result.get('publication_date'):
+                try:
+                    pub_date = await ai_client.extract_publication_date(html_content, url)
+                    if pub_date:
+                        result['publication_date'] = self._normalize_date(pub_date)
+                        print(f"  📅 AI Publication date found: {pub_date}")
+                    else:
+                        # Fallback to CSS selector-based extraction
+                        soup = BeautifulSoup(html_content, 'html.parser')
+                        css_date = self._extract_publication_date(soup)
+                        if css_date:
+                            result['publication_date'] = self._normalize_date(css_date)
+                            print(f"  📅 CSS Publication date found: {css_date}")
+                except Exception as e:
+                    print(f"  ⚠️ Error extracting publication date with AI, trying CSS: {e}")
+                    # Fallback to CSS selector-based extraction
+                    try:
+                        soup = BeautifulSoup(html_content, 'html.parser')
+                        css_date = self._extract_publication_date(soup)
+                        if css_date:
+                            result['publication_date'] = self._normalize_date(css_date)
+                            print(f"  📅 CSS Publication date found: {css_date}")
+                    except Exception as e2:
+                        print(f"  ⚠️ Error extracting publication date with CSS: {e2}")
             
             # Phase 2: Check if we need to follow a link for full content
             try:
@@ -178,8 +247,11 @@ class ContentExtractor:
             except Exception as e:
                 print(f"  ⚠️ Error extracting full article link: {e}")
             
-            # Phase 3: Extract content from current page
-            content = await self.extract_article_content(url)
+            # Phase 3: Extract content from current page using already fetched HTML first
+            content = await self._extract_from_html(html_content)
+            if not content:
+                # Fallback to full pipeline (may use readability/playwright)
+                content = await self.extract_article_content(url)
             result['content'] = content
             
             return result
@@ -207,6 +279,11 @@ class ContentExtractor:
         start_time = time.time()
         
         print(f"🧠 AI-optimized extraction for {domain}")
+
+        # Hard short-circuit for Telegram domains to avoid wasting credits/time
+        if domain in ("t.me", "telegram.me", "www.t.me", "www.telegram.me"):
+            print("  ⏩ Skipping heavy extraction for Telegram domain; using preview-only mode")
+            return None
         
         try:
             # Get AI services
@@ -219,13 +296,158 @@ class ContentExtractor:
                 print(f"  ⏰ Skipping {domain}: {skip_reason}")
                 return None
             
+            # Phase 0: Try custom parsers first only if enabled in config
+            try:
+                from ..config import settings
+                if settings.use_custom_parsers:
+                    from .custom_parsers import get_custom_parser_manager
+                    custom_parser_manager = await get_custom_parser_manager()
+                    if custom_parser_manager.can_parse(url):
+                        try:
+                            html_content = await self._fetch_html_content(url)
+                            if html_content:
+                                custom_result = custom_parser_manager.extract_metadata(html_content, url)
+                                custom_content = custom_result.get('content')
+                                if self._is_good_content(custom_content):
+                                    await self._record_extraction_success(
+                                        url, domain, 'custom_parser', custom_result.get('parser_used', 'unknown'),
+                                        custom_content, int((time.time() - start_time) * 1000)
+                                    )
+                                    return self._finalize_content(custom_content)
+                        except Exception as e:
+                            print(f"  ⚠️ Custom parser failed for {domain}: {e}")
+            except Exception:
+                pass
+
+            # Phase 0.25: Dynamic parser built on-the-fly from learned patterns (no domain hardcoding)
+            try:
+                from .custom_parsers import get_custom_parser_manager
+                dyn_mgr = await get_custom_parser_manager()
+                dyn_parser = await dyn_mgr.get_dynamic_parser_for_url(url)
+                if dyn_parser:
+                    html_for_dyn = await self._fetch_html_content(url)
+                    if html_for_dyn:
+                        soup_dyn = BeautifulSoup(html_for_dyn, 'html.parser')
+                        self._remove_unwanted_elements(soup_dyn)
+                        dyn_content = dyn_parser.extract_content(soup_dyn, url)
+                        if self._is_good_content(dyn_content):
+                            await self._record_extraction_success(
+                                url, domain, 'dynamic_parser', getattr(dyn_parser, '_content_selectors', None),
+                                dyn_content, int((time.time() - start_time) * 1000)
+                            )
+                            return self._finalize_content(dyn_content)
+                        else:
+                            # Negative feedback: degrade the first tried selector for this domain
+                            try:
+                                memory = await get_extraction_memory()
+                                tried = getattr(dyn_parser, '_content_selectors', [])
+                                if tried:
+                                    await memory.degrade_pattern(domain, tried[0], 'dynamic_parser')
+                            except Exception:
+                                pass
+            except Exception as e:
+                print(f"  ⚠️ Dynamic parser phase failed: {e}")
+
+            # Phase 0.5: Single HTML fetch to reuse across soup-based strategies
+            html_for_soup = await self._fetch_html_content(url)
+            if html_for_soup:
+                # Try fast soup-based strategies first to avoid extra network requests
+                soup = BeautifulSoup(html_for_soup, 'html.parser')
+                # Remove unwanted elements once
+                self._remove_unwanted_elements(soup)
+                # JSON-LD
+                content = self._extract_from_json_ld(soup)
+                if self._is_good_content(content):
+                    await self._record_extraction_success(
+                        url, domain, 'json_ld', None, content, int((time.time() - start_time) * 1000)
+                    )
+                    return self._finalize_content(content)
+                # Open Graph
+                content = self._extract_from_open_graph(soup)
+                if self._is_good_content(content):
+                    await self._record_extraction_success(
+                        url, domain, 'open_graph', None, content, int((time.time() - start_time) * 1000)
+                    )
+                    return self._finalize_content(content)
+                # Enhanced selectors with A/B exploration: try top learned selector first (if any)
+                ab_content = None
+                learned_for_ab = await memory.get_best_patterns_for_domain(domain, strategy='css_selectors', limit=1)
+                if learned_for_ab:
+                    sel = learned_for_ab[0].selector_pattern
+                    try:
+                        elements = soup.select(sel)
+                        if elements:
+                            ab_text = elements[0].get_text(separator='\n', strip=True)
+                            if ab_text:
+                                ab_content = self._clean_text(ab_text)
+                    except Exception:
+                        ab_content = None
+                content = ab_content or self._extract_by_enhanced_selectors(soup)
+                if self._is_good_content(content):
+                    await self._record_extraction_success(
+                        url, domain, 'css_selectors', None, content, int((time.time() - start_time) * 1000)
+                    )
+                    return self._finalize_content(content)
+                # Heuristics with A/B exploration: randomly test one alternative selector and compare
+                import random
+                heuristic_candidate = None
+                alt_selectors = [
+                    'article', '.entry-content', '.article-content', '.post-content', '.content-body'
+                ]
+                random.shuffle(alt_selectors)
+                for sel in alt_selectors[:1]:
+                    try:
+                        el = soup.select_one(sel)
+                        if el:
+                            txt = el.get_text(separator='\n', strip=True)
+                            if txt and len(txt) > self.min_content_length:
+                                heuristic_candidate = self._clean_text(txt)
+                                break
+                    except Exception:
+                        continue
+                content = heuristic_candidate or self._extract_by_enhanced_heuristics(soup)
+                if self._is_good_content(content):
+                    await self._record_extraction_success(
+                        url, domain, 'heuristics', None, content, int((time.time() - start_time) * 1000)
+                    )
+                    return self._finalize_content(content)
+                
+                # If soup-based strategies failed, try canonical/AMP alternatives before other phases
+                try:
+                    alt_links = self._find_alt_article_links(soup, url)
+                    for alt_url in alt_links:
+                        if alt_url and alt_url != url:
+                            print(f"  🔗 Trying alternative article link: {alt_url}")
+                            alt_html = await self._fetch_html_content(alt_url)
+                            alt_soup = BeautifulSoup(alt_html, 'html.parser') if alt_html else None
+                            if alt_soup:
+                                self._remove_unwanted_elements(alt_soup)
+                                alt_content = (
+                                    self._extract_from_json_ld(alt_soup)
+                                    or self._extract_by_enhanced_selectors(alt_soup)
+                                    or self._extract_by_enhanced_heuristics(alt_soup)
+                                )
+                                if self._is_good_content(alt_content):
+                                    await self._record_extraction_success(
+                                        url, domain, 'alt_link', None, alt_content, int((time.time() - start_time) * 1000)
+                                    )
+                                    return self._finalize_content(alt_content)
+                except Exception as e:
+                    print(f"  ⚠️ Alternative link attempt failed: {e}")
+            
             # Phase 1: Try learned best patterns first
             learned_patterns = await memory.get_best_patterns_for_domain(domain, limit=3)
             
             for pattern in learned_patterns:
                 if pattern.success_rate > 70:  # High confidence patterns
                     print(f"  📚 Trying learned pattern: {pattern.selector_pattern[:40]}... ({pattern.success_rate:.1f}%)")
-                    content = await self._extract_with_learned_pattern(url, pattern)
+                    # Use cached HTML with domain selector when possible to avoid extra fetches
+                    cached_selector = self._domain_selector_cache.get(domain)
+                    if cached_selector and (time.monotonic() - cached_selector[0] <= SELECTOR_CACHE_TTL_SECONDS):
+                        sel = cached_selector[1]
+                        content = await self._extract_with_css_selector(url, sel)
+                    else:
+                        content = await self._extract_with_learned_pattern(url, pattern)
                     
                     if self._is_good_content(content):
                         # Record successful extraction
@@ -233,6 +455,9 @@ class ContentExtractor:
                             url, domain, pattern.extraction_strategy, pattern.selector_pattern,
                             content, int((time.time() - start_time) * 1000)
                         )
+                        # Cache successful selector for domain
+                        if pattern.extraction_strategy != 'playwright':
+                            self._domain_selector_cache[domain] = (time.monotonic(), pattern.selector_pattern)
                         return self._finalize_content(content)
             
             # Phase 2: Standard extraction strategies with learning
@@ -297,13 +522,15 @@ class ContentExtractor:
                     for pattern in new_patterns:
                         if pattern.discovered_by == 'ai':
                             print(f"  🎯 Trying new AI pattern: {pattern.selector_pattern[:40]}...")
-                            content = await self._extract_with_learned_pattern(url, pattern)
+                            # Prefer CSS application when possible; cache result
+                            content = await self._extract_with_css_selector(url, pattern.selector_pattern)
                             
                             if self._is_good_content(content):
                                 await self._record_extraction_success(
                                     url, domain, pattern.extraction_strategy, pattern.selector_pattern,
                                     content, int((time.time() - start_time) * 1000)
                                 )
+                                self._domain_selector_cache[domain] = (time.monotonic(), pattern.selector_pattern)
                                 return self._finalize_content(content)
             
             # Complete failure - record for exponential backoff
@@ -318,6 +545,11 @@ class ContentExtractor:
     async def _fetch_html_content(self, url: str) -> Optional[str]:
         """Fetch raw HTML content from URL with Brotli support."""
         try:
+            # Serve from cache if fresh
+            now = time.monotonic()
+            cached = self._html_cache.get(url)
+            if cached and (now - cached[0] <= HTML_CACHE_TTL_SECONDS):
+                return cached[1]
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -336,7 +568,10 @@ class ContentExtractor:
                 response = await client.session.get(url, headers=headers, timeout=15)
                 if response.status == 200:
                     # aiohttp should automatically decode Brotli if library is available
-                    return await response.text()
+                    text = await response.text()
+                    # Put to cache
+                    self._html_cache[url] = (now, text)
+                    return text
                     
             return None
             
@@ -354,6 +589,7 @@ class ContentExtractor:
     async def _fetch_html_content_fallback(self, url: str) -> Optional[str]:
         """Fallback fetch without Brotli support."""
         try:
+            now = time.monotonic()
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -371,7 +607,9 @@ class ContentExtractor:
             async with get_http_client() as client:
                 response = await client.session.get(url, headers=headers, timeout=15)
                 if response.status == 200:
-                    return await response.text()
+                    text = await response.text()
+                    self._html_cache[url] = (now, text)
+                    return text
                     
             return None
             
@@ -648,48 +886,75 @@ class ContentExtractor:
         """Extract content using browser rendering (for JavaScript-heavy sites)."""
         print(f"  🎭 Browser extraction started for {url}")
         page = None
-        try:
-            if not self.browser:
-                print(f"  🔧 Launching Playwright browser...")
-                playwright = await async_playwright().start()
-                self.browser = await playwright.chromium.launch(
-                    headless=True,
-                    args=[
-                        '--no-sandbox',
-                        '--disable-dev-shm-usage',
-                        '--disable-blink-features=AutomationControlled',
-                        '--disable-extensions',
-                        '--no-first-run',
-                        '--disable-default-apps',
-                        '--no-zygote',
-                        '--disable-background-timer-throttling',
-                        '--disable-backgrounding-occluded-windows',
-                        '--disable-renderer-backgrounding',
-                        '--disable-features=TranslateUI',
-                        '--disable-ipc-flooding-protection',
-                        '--hide-scrollbars',
-                        '--mute-audio',
-                        '--no-default-browser-check'
-                    ]
-                )
-            else:
-                print(f"  🔧 Using existing browser instance...")
-            
-            page = await self.browser.new_page()
-            
-            # Set realistic viewport and user agent
-            import random
-            viewports = [
-                {"width": 1920, "height": 1080},
-                {"width": 1366, "height": 768},
-                {"width": 1280, "height": 720},
-                {"width": 1440, "height": 900}
-            ]
-            await page.set_viewport_size(random.choice(viewports))
-            await page.set_extra_http_headers(self._get_headers())
-            
-            # Remove automation indicators
-            await page.add_init_script("""
+        # Time budget (in ms) for the whole Playwright strategy
+        budget_start = time.monotonic()
+        total_budget_ms = PLAYWRIGHT_TOTAL_BUDGET_MS
+
+        def remaining_ms() -> int:
+            """Compute remaining milliseconds from the total budget."""
+            elapsed = (time.monotonic() - budget_start) * 1000
+            return max(0, int(total_budget_ms - elapsed))
+
+        # Limit concurrency of browser pages
+        async with self._browser_semaphore:
+            try:
+                if not self.browser:
+                    print(f"  🔧 Launching Playwright browser...")
+                    playwright = await async_playwright().start()
+                    self.browser = await playwright.chromium.launch(
+                        headless=True,
+                        args=[
+                            '--no-sandbox',
+                            '--disable-dev-shm-usage',
+                            '--disable-blink-features=AutomationControlled',
+                            '--disable-extensions',
+                            '--no-first-run',
+                            '--disable-default-apps',
+                            '--no-zygote',
+                            '--disable-background-timer-throttling',
+                            '--disable-backgrounding-occluded-windows',
+                            '--disable-renderer-backgrounding',
+                            '--disable-features=TranslateUI',
+                            '--disable-ipc-flooding-protection',
+                            '--hide-scrollbars',
+                            '--mute-audio',
+                            '--no-default-browser-check'
+                        ]
+                    )
+                else:
+                    print(f"  🔧 Using existing browser instance...")
+                
+                page = await self.browser.new_page()
+                
+                # Block heavy resource types to speed up extraction; allow text/css/js
+                async def _route_handler(route):
+                    try:
+                        if route.request.resource_type in {"image", "media", "font", "stylesheet"}:
+                            await route.abort()
+                        else:
+                            await route.continue_()
+                    except Exception:
+                        try:
+                            await route.continue_()
+                        except Exception:
+                            pass
+                await page.route("**/*", _route_handler)
+
+                # Set realistic viewport and user agent (mobile UA often loads simpler markup)
+                import random
+                viewports = [
+                    {"width": 390, "height": 844},  # iPhone 12/13
+                    {"width": 412, "height": 915},  # Android large
+                    {"width": 1920, "height": 1080},
+                    {"width": 1366, "height": 768},
+                    {"width": 1280, "height": 720},
+                    {"width": 1440, "height": 900}
+                ]
+                await page.set_viewport_size(random.choice(viewports))
+                await page.set_extra_http_headers(self._get_headers())
+                
+                # Remove automation indicators
+                await page.add_init_script("""
                 Object.defineProperty(navigator, 'webdriver', {
                     get: () => undefined,
                 });
@@ -706,92 +971,133 @@ class ContentExtractor:
                     runtime: {},
                 };
             """)
-            
-            # Load page with longer timeout and retry logic
-            max_retries = 2
-            for attempt in range(max_retries):
-                try:
-                    timeout = 45000 if attempt == 0 else 60000  # 45s first try, 60s retry
-                    wait_until = 'networkidle' if attempt == 0 else 'domcontentloaded'
-                    
-                    print(f"  🌐 Page load attempt {attempt + 1}/{max_retries} (timeout: {timeout/1000}s, wait: {wait_until})")
-                    await page.goto(url, wait_until=wait_until, timeout=timeout)
-                    break
-                except Exception as e:
-                    print(f"  🔄 Page load attempt {attempt + 1} failed: {e}")
-                    if attempt == max_retries - 1:
-                        raise
-                    await asyncio.sleep(2)  # Brief pause before retry
-            
-            # Wait for content to load and simulate human behavior
-            await page.wait_for_timeout(random.randint(2000, 4000))
-            
-            # First try to extract readable text directly from rendered page
-            print(f"  🔍 Trying direct element extraction from rendered page...")
-            
-            # Try our specific selectors first (skip JSON-LD)
-            content = None
-            selectors_to_try = [s for s in self.content_selectors if 'script' not in s]
-            
-            for selector in selectors_to_try[:15]:  # Try top 15 selectors
-                try:
-                    element = await page.query_selector(selector)
-                    if element:
-                        text = await element.inner_text()
-                        print(f"  📄 Selector '{selector}': {len(text)} chars")
-                        if len(text) > self.min_content_length:
-                            content = self._clean_text(text)
-                            print(f"  ✅ Found good content with '{selector}': {len(content)} chars")
-                            return content
-                except Exception as e:
-                    print(f"  ⚠️ Selector '{selector}' failed: {e}")
-                    continue
-            
-            # Fallback to HTML parsing if direct extraction failed
-            print(f"  🔍 Fallback to HTML parsing...")
-            html_content = await page.content()
-            if html_content:
-                soup = BeautifulSoup(html_content, 'html.parser')
                 
-                # Remove unwanted elements first
-                self._remove_unwanted_elements(soup)
+                # Load page with longer timeout and retry logic
+                max_retries = 2
+                for attempt in range(max_retries):
+                    # Early stop if budget exhausted
+                    if remaining_ms() <= 0:
+                        print("  ⏰ Budget exhausted before navigation; stopping browser strategy")
+                        raise TimeoutError("playwright_budget_exhausted")
+                    try:
+                        base_timeout = PLAYWRIGHT_TIMEOUT_FIRST_MS if attempt == 0 else PLAYWRIGHT_TIMEOUT_RETRY_MS
+                        timeout = min(base_timeout, max(1000, remaining_ms()))
+                        # Prefer faster first paint to avoid long waits on heavy sites
+                        wait_until = 'domcontentloaded' if attempt == 0 else 'networkidle'
+                        print(f"  🌐 Page load attempt {attempt + 1}/{max_retries} (timeout: {timeout/1000}s, wait: {wait_until})")
+                        await page.goto(url, wait_until=wait_until, timeout=timeout)
+                        break
+                    except Exception as e:
+                        print(f"  🔄 Page load attempt {attempt + 1} failed: {e}")
+                        if attempt == max_retries - 1:
+                            raise
+                        # Brief pause before retry (bounded by remaining budget)
+                        pause_ms = min(2000, remaining_ms())
+                        if pause_ms <= 0:
+                            print("  ⏰ Budget exhausted during retry backoff; stopping")
+                            raise TimeoutError("playwright_budget_exhausted")
+                        await asyncio.sleep(pause_ms / 1000)
                 
-                # Try enhanced selectors on cleaned HTML
-                enhanced_content = self._extract_by_enhanced_selectors(soup)
-                if enhanced_content and len(enhanced_content) > self.min_content_length:
-                    return enhanced_content
+                # Wait for content to load and simulate human behavior
+                human_wait_ms = min(random.randint(2000, 4000), remaining_ms())
+                if human_wait_ms > 0:
+                    await page.wait_for_timeout(human_wait_ms)
                 
-                # Try JSON-LD as last resort (but it usually doesn't have full text)
-                json_ld_content = self._extract_from_json_ld(soup)
-                if json_ld_content and len(json_ld_content) > self.min_content_length:
-                    return json_ld_content
-            
-            # Fallback to direct element extraction
-            content = None
-            for selector in self.content_selectors[:10]:  # Try top 10 selectors
-                try:
-                    if 'script' in selector:  # Skip JSON-LD selector
+                # First try to extract readable text directly from rendered page (try multiple waits)
+                print(f"  🔍 Trying direct element extraction from rendered page...")
+                
+                # Try our specific selectors first (skip JSON-LD)
+                content = None
+                selectors_to_try = [s for s in self.content_selectors if 'script' not in s]
+                
+                # Crawl with short micro-waits to allow lazy text to appear
+                for selector in selectors_to_try[:20]:
+                    if remaining_ms() <= 0:
+                        print("  ⏰ Budget exhausted while trying selectors; stop loop")
+                        break
+                    try:
+                        element = await page.query_selector(selector)
+                        if element:
+                            # brief wait to ensure text is rendered
+                            await page.wait_for_timeout(200)
+                            text = await element.inner_text()
+                            print(f"  📄 Selector '{selector}': {len(text)} chars")
+                            if len(text) > self.min_content_length:
+                                content = self._clean_text(text)
+                                print(f"  ✅ Found good content with '{selector}': {len(content)} chars")
+                                # Ensure page is closed before returning
+                                try:
+                                    await page.close()
+                                except Exception:
+                                    pass
+                                return content
+                    except Exception as e:
+                        print(f"  ⚠️ Selector '{selector}' failed: {e}")
                         continue
-                    element = await page.query_selector(selector)
-                    if element:
-                        text = await element.inner_text()
-                        if len(text) > self.min_content_length:
-                            content = text
-                            break
-                except:
-                    continue
-            
-            if content:
-                return self._clean_text(content)
-            
-        except Exception as e:
-            print(f"  ⚠️ Browser extraction failed for {url}: {e}")
-        finally:
-            if page:
-                try:
-                    await page.close()
-                except:
-                    pass
+                
+                # Fallback to HTML parsing if direct extraction failed
+                print(f"  🔍 Fallback to HTML parsing...")
+                if remaining_ms() <= 0:
+                    print("  ⏰ Budget exhausted before HTML parsing fallback; stopping")
+                    raise TimeoutError("playwright_budget_exhausted")
+                html_content = await page.content()
+                if html_content:
+                    soup = BeautifulSoup(html_content, 'html.parser')
+                    
+                    # Remove unwanted elements first
+                    self._remove_unwanted_elements(soup)
+                    
+                    # Try enhanced selectors on cleaned HTML
+                    enhanced_content = self._extract_by_enhanced_selectors(soup)
+                    if enhanced_content and len(enhanced_content) > self.min_content_length:
+                        try:
+                            await page.close()
+                        except Exception:
+                            pass
+                        return enhanced_content
+                    
+                    # Try JSON-LD as last resort (but it usually doesn't have full text)
+                    json_ld_content = self._extract_from_json_ld(soup)
+                    if json_ld_content and len(json_ld_content) > self.min_content_length:
+                        try:
+                            await page.close()
+                        except Exception:
+                            pass
+                        return json_ld_content
+                
+                # Fallback to direct element extraction
+                content = None
+                for selector in self.content_selectors[:10]:  # Try top 10 selectors
+                    if remaining_ms() <= 0:
+                        print("  ⏰ Budget exhausted during final selector attempts; stopping")
+                        break
+                    try:
+                        if 'script' in selector:  # Skip JSON-LD selector
+                            continue
+                        element = await page.query_selector(selector)
+                        if element:
+                            text = await element.inner_text()
+                            if len(text) > self.min_content_length:
+                                content = text
+                                break
+                    except Exception:
+                        continue
+                
+                if content:
+                    try:
+                        await page.close()
+                    except Exception:
+                        pass
+                    return self._clean_text(content)
+                
+            except Exception as e:
+                print(f"  ⚠️ Browser extraction failed for {url}: {e}")
+            finally:
+                if page:
+                    try:
+                        await page.close()
+                    except Exception:
+                        pass
         
         return None
     
@@ -877,6 +1183,146 @@ class ContentExtractor:
         
         return None
     
+    def _extract_publication_date(self, soup: BeautifulSoup) -> Optional[str]:
+        """Extract publication date from HTML using multiple strategies."""
+        try:
+            # Strategy 1: JSON-LD structured data
+            json_date = self._extract_date_from_json_ld(soup)
+            if json_date:
+                return json_date
+            
+            # Strategy 2: Common CSS selectors for publication date
+            date_selectors = [
+                # Schema.org microdata
+                '[itemprop="datePublished"]',
+                '[itemprop="publishedTime"]',
+                '[itemprop="dateCreated"]',
+                
+                # Open Graph meta tags
+                'meta[property="article:published_time"]',
+                'meta[property="article:published"]',
+                'meta[name="pubdate"]',
+                'meta[name="publishdate"]',
+                'meta[name="date"]',
+                
+                # Common CSS classes and elements
+                '.publish-date', '.published-date', '.publication-date',
+                '.date-published', '.pub-date', '.article-date',
+                '.post-date', '.entry-date', '.timestamp',
+                'time[datetime]', 'time[pubdate]',
+                '.byline time', '.meta time', '.date time',
+                
+                # Specific news site patterns
+                '.article-meta time', '.story-meta time',
+                '.news-meta .date', '.article-header .date',
+                '.content-meta time', '.post-meta time'
+            ]
+            
+            for selector in date_selectors:
+                elements = soup.select(selector)
+                for element in elements:
+                    # Try to get datetime attribute first
+                    date_text = element.get('datetime') or element.get('content')
+                    
+                    # If no datetime attribute, get text content
+                    if not date_text:
+                        date_text = element.get_text(strip=True)
+                    
+                    if date_text and self._is_valid_date_string(date_text):
+                        return date_text
+            
+            # Strategy 3: Look for date patterns in text
+            import re
+            from datetime import datetime
+            
+            # Common date patterns
+            date_patterns = [
+                r'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}',  # ISO format
+                r'\d{4}-\d{2}-\d{2}',  # YYYY-MM-DD
+                r'\d{1,2}/\d{1,2}/\d{4}',  # MM/DD/YYYY or DD/MM/YYYY
+                r'\d{1,2}\.\d{1,2}\.\d{4}',  # DD.MM.YYYY
+                r'[A-Za-z]+ \d{1,2}, \d{4}',  # Month DD, YYYY
+                r'\d{1,2} [A-Za-z]+ \d{4}'  # DD Month YYYY
+            ]
+            
+            # Search in meta tags and common date containers
+            for pattern in date_patterns:
+                # Search in meta description or title
+                meta_desc = soup.find('meta', attrs={'name': 'description'})
+                if meta_desc:
+                    content = meta_desc.get('content', '')
+                    match = re.search(pattern, content)
+                    if match:
+                        return match.group(0)
+            
+            return None
+            
+        except Exception as e:
+            print(f"    ⚠️ Date extraction failed: {e}")
+            return None
+    
+    def _extract_date_from_json_ld(self, soup: BeautifulSoup) -> Optional[str]:
+        """Extract publication date from JSON-LD structured data."""
+        scripts = soup.find_all('script', type='application/ld+json')
+        
+        for script in scripts:
+            try:
+                if not script.string:
+                    continue
+                    
+                data = json.loads(script.string)
+                
+                # Handle both single objects and arrays
+                items = data if isinstance(data, list) else [data]
+                
+                # Process nested graph structures
+                if isinstance(data, dict) and '@graph' in data:
+                    items = data['@graph']
+                
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                        
+                    # Look for publication date in various schema.org types
+                    item_type = item.get('@type', '')
+                    if isinstance(item_type, list):
+                        item_type = item_type[0] if item_type else ''
+                    
+                    if item_type in ['Article', 'NewsArticle', 'BlogPosting', 'WebPage']:
+                        # Try various date fields
+                        date_fields = ['datePublished', 'publishedTime', 'dateCreated', 'dateModified']
+                        for field in date_fields:
+                            date_value = item.get(field)
+                            if date_value:
+                                return str(date_value)
+                
+            except Exception as e:
+                continue
+        
+        return None
+    
+    def _is_valid_date_string(self, date_str: str) -> bool:
+        """Check if string looks like a valid date."""
+        if not date_str or len(date_str) < 8:
+            return False
+        
+        # Common date patterns
+        import re
+        patterns = [
+            r'\d{4}-\d{2}-\d{2}',  # YYYY-MM-DD
+            r'\d{4}/\d{2}/\d{2}',  # YYYY/MM/DD
+            r'\d{1,2}/\d{1,2}/\d{4}',  # MM/DD/YYYY
+            r'\d{1,2}\.\d{1,2}\.\d{4}',  # DD.MM.YYYY
+            r'[A-Za-z]{3,} \d{1,2}, \d{4}',  # Month DD, YYYY
+            r'\d{1,2} [A-Za-z]{3,} \d{4}'  # DD Month YYYY
+        ]
+        
+        for pattern in patterns:
+            if re.search(pattern, date_str):
+                return True
+        
+        return False
+    
     def _extract_from_json_ld(self, soup: BeautifulSoup) -> Optional[str]:
         """Extract content from JSON-LD structured data."""
         scripts = soup.find_all('script', type='application/ld+json')
@@ -942,6 +1388,43 @@ class ContentExtractor:
                 return content
         
         return None
+
+    def _find_alt_article_links(self, soup: BeautifulSoup, base_url: str) -> List[str]:
+        """Find canonical/AMP or obvious 'read more' alternative links.
+        Returns list of URLs ordered by preference.
+        """
+        alt_urls: List[str] = []
+        try:
+            # Canonical link
+            canonical = soup.find('link', rel=lambda v: v and 'canonical' in v)
+            if canonical and canonical.get('href'):
+                alt_urls.append(urljoin(base_url, canonical['href']))
+        except Exception:
+            pass
+        try:
+            # AMP link
+            amp = soup.find('link', rel=lambda v: v and 'amphtml' in v)
+            if amp and amp.get('href'):
+                alt_urls.append(urljoin(base_url, amp['href']))
+        except Exception:
+            pass
+        try:
+            # Common "read more" anchors
+            candidates = soup.select('a[rel="next"], a.more, a.read-more, a.readmore, a[href*="/amp/"]')
+            for a in candidates:
+                href = a.get('href')
+                if href:
+                    alt_urls.append(urljoin(base_url, href))
+        except Exception:
+            pass
+        # Deduplicate while preserving order
+        seen: set = set()
+        deduped: List[str] = []
+        for u in alt_urls:
+            if u not in seen:
+                seen.add(u)
+                deduped.append(u)
+        return deduped
     
     def _extract_by_enhanced_selectors(self, soup: BeautifulSoup) -> Optional[str]:
         """Extract using enhanced CSS selectors."""
@@ -1029,64 +1512,45 @@ class ContentExtractor:
         
         return None
     
-    def _assess_content_quality(self, text: str) -> float:
-        """Assess content quality using various metrics."""
-        if not text:
-            return 0
-        
-        score = 0
-        
-        # Length scoring
-        if len(text) > 2000:
-            score += 40
-        elif len(text) > 1000:
-            score += 30
-        elif len(text) > 500:
-            score += 20
-        else:
-            score += 10
-        
-        # Sentence count
-        sentences = len(re.findall(r'[.!?]+', text))
-        if sentences > 10:
-            score += 20
-        elif sentences > 5:
-            score += 15
-        elif sentences > 2:
-            score += 10
-        
-        # Word count
-        words = len(text.split())
-        if words > 300:
-            score += 15
-        elif words > 150:
-            score += 10
-        elif words > 50:
-            score += 5
-        
-        # Text composition quality
-        if text:
-            letters = sum(c.isalpha() for c in text)
-            letter_ratio = letters / len(text)
-            
-            if letter_ratio > 0.7:
-                score += 15
-            elif letter_ratio > 0.6:
-                score += 10
-            elif letter_ratio > 0.5:
-                score += 5
-        
-        # Penalty for low-quality indicators
-        low_quality_patterns = [
-            r'click here', r'subscribe', r'advertisement',
-            r'sponsored', r'cookie policy', r'privacy policy'
-        ]
-        
-        for pattern in low_quality_patterns:
-            if re.search(pattern, text.lower()):
-                score -= 5
-        
-        return max(0, score)
+    def _normalize_date(self, date_str: Optional[str]) -> Optional[str]:
+        """Normalize various date strings into UTC ISO format."""
+        if not date_str:
+            return None
+        try:
+            dt = dateutil.parser.parse(date_str)
+            # If naive, assume UTC; otherwise convert to UTC
+            if not dt.tzinfo:
+                return dt.isoformat()
+            return dt.astimezone(tz=None).isoformat()
+        except Exception:
+            return date_str
+
+    async def _extract_from_html(self, html: Optional[str]) -> Optional[str]:
+        """Extract content from already fetched HTML using soup-based strategies."""
+        if not html:
+            return None
+        try:
+            soup = BeautifulSoup(html, 'html.parser')
+            self._remove_unwanted_elements(soup)
+            # JSON-LD
+            content = self._extract_from_json_ld(soup)
+            if self._is_good_content(content):
+                return self._finalize_content(content)
+            # Open Graph
+            content = self._extract_from_open_graph(soup)
+            if self._is_good_content(content):
+                return self._finalize_content(content)
+            # Enhanced selectors
+            content = self._extract_by_enhanced_selectors(soup)
+            if self._is_good_content(content):
+                return self._finalize_content(content)
+            # Heuristics
+            content = self._extract_by_enhanced_heuristics(soup)
+            if self._is_good_content(content):
+                return self._finalize_content(content)
+        except Exception:
+            return None
+        return None
     
     def _is_likely_content_element(self, element) -> bool:
         """Check if element is likely to contain main content."""
@@ -1150,7 +1614,7 @@ class ContentExtractor:
         
         # Check content quality score
         quality_score = self._assess_content_quality(content)
-        if quality_score < 30:  # Minimum quality threshold
+        if quality_score < MIN_QUALITY_SCORE:  # Minimum quality threshold
             return False
         
         # Check for meaningful content (not just navigation/ads)
@@ -1266,9 +1730,7 @@ class ContentExtractor:
         """Assess content quality with a 0-100 score."""
         if not text:
             return 0
-        
         score = 0
-        
         # Length scoring (0-40 points)
         text_length = len(text)
         if text_length > 3000:
@@ -1279,7 +1741,6 @@ class ContentExtractor:
             score += 20
         elif text_length > 400:
             score += 10
-        
         # Sentence structure scoring (0-20 points)
         sentence_count = len(re.findall(r'[.!?]+', text))
         if sentence_count > 15:
@@ -1288,7 +1749,6 @@ class ContentExtractor:
             score += 15
         elif sentence_count > 4:
             score += 10
-        
         # Word count scoring (0-15 points)
         word_count = len(text.split())
         if word_count > 500:
@@ -1297,14 +1757,12 @@ class ContentExtractor:
             score += 10
         elif word_count > 100:
             score += 5
-        
         # Paragraph structure (0-10 points)
         paragraph_count = len([p for p in text.split('\n\n') if p.strip()])
         if paragraph_count >= 4:
             score += 10
         elif paragraph_count >= 2:
             score += 5
-        
         # Content indicators (0-10 points)
         content_indicators = [
             r'\b(статья|новость|сообщает|объявил|заявил|отметил)\b',
@@ -1312,23 +1770,18 @@ class ContentExtractor:
             r'\b(согласно|по данным|как сообщает|по информации)\b',
             r'\b(according to|sources|reports|information)\b'
         ]
-        
         for pattern in content_indicators:
             if re.search(pattern, text, re.IGNORECASE):
                 score += 2.5
-        
         # Quality deductions
         if len(text) < 200:
             score -= 20
-        
-        # Check for excessive repetition
         words = text.lower().split()
         if len(words) > 50:
             unique_words = len(set(words))
             repetition_ratio = unique_words / len(words)
             if repetition_ratio < 0.3:
                 score -= 15
-        
         return max(0, min(100, score))
     
     def _clean_url(self, url: str) -> str:

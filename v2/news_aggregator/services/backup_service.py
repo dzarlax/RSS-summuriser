@@ -115,7 +115,12 @@ class BackupService:
                     db.add(new_task)
                     logger.info(f"Created new backup task at {schedule_time}")
                 
-                await db.commit()
+                try:
+                    await db.commit()
+                except Exception as e:
+                    await db.rollback()
+                    logger.error(f"Failed to commit backup schedule task create/update: {e}")
+                    raise
                 
         except Exception as e:
             logger.error(f"Error creating/updating schedule task: {e}")
@@ -135,7 +140,12 @@ class BackupService:
                 if task:
                     task.enabled = False
                     task.updated_at = datetime.utcnow()
-                    await db.commit()
+                    try:
+                        await db.commit()
+                    except Exception as e:
+                        await db.rollback()
+                        logger.error(f"Failed to commit disabling schedule task: {e}")
+                        raise
                     logger.info("Disabled backup schedule task")
                 
         except Exception as e:

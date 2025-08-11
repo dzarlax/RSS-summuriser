@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import List, Optional
 
 from sqlalchemy import (
-    Boolean, Column, DateTime, Float, ForeignKey, Integer, 
+    Boolean, Column, DateTime, Date, Float, ForeignKey, Integer,
     String, Text, JSON, ARRAY, DECIMAL, UniqueConstraint
 )
 from sqlalchemy.orm import relationship
@@ -22,7 +22,8 @@ class Source(Base):
     source_type = Column(String(50), nullable=False)  # rss, telegram, reddit, etc.
     url = Column(Text, nullable=False)
     enabled = Column(Boolean, default=True)
-    config = Column(JSON, default={})
+    # Use default factory to avoid shared mutable default
+    config = Column(JSON, default=dict)
     fetch_interval = Column(Integer, default=1800)  # seconds
     last_fetch = Column(DateTime)
     last_success = Column(DateTime)
@@ -106,7 +107,8 @@ class DailySummary(Base):
     __tablename__ = "daily_summaries"
     
     id = Column(Integer, primary_key=True, index=True)
-    date = Column(DateTime, nullable=False)
+    # Persisted as DATE in DB schema – align ORM type
+    date = Column(Date, nullable=False)
     category = Column(String(50), nullable=False)  # Business, Tech, Science, Nature, Serbia, Marketing, Other
     summary_text = Column(Text, nullable=False)
     articles_count = Column(Integer, default=0)
@@ -129,7 +131,8 @@ class ProcessingStat(Base):
     __tablename__ = "processing_stats"
 
     id = Column(Integer, primary_key=True, index=True)
-    date = Column(DateTime, default=func.current_date(), unique=True)
+    # Persisted as DATE in DB schema – align ORM type
+    date = Column(Date, default=func.current_date(), unique=True)
     articles_fetched = Column(Integer, default=0)
     articles_processed = Column(Integer, default=0)
     clusters_created = Column(Integer, default=0)

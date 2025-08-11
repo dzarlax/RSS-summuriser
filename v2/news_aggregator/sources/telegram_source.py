@@ -206,6 +206,36 @@ class TelegramSource(BaseSource):
                     continue
         
         raise SourceError(f"All HTTP retry attempts failed: {last_exception}")
+
+    def _normalize_external_url(self, url: str) -> Optional[str]:
+        """Normalize external article URL to reduce duplicates (strip tracking params, anchors)."""
+        if not url or not isinstance(url, str):
+            return None
+        try:
+            from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
+            parsed = urlparse(url)
+            if not parsed.scheme or not parsed.netloc:
+                return url
+            scheme = parsed.scheme.lower()
+            netloc = parsed.netloc.lower()
+            path = parsed.path or '/'
+            # Remove common tracking params
+            tracking = {
+                'utm_source','utm_medium','utm_campaign','utm_term','utm_content','utm_id',
+                'gclid','fbclid','yclid','mc_cid','mc_eid','ref','ref_src','igshid',
+                'mkt_tok','vero_conv','vero_id','_hsenc','_hsmi','si','s','feature','spm'
+            }
+            query_pairs = [(k,v) for k,v in parse_qsl(parsed.query, keep_blank_values=False) if k not in tracking]
+            query = urlencode(query_pairs, doseq=True)
+            # Drop fragments
+            fragment = ''
+            normalized = urlunparse((scheme, netloc, path, '', query, fragment))
+            # Remove trailing slash duplication (but keep root '/')
+            if normalized.endswith('/') and path != '/':
+                normalized = normalized[:-1]
+            return normalized
+        except Exception:
+            return url
     
     async def _fetch_with_browser(self, url: str, limit: Optional[int] = None) -> List[Article]:
         """Fetch using Playwright browser for JS-heavy or protected channels."""
@@ -284,16 +314,38 @@ class TelegramSource(BaseSource):
             messages = soup.select(selector)
             if messages:
                 break
+
+        # Exclude Telegram service/system messages (pin, join, etc.)
+        if messages:
+            filtered = []
+            for m in messages:
+                classes = m.get('class') or []
+                if isinstance(classes, list) and any('tgme_widget_message_service' in c for c in classes):
+                    continue
+                filtered.append(m)
+            messages = filtered
         
         if not messages:
             # Try to find any div with text content as fallback
             print("No standard message containers found, trying fallback...")
             return []
         
+        seen_message_ids = set()
         for message in messages:
             try:
                 article = self._parse_message_element(message, base_url)
                 if article:
+                    # Deduplicate by Telegram message_id if available
+                    try:
+                        mid = None
+                        if hasattr(article, 'raw_data') and article.raw_data:
+                            mid = article.raw_data.get('message_id')
+                        if mid and mid in seen_message_ids:
+                            continue
+                        if mid:
+                            seen_message_ids.add(mid)
+                    except Exception:
+                        pass
                     articles.append(article)
             except Exception as e:
                 print(f"Error parsing message: {e}")
@@ -304,6 +356,13 @@ class TelegramSource(BaseSource):
     def _parse_message_element(self, message_div, base_url: str) -> Optional[Article]:
         """Parse message div element into Article."""
         try:
+            # Remove quoted original from replies to avoid mixing it into the reply content
+            try:
+                for reply in message_div.select('.tgme_widget_message_reply'):
+                    reply.decompose()
+            except Exception:
+                pass
+            
             # Extract message text - try multiple selectors
             text_selectors = [
                 '.tgme_widget_message_text',
@@ -316,13 +375,13 @@ class TelegramSource(BaseSource):
             for selector in text_selectors:
                 text_element = message_div.select_one(selector)
                 if text_element:
-                    # Use separator to preserve spaces between elements
-                    content = text_element.get_text(separator=' ', strip=True)
+                    # Preserve line breaks between blocks for better readability
+                    content = text_element.get_text(separator='\n', strip=True)
                     break
             
             # If no specific text element, try to get all text
             if not content:
-                content = message_div.get_text(separator=' ', strip=True)
+                content = message_div.get_text(separator='\n', strip=True)
             
             # Clean up content from HTML artifacts and weird characters
             content = self._clean_message_content(content)
@@ -330,8 +389,19 @@ class TelegramSource(BaseSource):
             if len(content) < 10:
                 return None
             
-            # Extract message URL
+            # Extract message URL and id
             message_url = self._extract_message_url(message_div, base_url)
+            message_id = None
+            try:
+                data_post = message_div.get('data-post')
+                if data_post and '/' in data_post:
+                    message_id = data_post.split('/')[-1]
+                elif message_url and message_url.rsplit('/', 1):
+                    tail = message_url.rsplit('/', 1)[-1]
+                    if tail.isdigit():
+                        message_id = tail
+            except Exception:
+                message_id = None
             
             # Extract date
             published_at = self._extract_date(message_div)
@@ -339,13 +409,77 @@ class TelegramSource(BaseSource):
             # Extract image and media info
             image_url = self._extract_image_url(message_div)
             media_info = self._extract_media_info(message_div)
+
+            # Extract external links (buttons/previews) that are not Telegram links
+            external_links = []
+            original_link = None
+            try:
+                # Prefer preview links
+                preview_selectors = [
+                    '.tgme_widget_message_link_preview a[href]',
+                    '.link_preview a[href]',
+                    '.tgme_widget_message_forwarded_from a[href]'
+                ]
+                link_candidates = []
+                for sel in preview_selectors:
+                    link_candidates.extend(message_div.select(sel))
+                # Fallback to any links
+                if not link_candidates:
+                    link_candidates = message_div.select('a[href]')
+                for a in link_candidates:
+                    href = a.get('href')
+                    if not href or not href.startswith(('http://', 'https://')):
+                        continue
+                    if 't.me' in href or 'telegram.me' in href:
+                        continue
+                    # Normalize to prevent duplicate URLs by tracking params/fragments
+                    external_links.append(self._normalize_external_url(href))
+                # Deduplicate while preserving order
+                seen = set()
+                external_links = [x for x in external_links if not (x in seen or seen.add(x))][:5]
+                # Pick original link by simple heuristics (avoid socials)
+                blacklist = ('facebook.com', 'twitter.com', 'x.com', 'instagram.com', 'vk.com', 'ok.ru', 'youtube.com', 'youtu.be', 't.me', 'telegram.me')
+                for link in external_links:
+                    from urllib.parse import urlparse
+                    try:
+                        host = urlparse(link).netloc.lower()
+                        if not any(b in host for b in blacklist):
+                            original_link = self._normalize_external_url(link)
+                            break
+                    except Exception:
+                        continue
+            except Exception:
+                external_links = []
             
             # Extract title
             title = self._extract_title(content)
+
+            # Forwarded info
+            forwarded_from = None
+            try:
+                fwd = message_div.select_one('.tgme_widget_message_forwarded_from')
+                if fwd:
+                    forwarded_from = fwd.get_text(strip=True)
+            except Exception:
+                forwarded_from = None
             
+            # Extract hashtags from content for downstream features
+            hashtags = []
+            try:
+                import re as _re
+                hashtags = [_re.sub(r'[^\w_]+', '', h).lower() for h in _re.findall(r'(?:(?<=\s)|^)#(\w+)', content)]
+                # Deduplicate
+                seen_ht = set()
+                hashtags = [h for h in hashtags if h and not (h in seen_ht or seen_ht.add(h))][:20]
+            except Exception:
+                hashtags = []
+
+            # Prefer original external link as canonical URL; keep Telegram URL separately
+            final_url = (self._normalize_external_url(original_link) if original_link else None) or message_url
+
             return Article(
                 title=title,
-                url=message_url,
+                url=final_url,
                 content=content,
                 published_at=published_at,
                 source_type="telegram",
@@ -356,7 +490,13 @@ class TelegramSource(BaseSource):
                     "access_method": base_url,
                     "content_length": len(content),
                     "media_info": media_info,
-                    "has_media": bool(image_url or media_info.get('video_url') or media_info.get('document_url'))
+                    "has_media": bool(image_url or media_info.get('video_url') or media_info.get('document_url')),
+                    "external_links": external_links,
+                    "hashtags": hashtags,
+                    "original_link": original_link,
+                    "forwarded_from": forwarded_from,
+                    "message_id": message_id,
+                    "telegram_url": message_url
                 }
             )
             
@@ -567,13 +707,16 @@ class TelegramSource(BaseSource):
         content = content.replace('&quot;', '"')
         content = content.replace('&#39;', "'")
         
-        # Remove weird characters and HTML artifacts
+        # Remove weird characters and HTML artifacts (keep punctuation incl. dots)
         content = re.sub(r'[^\w\s\.\,\!\?\;\:\-\(\)\[\]\"\'а-яА-ЯёЁ\d\+\=\#\@\%\&\*\/\\\|]', '', content, flags=re.UNICODE)
         
         # Remove specific patterns that cause issues
         content = re.sub(r'!!!"?>', '', content)  # Remove the specific artifact seen in screenshot
         content = re.sub(r'<[^>]*>', '', content)  # Remove any remaining HTML tags
-        content = re.sub(r'\s+', ' ', content)      # Normalize whitespace
+        # Normalize whitespace but preserve paragraph breaks
+        content = content.replace('\r\n', '\n')
+        content = re.sub(r'\n{3,}', '\n\n', content)
+        content = re.sub(r'[ \t]+', ' ', content)
         
         # Remove navigation text
         content = re.sub(r'Please open Telegram to view this post.*?VIEW IN TELEGRAM', '', content, flags=re.IGNORECASE)
@@ -691,19 +834,24 @@ class TelegramSource(BaseSource):
     
     def _extract_title(self, text: str) -> str:
         """Extract title from message text."""
-        lines = text.split('\n')
+        lines = [ln.strip() for ln in text.split('\n') if ln.strip()]
         first_line = lines[0].strip()
         
         # Remove common Telegram emojis and formatting
         first_line = re.sub(r'^[📰📢🔥⚡️💥🎯📊📈📉🚀🗞️📡⭐️✨🎉🎊💫🌟]+\s*', '', first_line)
         first_line = re.sub(r'^(BREAKING|NEWS|UPDATE|URGENT):\s*', '', first_line, flags=re.IGNORECASE)
         
-        if len(first_line) > 15:
-            return first_line[:120] + ("..." if len(first_line) > 120 else "")
-        else:
-            # Use full text if first line is too short
-            cleaned_text = re.sub(r'^[📰📢🔥⚡️💥🎯📊📈📉🚀🗞️📡⭐️✨🎉🎊💫🌟]+\s*', '', text)
-            return cleaned_text[:120] + ("..." if len(cleaned_text) > 120 else "")
+        # Prefer first informative line, otherwise fallback to combined short text
+        if len(first_line) >= 20:
+            return first_line[:140] + ("..." if len(first_line) > 140 else "")
+        
+        # Try next lines to avoid too-short titles
+        for ln in lines[1:3]:
+            if len(ln) >= 20:
+                return ln[:140] + ("..." if len(ln) > 140 else "")
+        
+        cleaned_text = re.sub(r'^[📰📢🔥⚡️💥🎯📊📈📉🚀🗞️📡⭐️✨🎉🎊💫🌟]+\s*', '', ' '.join(lines))
+        return cleaned_text[:140] + ("..." if len(cleaned_text) > 140 else "")
     
     async def test_connection(self) -> bool:
         """Test Telegram channel connection."""

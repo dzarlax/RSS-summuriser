@@ -37,7 +37,8 @@ async def get_public_feed(
     limit: int = Query(20, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     since_hours: Optional[int] = Query(None, ge=1, le=168),
-    category: Optional[str] = Query(None)
+    category: Optional[str] = Query(None),
+    hide_ads: bool = Query(True, description="Hide advertisements from feed")
 ):
     """Public feed endpoint without authentication (for main page)."""
     from .database import AsyncSessionLocal
@@ -48,7 +49,7 @@ async def get_public_feed(
         from .models import Source
         
         # Build query for articles with source information
-        query = select(Article, Source).join(Source, Article.source_id == Source.id).order_by(desc(Article.published_at))
+        query = select(Article, Source).join(Source, Article.source_id == Source.id)
         
         # Apply time filter
         if since_hours:
@@ -60,9 +61,13 @@ async def get_public_feed(
             # Simple case conversion - capitalize first letter to match database format
             category_capitalized = category.capitalize()
             query = query.where(Article.category == category_capitalized)
-            # Exclude advertisements from specific categories (they show as badges in "All")
+        
+        # Hide advertisements if requested (default: true)
+        if hide_ads:
             query = query.where(Article.is_advertisement != True)
-        # For "All" category, show everything including advertisements with badges
+
+        # Order: non-ads first, then newest
+        query = query.order_by(Article.is_advertisement.asc(), desc(Article.published_at))
         
         # Apply pagination
         query = query.offset(offset).limit(limit)
@@ -86,7 +91,9 @@ async def get_public_feed(
                 "fetched_at": article.fetched_at.isoformat() if article.fetched_at else None,
                 "is_advertisement": article.is_advertisement or False,
                 "ad_confidence": article.ad_confidence or 0.0,
-                "ad_type": article.ad_type
+                "ad_type": article.ad_type,
+                "ad_reasoning": getattr(article, 'ad_reasoning', None),
+                "ad_markers": getattr(article, 'ad_markers', [])
             }
             articles_data.append(article_dict)
         

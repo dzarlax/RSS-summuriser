@@ -363,6 +363,7 @@ function createScheduleCard(setting, taskNames, taskDescriptions) {
                     <select id="schedule_type-${setting.task_name}" onchange="updateScheduleForm('${setting.task_name}')">
                         <option value="daily" ${setting.schedule_type === 'daily' ? 'selected' : ''}>Ежедневно</option>
                         <option value="hourly" ${setting.schedule_type === 'hourly' ? 'selected' : ''}>Каждый час</option>
+                        <option value="interval" ${setting.schedule_type === 'interval' ? 'selected' : ''}>Каждые N минут</option>
                     </select>
                 </div>
                 
@@ -376,17 +377,22 @@ function createScheduleCard(setting, taskNames, taskDescriptions) {
                     </select>
                 </div>
                 
-                <div class="form-group" id="hour-group-${setting.task_name}" ${setting.schedule_type === 'hourly' ? 'style="display:none"' : ''}>
+                <div class="form-group" id="hour-group-${setting.task_name}" ${['hourly','interval'].includes(setting.schedule_type) ? 'style="display:none"' : ''}>
                     <label>Час (0-23)</label>
                     <input type="number" id="hour-${setting.task_name}" min="0" max="23" value="${setting.hour}">
                 </div>
                 
-                <div class="form-group">
+                <div class="form-group" id="minute-group-${setting.task_name}" ${setting.schedule_type === 'interval' ? 'style="display:none"' : ''}>
                     <label>Минута (0-59)</label>
                     <input type="number" id="minute-${setting.task_name}" min="0" max="59" value="${setting.minute}">
                 </div>
                 
-                <div class="form-group" style="grid-column: 1 / -1;">
+                <div class="form-group" id="interval-group-${setting.task_name}" ${setting.schedule_type === 'interval' ? '' : 'style="display:none"'}>
+                    <label>Интервал (минуты)</label>
+                    <input type="number" id="interval-${setting.task_name}" min="1" max="1440" value="${(setting.task_config && setting.task_config.interval_minutes) || 30}">
+                </div>
+                
+                <div class="form-group" id="weekdays-group-${setting.task_name}" style="grid-column: 1 / -1; ${setting.schedule_type === 'interval' ? 'display:none' : ''}">
                     <label>Дни недели</label>
                     <div class="weekdays-selector" id="weekdays-${setting.task_name}">
                         ${weekdayNames.map((day, index) => `
@@ -414,11 +420,25 @@ function createScheduleCard(setting, taskNames, taskDescriptions) {
 function updateScheduleForm(taskName) {
     const scheduleType = document.getElementById(`schedule_type-${taskName}`).value;
     const hourGroup = document.getElementById(`hour-group-${taskName}`);
+    const minuteGroup = document.getElementById(`minute-group-${taskName}`);
+    const intervalGroup = document.getElementById(`interval-group-${taskName}`);
+    const weekdaysGroup = document.getElementById(`weekdays-group-${taskName}`);
     
     if (scheduleType === 'hourly') {
         hourGroup.style.display = 'none';
-    } else {
+        minuteGroup.style.display = 'block';
+        intervalGroup.style.display = 'none';
+        weekdaysGroup.style.display = 'block';
+    } else if (scheduleType === 'interval') {
+        hourGroup.style.display = 'none';
+        minuteGroup.style.display = 'none';
+        intervalGroup.style.display = 'block';
+        weekdaysGroup.style.display = 'none';
+    } else { // daily
         hourGroup.style.display = 'block';
+        minuteGroup.style.display = 'block';
+        intervalGroup.style.display = 'none';
+        weekdaysGroup.style.display = 'block';
     }
 }
 
@@ -456,6 +476,12 @@ async function saveScheduleSetting(taskName) {
         weekdays.push(parseInt(btn.dataset.day));
     });
     
+    let taskConfig = scheduleSettings[taskName]?.task_config || {};
+    if (scheduleType === 'interval') {
+        const intervalMinutes = parseInt(document.getElementById(`interval-${taskName}`).value) || 30;
+        taskConfig = { interval_minutes: intervalMinutes };
+    }
+
     const scheduleData = {
         enabled,
         schedule_type: scheduleType,
@@ -463,7 +489,7 @@ async function saveScheduleSetting(taskName) {
         minute,
         weekdays,
         timezone,
-        task_config: scheduleSettings[taskName]?.task_config || {}
+        task_config: taskConfig
     };
     
     try {

@@ -1,7 +1,7 @@
 """Database connection and models."""
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
 
@@ -47,9 +47,9 @@ async def init_db():
     logger.info("🔧 Checking database initialization...")
     
     try:
-        # Проверяем, инициализирована ли уже база данных
+        # Check if database is already initialized
         async with AsyncSessionLocal() as session:
-            result = await session.execute(text("SELECT 1 FROM articles LIMIT 1"))
+            await session.execute(text("SELECT 1 FROM articles LIMIT 1"))
             logger.info("✅ Database already initialized")
             return
     except Exception:
@@ -77,15 +77,25 @@ async def init_db():
             tmp_sql_path = tmp_file.name
         
         try:
-            # Выполняем через psql
+            # Execute via psql using parsed settings from database_url
+            from urllib.parse import urlparse
+            parsed = urlparse(settings.database_url)
+            host = parsed.hostname or 'localhost'
+            port = str(parsed.port or 5432)
+            user = parsed.username or 'postgres'
+            password = parsed.password or ''
+            dbname = (parsed.path or '/postgres').lstrip('/')
+
             env = os.environ.copy()
-            env['PGPASSWORD'] = 'newspass123'
+            if password:
+                env['PGPASSWORD'] = password
             
             result = subprocess.run([
-                'psql', 
-                '-h', 'postgres',
-                '-U', 'newsuser', 
-                '-d', 'newsdb',
+                'psql',
+                '-h', host,
+                '-p', port,
+                '-U', user,
+                '-d', dbname,
                 '-f', tmp_sql_path
             ], env=env, capture_output=True, text=True)
             

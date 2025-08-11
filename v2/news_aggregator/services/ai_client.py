@@ -1,7 +1,7 @@
 """AI API client for article summarization using Constructor KM."""
 
 import json
-from typing import Optional
+from typing import Optional, Dict
 
 from ..config import settings
 from ..core.http_client import get_http_client
@@ -76,78 +76,83 @@ class AIClient:
             content_length = len(content)
             print(f"  📝 Extracted content: {content_length} characters")
             
-            # Step 2: Summarize with Constructor KM API using 4.1-mini
-            print(f"  🤖 Sending to AI for summarization...")
-            prompt = f"""Прочитай статью и создай краткий пересказ на русском языке.
-
-ТРЕБОВАНИЯ:
-- Сразу начинай с основного содержания (без вводных фраз)
-- Используй 3-5 ключевых пунктов
-- Сохрани важные факты и цифры
-- Пиши кратко и информативно
-
-СТАТЬЯ:
-{content}
-
-ПЕРЕСКАЗ:"""
-
-            payload = {
-                "model": self.summarization_model,
-                "messages": [
-                    {
-                        "role": "user", 
-                        "content": prompt
-                    }
-                ],
-                "max_tokens": 1000,
-                "temperature": 0.3
-            }
-            
-            headers = {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'X-KM-AccessKey': self.api_key
-            }
-            
-            async with get_http_client() as client:
-                print(f"  🌐 Making API request to {self.endpoint}")
-                response = await client.post(
-                    str(self.endpoint),
-                    json=payload,
-                    headers=headers
-                )
-                
-                async with response:
-                    print(f"  📡 API response status: {response.status}")
-                    if response.status == 200:
-                        data = await response.json()
-                        if 'choices' in data and data['choices']:
-                            raw_summary = data['choices'][0]['message']['content'].strip()
-                            # Clean the summary from prompt repetition and service text
-                            summary = self._clean_summary_text(raw_summary)
-                            summary_length = len(summary)
-                            print(f"  ✅ AI summarization successful: {summary_length} characters")
-                            return summary
-                        else:
-                            print(f"  ⚠️ No choices in API response for {article_url}")
-                            return None
-                    elif response.status == 429:
-                        print(f"  ⏰ Rate limit exceeded for {article_url}")
-                        raise APIError("Rate limit exceeded", status_code=429)
-                    else:
-                        error_text = await response.text()
-                        print(f"  ❌ API error {response.status} for {article_url}: {error_text}")
-                        raise APIError(
-                            f"API error: {response.status}",
-                            status_code=response.status,
-                            response_text=error_text
-                        )
+            # Step 2: Summarize extracted content
+            summary = await self._summarize_content(content)
+            return summary
         
         except APIError:
             raise
         except Exception as e:
             print(f"  ⚠️ Error getting summary for {article_url}: {e}")
             raise APIError(f"Failed to get summary for {article_url}: {e}")
+    
+    async def get_article_summary_with_metadata(self, article_url: str) -> Dict[str, Optional[str]]:
+        """
+        Get AI summary with metadata for article URL.
+        
+        Args:
+            article_url: URL of the article to summarize
+            
+        Returns:
+            Dictionary with 'summary', 'publication_date', and other metadata
+        """
+        if not article_url:
+            return {'summary': None, 'publication_date': None}
+        
+        metadata_result = {'publication_date': None, 'full_article_url': None}
+        
+        try:
+            print(f"  🔗 Extracting content with metadata from URL: {article_url}")
+            # Step 1: Extract article content using enhanced extractor with metadata
+            if not self.content_extractor:
+                # Import dynamically to avoid circular import
+                from .content_extractor import get_content_extractor
+                self.content_extractor = await get_content_extractor()
+            
+            # Try AI-enhanced extraction first
+            try:
+                metadata_result = await self.content_extractor.extract_article_content_with_metadata(article_url)
+                content = metadata_result.get('content')
+                pub_date = metadata_result.get('publication_date')
+                full_url = metadata_result.get('full_article_url')
+                
+                if pub_date:
+                    print(f"  📅 Found publication date: {pub_date}")
+                if full_url and full_url != article_url:
+                    print(f"  🔗 Followed link to full article: {full_url}")
+                    
+            except Exception as e:
+                print(f"  ⚠️ AI-enhanced extraction failed, using fallback: {e}")
+                content = None
+            
+            # If AI-enhanced extraction didn't get content, try standard extraction
+            if not content:
+                content = await self.content_extractor.extract_article_content(article_url)
+            
+            if not content:
+                print(f"  ❌ Could not extract content from {article_url}")
+                return {
+                    'summary': None, 
+                    'publication_date': metadata_result.get('publication_date'),
+                    'full_article_url': metadata_result.get('full_article_url')
+                }
+            
+            # Summarize the already extracted content to avoid double extraction
+            summary = await self._summarize_content(content)
+            
+            return {
+                'summary': summary,
+                'publication_date': metadata_result.get('publication_date'),
+                'full_article_url': metadata_result.get('full_article_url')
+            }
+            
+        except Exception as e:
+            print(f"  ❌ Error getting article summary with metadata: {e}")
+            return {
+                'summary': None,
+                'publication_date': metadata_result.get('publication_date'),
+                'full_article_url': metadata_result.get('full_article_url')
+            }
     
     async def extract_publication_date(self, html_content: str, url: str) -> Optional[str]:
         """
@@ -803,6 +808,129 @@ Focus on detecting content that's primarily promotional rather than informationa
         cleaned_summary = re.sub(r':\s*$', '', cleaned_summary)
         
         return cleaned_summary.strip()
+
+    async def _summarize_content(self, content: str) -> Optional[str]:
+        """Summarize plain article content with robust empty-output fallback."""
+        if not content:
+            return None
+        # Build prompt
+        base_prompt = (
+            "Прочитай статью и создай краткий пересказ на русском языке.\n\n"
+            "ТРЕБОВАНИЯ:\n"
+            "- Сразу начинай с основного содержания (без вводных фраз)\n"
+            "- Используй 3-5 ключевых пунктов\n"
+            "- Сохрани важные факты и цифры\n"
+            "- Пиши кратко и информативно\n\n"
+            "СТАТЬЯ:\n"
+            f"{content[:8000]}\n\n"  # защитимся от сверхдлинных текстов
+            "ПЕРЕСКАЗ:"
+        )
+
+        # First attempt
+        system_prompt = (
+            "Ты профессиональный новостной редактор. \n"
+            "Отвечай СТРОГО на русском языке, коротко и информативно. \n"
+            "Запрещено копировать большие фрагменты исходного текста."
+        )
+        first = await self._call_summary_llm(base_prompt, system_prompt=system_prompt)
+        cleaned = self._clean_summary_text(first or "") if first is not None else ""
+
+        if not self._is_summary_valid(cleaned, content):
+            # Retry with stricter prompt
+            strict_prompt = (
+                "Перескажи статью СВОИМИ СЛОВАМИ на русском языке. НЕЛЬЗЯ копировать фразы из текста.\n"
+                "Сделай 3–5 лаконичных пунктов (каждый 1–2 предложения). Без вступлений, без списков исходного текста.\n\n"
+                "СТАТЬЯ:\n"
+                f"{content[:8000]}\n\n"
+                "СТРОГИЙ ПЕРЕСКАЗ:"
+            )
+            second = await self._call_summary_llm(strict_prompt, system_prompt=system_prompt)
+            cleaned2 = self._clean_summary_text(second or "") if second is not None else ""
+            if self._is_summary_valid(cleaned2, content):
+                print(f"  ✅ AI summarization successful after retry: {len(cleaned2)} characters")
+                return cleaned2
+            # Final fallback: simple extractive summary
+            fallback = self._simple_extractive_summary(content)
+            print(f"  ✅ Fallback summarization used: {len(fallback)} characters")
+            return fallback
+
+        print(f"  ✅ AI summarization successful: {len(cleaned)} characters")
+        return cleaned
+
+    async def _call_summary_llm(self, prompt: str, *, system_prompt: str | None = None) -> Optional[str]:
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        payload = {
+            "model": self.summarization_model,
+            "messages": messages,
+            "max_tokens": 1000,
+            "temperature": 0.2,
+            "top_p": 0.9,
+            "presence_penalty": 0.0,
+            "frequency_penalty": 0.1,
+        }
+        headers = {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'X-KM-AccessKey': self.api_key,
+        }
+        async with get_http_client() as client:
+            print(f"  🤖 Sending to AI for summarization...")
+            print(f"  🌐 Making API request to {self.endpoint}")
+            response = await client.post(str(self.endpoint), json=payload, headers=headers)
+            async with response:
+                print(f"  📡 API response status: {response.status}")
+                if response.status == 200:
+                    data = await response.json()
+                    if 'choices' in data and data['choices']:
+                        return (data['choices'][0]['message']['content'] or '').strip()
+                    return None
+                elif response.status == 429:
+                    raise APIError("Rate limit exceeded", status_code=429)
+                else:
+                    error_text = await response.text()
+                    print(f"  ❌ API error {response.status}: {error_text}")
+                    raise APIError(
+                        f"API error: {response.status}",
+                        status_code=response.status,
+                        response_text=error_text,
+                    )
+
+    def _is_summary_valid(self, summary: str, original: str) -> bool:
+        if not summary or len(summary) < 60:
+            return False
+        # Check for Russian (presence of Cyrillic)
+        has_cyrillic = any('а' <= ch.lower() <= 'я' for ch in summary)
+        if not has_cyrillic:
+            return False
+        # Similarity check: avoid copies
+        try:
+            import difflib
+            ratio = difflib.SequenceMatcher(None, summary[:1000], original[:1000]).ratio()
+            if ratio > 0.80:
+                return False
+        except Exception:
+            pass
+        return True
+
+    def _simple_extractive_summary(self, content: str) -> str:
+        # Возьмём 3-4 первых информативных предложения до 600 символов
+        import re
+        sentences = re.split(r"(?<=[\.!?])\s+", content.strip())
+        picked = []
+        total = 0
+        for s in sentences:
+            if len(s) < 15:
+                continue
+            picked.append(s)
+            total += len(s)
+            if len(picked) >= 4 or total > 600:
+                break
+        text = " ".join(picked).strip()
+        return text[:700] + ('...' if len(text) > 700 else '')
 
     async def test_connection(self) -> bool:
         """Test AI API connectivity."""
