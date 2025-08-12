@@ -66,8 +66,8 @@ async def get_public_feed(
         if hide_ads:
             query = query.where(Article.is_advertisement != True)
 
-        # Order: non-ads first, then newest
-        query = query.order_by(Article.is_advertisement.asc(), desc(Article.published_at))
+        # Order: newest first (without advertisement bias)
+        query = query.order_by(desc(Article.published_at))
         
         # Apply pagination
         query = query.offset(offset).limit(limit)

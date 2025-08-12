@@ -663,8 +663,7 @@ class NewsOrchestrator:
                         else:
                             article.summary = content
                         
-                        if article.url:
-                            article.summary += f" <a href='{article.url}'>Читать оригинал</a>"
+
                         article.summary_processed = True  # Mark as processed even with fallback
                         print(f"  🔄 Using fallback summary (length: {len(article.summary)} chars)")
                 
@@ -762,7 +761,7 @@ class NewsOrchestrator:
                 
                 # Use fallback summary if needed
                 if not article.summary or article.summary == '':
-                    article.summary = f"{article.content or article.title} <a href='{article.url}'>Читать оригинал</a>"
+                    article.summary = article.content or article.title
                 
                 # Set default category on error if needed
                 if not article.category or article.category == '' or article.category == self._get_default_category():
@@ -799,7 +798,7 @@ class NewsOrchestrator:
                     return ai_summary
                 else:
                     # Fallback to RSS content
-                    return f"{article.content or article.title} <a href='{article.url}'>Читать оригинал</a>"
+                    return article.content or article.title
                     
             elif source_type == 'telegram':
                 # Telegram sources: avoid heavy AI extraction for Telegram domains (t.me/telegram.me)
@@ -828,14 +827,13 @@ class NewsOrchestrator:
                         self._update_article_publication_date(article, pub_date, 'Telegram')
                         ai_summary = ai_result.get('summary')
                         if ai_summary:
-                            # If AI managed to summarize external article, use it and add backlink
-                            return f"{ai_summary} <a href='{original_link}'>Читать оригинал</a>"
+                            # If AI managed to summarize external article, use it
+                            return ai_summary
                     except Exception as e:
                         print(f"  ⚠️ Skipping Telegram AI extraction (external link failed): {e}")
 
-                # Fallback: use Telegram preview content and link to original (message or external)
-                link = original_link or article.url
-                return f"{article.content or article.title} <a href='{link}'>Читать оригинал</a>"
+                # Fallback: use Telegram preview content
+                return article.content or article.title
                 
             elif source_type == 'reddit':
                 # Reddit sources: use AI to get full post content + comments context with metadata
@@ -852,7 +850,7 @@ class NewsOrchestrator:
                     return ai_summary
                 else:
                     # Fallback to reddit content
-                    return f"{article.content or article.title} <a href='{article.url}'>Читать оригинал</a>"
+                    return article.content or article.title
                     
             elif source_type == 'twitter':
                 # Twitter sources: extract publication date if URL is available
@@ -867,7 +865,7 @@ class NewsOrchestrator:
                         print(f"  ⚠️ Error extracting Twitter metadata: {e}")
                 
                 # Tweet content is usually complete, minimal processing
-                return f"{article.content or article.title} <a href='{article.url}'>Читать оригинал</a>"
+                return article.content or article.title
                 
             elif source_type == 'news_api':
                 # News API sources: use AI to get full article content with metadata
@@ -884,7 +882,7 @@ class NewsOrchestrator:
                     return ai_summary
                 else:
                     # Fallback to API content
-                    return f"{article.content or article.title} <a href='{article.url}'>Читать оригинал</a>"
+                    return article.content or article.title
                     
             else:
                 # Custom or unknown source types: use AI processing with metadata
@@ -901,12 +899,12 @@ class NewsOrchestrator:
                     return ai_summary
                 else:
                     # Fallback to original content
-                    return f"{article.content or article.title} <a href='{article.url}'>Читать оригинал</a>"
+                    return article.content or article.title
                     
         except Exception as e:
             print(f"  ⚠️ Error getting summary by source type: {e}")
             # Fallback to original content
-            return f"{article.content or article.title} <a href='{article.url}'>Читать оригинал</a>"
+            return article.content or article.title
     
     def _update_article_publication_date(self, article: Article, pub_date: str, source_type: str):
         """Update article publication date from extracted date string."""
@@ -973,10 +971,13 @@ class NewsOrchestrator:
     async def _generate_telegram_digest(self, db: AsyncSession, stats: Dict[str, Any]):
         """Generate Telegram digest from articles directly (like old version)."""
         try:
-            # Get today's articles by published date (all new articles, not limited)
+            # Get today's articles by published date (excluding advertisements)
             today = datetime.utcnow().date()
             articles_result = await db.execute(
-                select(Article).where(func.date(Article.published_at) == today)
+                select(Article).where(
+                    func.date(Article.published_at) == today,
+                    Article.is_advertisement != True  # Exclude advertisements from digest
+                )
                 .order_by(Article.published_at.desc())
                 # No limit - process all new articles for today
             )

@@ -15,31 +15,35 @@ class AdDetector:
 
     def __init__(self, enable_ai: bool = True):
         self.enable_ai = enable_ai
-        # Keyword markers in multiple languages (Russian/English/Serbian/Generic)
-        self.keyword_markers: List[str] = [
-            # Russian
-            r"\bреклама\b", r"\bпартнер(?:ск|скaя|ская)?\b", r"\bакци\w*\b", r"\bскидк\w*\b",
-            r"\bпромокод\b", r"\bоферт[ае]\b", r"\bзаказ\w*\b", r"\bкуп\w*\b",
-            r"\bполуч\w*\b", r"\bв\s+подарок\b", r"\bбесплатн\w*\b",
-            r"\bподписывайтесь\b", r"\bподписка\b", r"\bмагазин\b", r"\bбренд\b",
-            # English
-            r"\bsponsored\b", r"\bpromotion\b", r"\bpromo\b", r"\badvert\w*\b", r"\baffiliate\b",
-            r"\boffer\b", r"\bdiscount\b", r"\bsale\b", r"\bbuy now\b", r"\buse code\b",
-            r"\blimited time\b", r"\bsubscribe\b", r"\bsign up\b", r"\bshop now\b",
-            # Serbian (Latin/Cyrillic common terms)
-            r"\breklam[ai]\b", r"\bpopust\b", r"\bpromocij\w*\b", r"\bakcij\w*\b",
+        
+        # Strong advertisement markers (high confidence)
+        self.strong_ad_markers: List[str] = [
+            # Explicit advertisement words
+            r"\bреклама\b", r"\bрекламн\w*\b", r"\bsponsored\b", r"\badvert\w*\b",
+            r"\breklam[ai]\b", r"\bпартнерск\w*\s+материал\b",
+            # Direct sales language
+            r"\bкупи\w*\s+сейчас\b", r"\bbuy now\b", r"\bshop now\b", r"\bзаказать\s+сейчас\b",
+            r"\bпромокод\b", r"\buse code\b", r"\bcoupon\b", r"\bскидка\s+\d+%\b",
+        ]
+        
+        # Weak advertisement indicators (context dependent)
+        self.weak_ad_markers: List[str] = [
+            # Business/service offers
+            r"\bоферт[ае]\b", r"\boffer\b", r"\bакци[яи]\b", r"\bpromotion\b",
+            r"\bбесплатн\w*\b", r"\bfree\b", r"\bв\s+подарок\b",
+            # Subscription/contact encouragement
+            r"\bподписывайтесь\b", r"\bsubscribe\b", r"\bсвязаться\b", r"\bcontact us\b",
         ]
 
-        # URL and param markers
+        # URL and param markers (strong indicators)
         self.url_markers: List[str] = [
             r"utm_(source|medium|campaign)", r"aff(id|iliate)?=", r"ref=", r"coupon=", r"promo=",
         ]
 
-        # Strong CTA phrases
-        self.cta_markers: List[str] = [
-            r"\bзаказ\w*\b", r"\bзакажи\w*\b", r"\bоформи\w*\s+заказ\b", r"\bполуч\w*\b",
-            r"\blearn more\b", r"\bget your\b", r"\bjoin now\b", r"\bapply now\b", r"\bbook now\b",
-            r"\bскачай\b", r"\bshop now\b", r"\bbuy now\b",
+        # News source domains (lower ad probability)
+        self.news_domains: List[str] = [
+            "balkaninsight.com", "biznis.rs", "rts.rs", "b92.net", "politika.rs",
+            "blic.rs", "novosti.rs", "tanjug.rs", "n1info.rs", "danas.rs"
         ]
 
     async def detect(self, *, title: Optional[str], content: Optional[str], url: Optional[str]) -> Dict[str, Any]:
@@ -59,47 +63,73 @@ class AdDetector:
 
         marker_hits: List[str] = []
         score = 0.0
-
-        # Keyword markers
-        for pattern in self.keyword_markers:
+        
+        # Check if it's from a news source
+        is_news_source = any(domain in url_str for domain in self.news_domains)
+        
+        # Strong advertisement markers (high weight)
+        for pattern in self.strong_ad_markers:
             if re.search(pattern, text, flags=re.IGNORECASE):
-                marker_hits.append(f"kw:{pattern}")
-                score += 0.12
+                marker_hits.append(f"strong_ad:{pattern}")
+                score += 0.4  # High weight for explicit ad markers
 
-        # CTA markers
-        for pattern in self.cta_markers:
+        # Weak advertisement markers (context dependent)
+        for pattern in self.weak_ad_markers:
             if re.search(pattern, text, flags=re.IGNORECASE):
-                marker_hits.append(f"cta:{pattern}")
-                score += 0.15
+                marker_hits.append(f"weak_ad:{pattern}")
+                # Lower weight for news sources
+                weight = 0.1 if is_news_source else 0.2
+                score += weight
 
-        # URL markers
+        # URL markers (strong indicators)
         for pattern in self.url_markers:
             if pattern in url_str:
                 marker_hits.append(f"url:{pattern}")
-                score += 0.1
+                score += 0.3
 
-        # Heavy punctuation / emojis (often in promos)
-        exclamations = text.count("!")
-        if exclamations >= 3:
-            marker_hits.append("punct:exclamations>=3")
-            score += 0.08
+        # Personal service indicators (high ad probability)
+        personal_patterns = [
+            r"я\s+\w+,\s+\w+", r"i am \w+", r"моя\s+компания", r"мой\s+бизнес",
+            r"наши\s+услуги", r"our services", r"обращайтесь", r"call me",
+            r"предлагаю\s+услуги", r"опыт\s+\d+\s+лет", r"профессиональ\w+\s+услуги"
+        ]
+        for pattern in personal_patterns:
+            if re.search(pattern, text, flags=re.IGNORECASE):
+                marker_hits.append(f"personal:{pattern}")
+                score += 0.35
 
-        # Percent signs (discounts)
-        perc = text.count("%")
-        if perc >= 1:
-            marker_hits.append("symbol:%")
-            score += 0.06
+        # Event announcements (medium ad probability)
+        event_patterns = [
+            r"\d{1,2}\s+\w+\s+в\s+\d{1,2}:\d{2}", r"приходите", r"участвуйте",
+            r"регистрация", r"билеты", r"tickets", r"register"
+        ]
+        for pattern in event_patterns:
+            if re.search(pattern, text, flags=re.IGNORECASE):
+                marker_hits.append(f"event:{pattern}")
+                score += 0.15
 
-        # Capitalized SALE words (in Latin alph.)
-        if re.search(r"\b(SALE|DEAL|OFFER)\b", text):
-            marker_hits.append("kw:SALE")
-            score += 0.1
+        # Reduce score for news-like language
+        news_indicators = [
+            r"согласно\s+исследованию", r"по\s+данным", r"эксперты\s+считают",
+            r"according to", r"experts say", r"research shows", r"правительство",
+            r"министерство", r"парламент", r"government", r"ministry"
+        ]
+        for pattern in news_indicators:
+            if re.search(pattern, text, flags=re.IGNORECASE):
+                marker_hits.append(f"news_indicator:{pattern}")
+                score -= 0.1  # Reduce ad probability
+
+        # Apply news source penalty
+        if is_news_source:
+            marker_hits.append("source:news_domain")
+            score *= 0.6  # Reduce score by 40% for news sources
 
         # Normalize score to [0, 1]
-        score = min(1.0, score)
+        score = max(0.0, min(1.0, score))
 
-        # Heuristic decision first
-        heuristic_is_ad = score >= 0.3 or ("kw:реклама" in marker_hits)
+        # Adjust heuristic threshold based on source
+        threshold = 0.25 if is_news_source else 0.35
+        heuristic_is_ad = score >= threshold
         if heuristic_is_ad and (not self.enable_ai or score >= 0.6):
             return {
                 'is_advertisement': True,
@@ -159,15 +189,40 @@ class AdDetector:
         return 'product_promotion'
 
     def _build_ai_prompt(self, *, title: Optional[str], content: Optional[str], url: Optional[str]) -> str:
-        """Build a compact classification prompt for AI."""
+        """Build an improved classification prompt for AI."""
         t = (title or '').strip()
         c = (content or '').strip()[:1200]
         u = (url or '').strip()
-        return (
-            "Classify if the following article is an advertisement. Respond JSON with keys: "
-            "is_ad (true/false), confidence (0..1), ad_type, reason, markers (array).\n"
-            f"Title: {t}\nURL: {u}\nText: {c}"
-        )
+        
+        # Determine source context
+        is_news_source = any(domain in u.lower() for domain in self.news_domains)
+        source_context = "from a NEWS source" if is_news_source else "from an UNKNOWN source"
+        
+        return f"""You are an expert at distinguishing news articles from advertisements.
+
+CONTEXT: This article is {source_context}.
+
+GUIDELINES:
+- NEWS articles report facts, events, research, government actions, economic data
+- ADVERTISEMENTS promote products, services, events, or try to attract customers
+- Articles mentioning prices/statistics in NEWS context are still NEWS, not ads
+- Personal service announcements ("I am [name], [profession]") are usually ADS
+- Event announcements with registration/tickets are usually ADS
+- Government/research reports are NEWS even if they mention costs
+
+ARTICLE TO CLASSIFY:
+Title: {t}
+URL: {u}
+Content: {c}
+
+Respond in JSON format:
+{{
+  "is_ad": true/false,
+  "confidence": 0.0-1.0,
+  "ad_type": "personal_service|event_promotion|product_promotion|news_article",
+  "reason": "Brief explanation of your decision",
+  "markers": ["list", "of", "key", "indicators"]
+}}"""
 
     def _parse_ai_result(self, response: Any) -> Optional[Dict[str, Any]]:
         """Parse AI JSON-style answer from completion API."""

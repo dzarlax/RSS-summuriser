@@ -718,6 +718,11 @@ class TelegramSource(BaseSource):
         content = re.sub(r'\n{3,}', '\n\n', content)
         content = re.sub(r'[ \t]+', ' ', content)
         
+        # Fix numeric ranges that got split across lines (e.g., "15\n20%" -> "15-20%")
+        content = re.sub(r'(\d+)\s*\n\s*(\d+%)', r'\1-\2', content)
+        content = re.sub(r'(\d+)\s*\n\s*(\d+)', r'\1-\2', content)  # General number-number pairs
+        content = re.sub(r'(\d+)\s*\n\s*-\s*(\d+)', r'\1-\2', content)  # Cases with existing dash
+        
         # Remove navigation text
         content = re.sub(r'Please open Telegram to view this post.*?VIEW IN TELEGRAM', '', content, flags=re.IGNORECASE)
         content = re.sub(r'\d+\s+views?\s+\d{2}:\d{2}', '', content)  # Remove "X views XX:XX"
