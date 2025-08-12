@@ -21,24 +21,32 @@ WORKDIR /app
 # Install additional system dependencies (PostgreSQL client)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     postgresql-client \
+    curl \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-# Install Python dependencies
+# Copy requirements first (better layer caching)
 COPY requirements.txt .
+
+# Install Python dependencies (this layer will be cached if requirements.txt doesn't change)
 RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
 
-# Install Playwright browsers
+# Install Playwright browsers (this is expensive and should be cached)
 RUN playwright install chromium chromium-headless-shell --with-deps
 
-# Копирование приложения
-COPY news_aggregator/ ./news_aggregator/
-COPY web/ ./web/
+# Create directories with proper permissions
+RUN mkdir -p /app/logs /app/data /app/cache /app/backups /app/exports && \
+    chmod 755 /app/logs /app/data /app/cache /app/backups /app/exports
+
+# Copy static files that rarely change first
 COPY db/ ./db/
 COPY scripts/ ./scripts/
 
-# Create directories and set permissions
-RUN mkdir -p /app/logs /app/data /app/cache
+# Copy web assets (change less frequently than main code)
+COPY web/ ./web/
+
+# Copy main application code LAST (most frequently changed)
+COPY news_aggregator/ ./news_aggregator/
 
 EXPOSE 8000
 

@@ -9,3 +9,4 @@ venv3
 src/__pycache__
 venv_news
 __pycache__
+v2/docker-compose.dev.yml

@@ -8,12 +8,21 @@ help: ## Show this help message
 
 ##@ Development
 
-dev: ## Start development environment
+check-data: ## Check existing data in volumes
+	@echo "🔍 Checking existing data..."
+	@echo "📦 PostgreSQL data volume:"
+	@docker run --rm -v v2_postgres_data:/data alpine sh -c "ls -la /data/ | head -10" 2>/dev/null || echo "No PostgreSQL data found"
+	@echo ""
+	@echo "💾 App cache volume:"
+	@docker run --rm -v v2_app_cache:/data alpine sh -c "ls -la /data/ | head -10" 2>/dev/null || echo "No cache data found"
+
+dev: ## Start development environment (with hot reload)
 	docker-compose -f docker-compose.dev.yml up -d
 	@echo "🚀 Development environment started!"
 	@echo "📱 Admin: http://localhost:8000/admin"
 	@echo "📚 API Docs: http://localhost:8000/docs"
-	@echo "🗄️ Database: http://localhost:8080"
+	@echo "🗄️ Database: localhost:5432"
+	@echo "⚡ Hot reload enabled - code changes apply automatically!"
 
 stop: ## Stop all containers
 	docker-compose -f docker-compose.dev.yml down
@@ -140,6 +149,9 @@ db-size: ## Show database size
 volumes-list: ## List Docker volumes
 	@echo "📦 Docker volumes:"
 	@docker volume ls | grep v2
+	@echo ""
+	@echo "📊 Volume sizes:"
+	@docker system df -v | grep v2 || true
 
 volumes-backup: ## Backup Docker volumes
 	@echo "💾 Backing up Docker volumes..."
