@@ -1,7 +1,7 @@
 """AI API client for article summarization using Constructor KM."""
 
 import json
-from typing import Optional, Dict
+from typing import Optional, Dict, Any
 
 from ..config import settings
 from ..core.http_client import get_http_client
@@ -940,6 +940,154 @@ Focus on detecting content that's primarily promotional rather than informationa
             return summary is not None
         except Exception:
             return False
+
+    async def analyze_article_complete(self, title: str, content: str, url: str) -> Dict[str, Any]:
+        """
+        Complete article analysis with combined prompts - categorization, summarization, 
+        advertisement detection, and date extraction in one API call.
+        
+        Args:
+            title: Article title
+            content: Article content
+            url: Article URL
+            
+        Returns:
+            Dictionary with all analysis results
+        """
+        if not content or len(content.strip()) < 50:
+            return self._get_fallback_analysis()
+        
+        try:
+            # Build combined prompt
+            prompt = self._build_combined_analysis_prompt(title, content, url)
+            
+            print(f"  🧠 Combined AI analysis for article...")
+            print(f"  📄 Content length: {len(content)} characters")
+            print(f"  📝 Title: {title[:100]}...")
+            
+            # Make API request
+            response_data = await self._make_raw_ai_request(prompt)
+            response = ''
+            if response_data and 'choices' in response_data and response_data['choices']:
+                response = response_data['choices'][0]['message']['content']
+            
+            if not response:
+                print(f"  ❌ Empty response from AI")
+                return self._get_fallback_analysis()
+            
+            # Parse JSON response
+            try:
+                result = json.loads(response.strip())
+                print(f"  ✅ Combined analysis successful")
+                
+                # Validate and clean results
+                return self._validate_analysis_result(result)
+                
+            except json.JSONDecodeError as e:
+                print(f"  ⚠️ JSON parsing error: {e}")
+                print(f"  📄 Raw response: {response[:200]}...")
+                return self._parse_fallback_response(response)
+                
+        except Exception as e:
+            print(f"  ❌ Error in combined analysis: {e}")
+            return self._get_fallback_analysis()
+    
+    def _build_combined_analysis_prompt(self, title: str, content: str, url: str) -> str:
+        """Build combined prompt for all analysis tasks."""
+        # Limit content size for cost optimization
+        content_preview = content[:1500] + ("..." if len(content) > 1500 else "")
+        
+        # Determine if this might be from a news source
+        is_news_source = any(domain in url.lower() for domain in [
+            'balkaninsight.com', 'biznis.rs', 'rts.rs', 'b92.net', 
+            'politika.rs', 'blic.rs', 'novosti.rs', 'euronews.rs'
+        ])
+        
+        source_context = "from a NEWS source" if is_news_source else "from an UNKNOWN source"
+        
+        return f"""Analyze this article and provide complete analysis in JSON format.
+
+ARTICLE INFORMATION:
+Title: {title}
+URL: {url}
+Source: {source_context}
+Content: {content_preview}
+
+ANALYSIS TASKS:
+1. CATEGORIZATION: Choose the most appropriate category
+2. SUMMARIZATION: Create 2-3 sentence summary in Russian
+3. ADVERTISEMENT DETECTION: Determine if content is promotional
+4. DATE EXTRACTION: Find publication date if mentioned
+
+GUIDELINES:
+- NEWS articles report facts, events, research, government actions
+- ADVERTISEMENTS promote products, services, events, or attract customers  
+- News sources have lower advertisement probability
+- Prices/statistics in news context are still news, not ads
+- Personal service announcements are usually advertisements
+
+RESPONSE (JSON only):
+{{
+    "category": "Business|Tech|Science|Serbia|Other",
+    "summary": "краткое содержание статьи на русском языке...",
+    "is_advertisement": true/false,
+    "ad_type": "product_promotion|service_offer|event_promotion|personal_service|news_article",
+    "ad_confidence": 0.0-1.0,
+    "ad_reasoning": "brief explanation of advertisement decision",
+    "publication_date": "YYYY-MM-DD or null",
+    "confidence": 0.0-1.0
+}}"""
+    
+    def _validate_analysis_result(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate and clean analysis result."""
+        return {
+            'summary': result.get('summary', '').strip() or None,
+            'category': result.get('category', 'Other'),
+            'is_advertisement': bool(result.get('is_advertisement', False)),
+            'ad_type': result.get('ad_type', 'news_article'),
+            'ad_confidence': max(0.0, min(1.0, float(result.get('ad_confidence', 0.0)))),
+            'ad_reasoning': result.get('ad_reasoning', '').strip() or 'Combined analysis',
+            'publication_date': result.get('publication_date'),
+            'confidence': max(0.0, min(1.0, float(result.get('confidence', 0.8))))
+        }
+    
+    def _get_fallback_analysis(self) -> Dict[str, Any]:
+        """Get fallback analysis when AI fails."""
+        return {
+            'summary': None,
+            'category': 'Other',
+            'is_advertisement': False,
+            'ad_type': 'news_article',
+            'ad_confidence': 0.0,
+            'ad_reasoning': 'Fallback analysis - AI unavailable',
+            'publication_date': None,
+            'confidence': 0.1
+        }
+    
+    def _parse_fallback_response(self, response: str) -> Dict[str, Any]:
+        """Try to parse non-JSON response as fallback."""
+        result = self._get_fallback_analysis()
+        
+        # Try to extract some info from text response
+        response_lower = response.lower()
+        
+        # Extract category
+        for category in ['business', 'tech', 'science', 'serbia']:
+            if category in response_lower:
+                result['category'] = category.title()
+                break
+        
+        # Extract advertisement detection
+        if any(word in response_lower for word in ['advertisement', 'promotional', 'marketing', 'ad']):
+            result['is_advertisement'] = True
+            result['ad_confidence'] = 0.7
+        
+        # Use first sentences as summary
+        sentences = response.split('.')[:3]
+        if sentences:
+            result['summary'] = '. '.join(sentences[:2]).strip() + '.'
+        
+        return result
 
 
 # Global AI client instance
