@@ -67,8 +67,15 @@ class DatabaseQueueManager:
     async def start(self):
         """Start the database queue system."""
         if self.running:
-            logger.warning("Database queue already running")
-            return
+            # Check if workers are actually running
+            active_workers = [task for task in self.worker_tasks if not task.done()]
+            if len(active_workers) == (self.read_workers + self.write_workers):
+                logger.debug("Database queue already running with active workers")
+                return
+            else:
+                logger.warning(f"Database queue marked as running but only {len(active_workers)} workers active, restarting...")
+                await self.stop()
+                # Continue to restart
             
         self.running = True
         
@@ -272,6 +279,7 @@ class DatabaseQueueManager:
             
     def get_stats(self) -> Dict[str, Any]:
         """Get queue statistics."""
+        active_workers = [task for task in self.worker_tasks if not task.done()]
         return {
             **self.stats,
             'read_queue_size': self.read_queue.qsize(),
@@ -279,7 +287,10 @@ class DatabaseQueueManager:
             'read_connections_available': self.read_semaphore._value,
             'write_connections_available': self.write_semaphore._value,
             'total_workers': len(self.worker_tasks),
-            'running': self.running
+            'active_workers': len(active_workers),
+            'expected_workers': self.read_workers + self.write_workers,
+            'running': self.running,
+            'healthy': self.running and len(active_workers) == (self.read_workers + self.write_workers)
         }
 
 

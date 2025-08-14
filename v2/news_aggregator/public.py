@@ -32,6 +32,15 @@ async def public_feed_alias(request: Request):
     })
 
 
+@router.get("/list", response_class=HTMLResponse)
+async def public_list_view(request: Request):
+    """List view for news feed."""
+    return templates.TemplateResponse("public/list.html", {
+        "request": request,
+        "title": "Лента новостей"
+    })
+
+
 @router.get("/api/public/feed") 
 async def get_public_feed(
     limit: int = Query(20, ge=1, le=1000),

@@ -27,64 +27,19 @@ class AIClient:
         
         self.content_extractor = None
     
-    @cached(ttl=86400, key_prefix="ai_summary")
-    async def get_article_summary(self, article_url: str) -> Optional[str]:
-        """
-        Get AI summary for article URL using Constructor KM API with 4.1-mini.
-        
-        Args:
-            article_url: URL of the article to summarize
-            
-        Returns:
-            Article summary text or None if failed
-        """
-        if not article_url:
-            return None
-        
-        try:
-            print(f"  🔗 Extracting content from URL: {article_url}")
-            # Step 1: Extract article content using enhanced extractor with metadata
-            if not self.content_extractor:
-                # Import dynamically to avoid circular import
-                from .content_extractor import get_content_extractor
-                self.content_extractor = await get_content_extractor()
-            
-            # Try AI-enhanced extraction first
-            try:
-                metadata_result = await self.content_extractor.extract_article_content_with_metadata(article_url)
-                content = metadata_result.get('content')
-                pub_date = metadata_result.get('publication_date')
-                full_url = metadata_result.get('full_article_url')
-                
-                if pub_date:
-                    print(f"  📅 AI found publication date: {pub_date}")
-                if full_url:
-                    print(f"  🔗 AI followed link to full article: {full_url}")
-                    
-            except Exception as e:
-                print(f"  ⚠️ AI-enhanced extraction failed, using fallback: {e}")
-                content = None
-            
-            # If AI-enhanced extraction didn't get content, try standard extraction
-            if not content:
-                content = await self.content_extractor.extract_article_content(article_url)
-            
-            if not content:
-                print(f"  ❌ Could not extract content from {article_url}")
-                return None
-            
-            content_length = len(content)
-            print(f"  📝 Extracted content: {content_length} characters")
-            
-            # Step 2: Summarize extracted content
-            summary = await self._summarize_content(content)
-            return summary
-        
-        except APIError:
-            raise
-        except Exception as e:
-            print(f"  ⚠️ Error getting summary for {article_url}: {e}")
-            raise APIError(f"Failed to get summary for {article_url}: {e}")
+    # ============================================================================
+    # DEPRECATED: get_article_summary() - Replaced by analyze_article_complete()
+    # ============================================================================
+    # This method has been replaced by the combined analysis approach which reduces
+    # AI API calls by ~75% by doing summarization, categorization, and ad detection
+    # in a single request. Only kept for compatibility - use analyze_article_complete() instead.
+    #
+    # @cached(ttl=86400, key_prefix="ai_summary")
+    # async def get_article_summary(self, article_url: str) -> Optional[str]:
+    #     """DEPRECATED: Use analyze_article_complete() instead for combined analysis."""
+    #     # Method body commented out - was doing content extraction and summarization
+    #     # Now replaced by more efficient combined approach
+    #     pass
     
     async def get_article_summary_with_metadata(self, article_url: str) -> Dict[str, Optional[str]]:
         """
@@ -933,11 +888,12 @@ Focus on detecting content that's primarily promotional rather than informationa
         return text[:700] + ('...' if len(text) > 700 else '')
 
     async def test_connection(self) -> bool:
-        """Test AI API connectivity."""
+        """Test AI API connectivity with minimal request."""
         try:
-            test_url = "https://example.com"  # Safe test URL
-            summary = await self.get_article_summary(test_url)
-            return summary is not None
+            # Simple test prompt to check API availability (avoids heavy content extraction)
+            test_prompt = "Test connectivity. Respond briefly."
+            response = await self._make_raw_ai_request(test_prompt, model=self.summarization_model)
+            return bool(response and 'choices' in response and response['choices'])
         except Exception:
             return False
 

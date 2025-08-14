@@ -301,8 +301,16 @@
                         <span class="value" id="active-workers">-</span>
                     </div>
                     <div class="queue-detail">
+                        <span class="label">Статус очереди:</span>
+                        <span class="value" id="queue-health">-</span>
+                    </div>
+                    <div class="queue-detail">
                         <span class="label">Всего обработано:</span>
                         <span class="value" id="total-processed">-</span>
+                    </div>
+                    <div class="queue-detail">
+                        <span class="label">Пул БД соединений:</span>
+                        <span class="value" id="db-pool-status">-</span>
                     </div>
                 </div>
             </section>
@@ -1050,6 +1058,27 @@
     color: var(--text-color);
 }
 
+.queue-detail .value small {
+    font-weight: 400;
+    color: var(--text-muted);
+    font-size: 0.8em;
+}
+
+#queue-health {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+#db-pool-status {
+    font-family: monospace;
+    font-size: 0.8em;
+    background: var(--surface-hover);
+    padding: 0.2rem 0.4rem;
+    border-radius: var(--border-radius-sm);
+    border: 1px solid var(--border-color);
+}
+
 @media (max-width: 768px) {
     .queue-stats {
         grid-template-columns: 1fr;
@@ -1504,9 +1533,20 @@ async function loadQueueStats() {
             document.getElementById('available-connections').textContent = 
                 `Ч: ${stats.read_connections_available || 0}, З: ${stats.write_connections_available || 0}`;
             document.getElementById('active-workers').textContent = 
-                `${stats.total_workers || 0} (${stats.running ? 'активны' : 'остановлены'})`;
+                `${stats.active_workers || 0}/${stats.expected_workers || 0}`;
+            
+            // Queue health status with visual indicator
+            const healthStatus = stats.healthy ? '🟢 Здорова' : '🔴 Проблемы';
+            const healthDetails = stats.running ? 'работает' : 'остановлена';
+            document.getElementById('queue-health').innerHTML = 
+                `${healthStatus} <small>(${healthDetails})</small>`;
+                
             document.getElementById('total-processed').textContent = 
                 `${stats.total_processed || 0}`;
+                
+            // Database pool status  
+            document.getElementById('db-pool-status').textContent = 
+                stats.db_pool_status || 'Недоступно';
                 
         } else {
             // Show error state

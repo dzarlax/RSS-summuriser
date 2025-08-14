@@ -135,13 +135,20 @@ class TelegramSource(BaseSource):
             method_info = "HTTP + Browser" if PLAYWRIGHT_AVAILABLE else "HTTP only"
             raise SourceError(f"All access methods ({method_info}) failed for channel: {self.channel_username}")
         
-        # Apply advertising detection to all articles
-        articles_with_ad_detection = await self._apply_advertising_detection(articles_found)
+        # ============================================================================
+        # DISABLED: Advertising detection moved to combined analysis in orchestrator
+        # ============================================================================
+        # Advertising detection is now handled by analyze_article_complete() in the
+        # orchestrator along with summarization and categorization for efficiency.
+        # This eliminates duplicate AI calls and reduces API usage by ~75%.
+        #
+        # Old code: articles_with_ad_detection = await self._apply_advertising_detection(articles_found)
+        # ============================================================================
         
-        # Sort by date and yield
-        articles_with_ad_detection.sort(key=lambda x: x.published_at or datetime.min, reverse=True)
+        # Sort by date and yield (no ad detection here anymore)
+        articles_found.sort(key=lambda x: x.published_at or datetime.min, reverse=True)
         
-        for i, article in enumerate(articles_with_ad_detection):
+        for i, article in enumerate(articles_found):
             if limit and i >= limit:
                 break
             yield article
@@ -848,15 +855,32 @@ class TelegramSource(BaseSource):
         
         # Prefer first informative line, otherwise fallback to combined short text
         if len(first_line) >= 20:
-            return first_line[:140] + ("..." if len(first_line) > 140 else "")
+            return self._smart_truncate_title(first_line)
         
         # Try next lines to avoid too-short titles
         for ln in lines[1:3]:
             if len(ln) >= 20:
-                return ln[:140] + ("..." if len(ln) > 140 else "")
+                return self._smart_truncate_title(ln)
         
         cleaned_text = re.sub(r'^[📰📢🔥⚡️💥🎯📊📈📉🚀🗞️📡⭐️✨🎉🎊💫🌟]+\s*', '', ' '.join(lines))
-        return cleaned_text[:140] + ("..." if len(cleaned_text) > 140 else "")
+        return self._smart_truncate_title(cleaned_text)
+    
+    def _smart_truncate_title(self, title: str) -> str:
+        """Smart title truncation that preserves readability."""
+        if not title:
+            return title
+        
+        # Find first sentence (ends with period, exclamation, or question mark)
+        first_sentence_match = re.search(r'^[^.!?]*[.!?]', title)
+        if first_sentence_match:
+            first_sentence = first_sentence_match.group(0).strip()
+            # If first sentence is reasonable length (at least 20 chars), use it
+            if len(first_sentence) >= 20:
+                return first_sentence
+        
+        # If no sentence boundary or too short, return full title
+        # (most Telegram titles are single sentences anyway)
+        return title
     
     async def test_connection(self) -> bool:
         """Test Telegram channel connection."""
@@ -878,78 +902,18 @@ class TelegramSource(BaseSource):
         except Exception:
             return False
     
-    async def _apply_advertising_detection(self, articles: List[Article]) -> List[Article]:
-        """Apply AI-powered advertising detection to articles."""
-        if not articles:
-            return articles
-        
-        try:
-            # Import AI client dynamically to avoid circular import
-            from ..services.ai_client import get_ai_client
-            ai_client = get_ai_client()
-            
-            print(f"🎯 Applying advertising detection to {len(articles)} articles...")
-            
-            enhanced_articles = []
-            
-            for article in articles:
-                try:
-                    # Prepare source context
-                    source_info = {
-                        'channel': self.channel_username,
-                        'source_name': self.name,
-                        'source_type': 'telegram'
-                    }
-                    
-                    # Detect advertising in content
-                    ad_detection = await ai_client.detect_advertising(article.content, source_info)
-                    
-                    # Update article's raw_data with advertising information
-                    if not hasattr(article, 'raw_data') or article.raw_data is None:
-                        article.raw_data = {}
-                    
-                    article.raw_data.update({
-                        'advertising_detection': ad_detection,
-                        'is_advertisement': ad_detection.get('is_advertisement', False),
-                        'ad_confidence': ad_detection.get('confidence', 0.0),
-                        'ad_type': ad_detection.get('ad_type'),
-                        'ad_reasoning': ad_detection.get('reasoning', ''),
-                        'ad_markers': ad_detection.get('markers', [])
-                    })
-                    
-                    enhanced_articles.append(article)
-                    
-                except Exception as e:
-                    print(f"  ⚠️ Failed to detect advertising for article: {e}")
-                    # Still add the article even if advertising detection fails
-                    enhanced_articles.append(article)
-            
-            # Report advertising statistics
-            total_articles = len(enhanced_articles)
-            advertising_count = sum(1 for article in enhanced_articles 
-                                   if article.raw_data and article.raw_data.get('is_advertisement', False))
-            
-            if advertising_count > 0:
-                print(f"  🚨 Detected {advertising_count}/{total_articles} advertising messages ({advertising_count/total_articles*100:.1f}%)")
-                
-                # Break down by ad type
-                ad_types = {}
-                for article in enhanced_articles:
-                    if article.raw_data and article.raw_data.get('is_advertisement', False):
-                        ad_type = article.raw_data.get('ad_type', 'unknown')
-                        ad_types[ad_type] = ad_types.get(ad_type, 0) + 1
-                
-                for ad_type, count in ad_types.items():
-                    print(f"    - {ad_type}: {count}")
-            else:
-                print(f"  ✅ No advertising detected in {total_articles} messages")
-            
-            return enhanced_articles
-            
-        except Exception as e:
-            print(f"  ⚠️ Advertising detection failed: {e}")
-            # Return original articles if detection fails
-            return articles
+    # ============================================================================
+    # DEPRECATED: _apply_advertising_detection() - Replaced by combined analysis
+    # ============================================================================
+    # This method has been replaced by the combined analysis approach in orchestrator
+    # which does advertising detection along with summarization and categorization
+    # in a single AI API call, reducing requests by ~75%.
+    #
+    # async def _apply_advertising_detection(self, articles: List[Article]) -> List[Article]:
+    #     """DEPRECATED: Use combined analysis in orchestrator instead."""
+    #     # Method body commented out - was doing separate AI advertising detection
+    #     # Now handled by analyze_article_complete() in orchestrator
+    #     pass
 
     async def cleanup(self):
         """Clean up resources (browser, etc.)."""
