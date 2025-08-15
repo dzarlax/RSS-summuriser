@@ -49,6 +49,36 @@
     </div>
 </div>
 
+<!-- Summary Modal -->
+<div id="summaryModal" class="modal-overlay">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h2 class="modal-title">
+                <span id="modalDate">📅 Дата</span>
+                <span id="modalCategoryBadge" class="modal-category-badge">Категория</span>
+            </h2>
+            <button class="modal-close" onclick="closeSummaryModal()">×</button>
+        </div>
+        
+        <div class="modal-body">
+            <div class="modal-meta">
+                <div id="modalArticlesCount">📰 Количество статей</div>
+                <div id="modalUpdatedTime">Обновлено</div>
+            </div>
+            <div id="modalSummaryText" class="modal-summary-text"></div>
+        </div>
+        
+        <div class="modal-actions">
+            <button id="copyBtn" class="btn-copy" onclick="copySummaryText()">
+                📋 Копировать текст
+            </button>
+            <button class="btn-read-full" onclick="closeSummaryModal()">
+                Закрыть
+            </button>
+        </div>
+    </div>
+</div>
+
 <style>
 .summaries-grid {
     display: grid;
@@ -106,14 +136,59 @@
     line-height: 1.6;
     color: #333;
     margin-bottom: 15px;
+    max-height: 120px;
+    overflow: hidden;
+    position: relative;
+}
+
+.summary-text.truncated::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 30px;
+    background: linear-gradient(transparent, white);
+    pointer-events: none;
+}
+
+.summary-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-top: 10px;
+    gap: 15px;
 }
 
 .summary-meta {
+    flex: 1;
     display: flex;
-    justify-content: space-between;
-    align-items: center;
+    flex-direction: column;
+    gap: 5px;
     font-size: 12px;
     color: #666;
+}
+
+.btn-read-full {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.btn-read-full:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
 }
 
 .articles-count {
@@ -168,6 +243,190 @@
 .no-summaries h3 {
     margin-bottom: 10px;
     color: #333;
+}
+
+/* Modal Styles */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(5px);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+}
+
+.modal-overlay.show {
+    opacity: 1;
+    visibility: visible;
+}
+
+.modal-content {
+    background: white;
+    border-radius: 16px;
+    max-width: 900px;
+    width: 100%;
+    max-height: 90vh;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    transform: translateY(20px) scale(0.95);
+    transition: all 0.3s ease;
+}
+
+.modal-overlay.show .modal-content {
+    transform: translateY(0) scale(1);
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid #eee;
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border-radius: 16px 16px 0 0;
+}
+
+.modal-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #2c3e50;
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.modal-category-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 6px 12px;
+    border-radius: 16px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: white;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    cursor: pointer;
+    color: #6c757d;
+    padding: 8px;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.modal-close:hover {
+    background: rgba(0, 0, 0, 0.1);
+    color: #495057;
+}
+
+.modal-body {
+    padding: 24px;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.modal-summary-text {
+    font-size: 1rem;
+    line-height: 1.7;
+    color: #444;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.modal-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid #f0f0f0;
+    font-size: 0.9rem;
+    color: #666;
+}
+
+.modal-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+    padding: 20px 24px;
+    border-top: 1px solid #eee;
+    background: #fafbfc;
+    border-radius: 0 0 16px 16px;
+}
+
+.btn-copy {
+    background: white;
+    color: #495057;
+    border: 1px solid #dee2e6;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-copy:hover {
+    background: #f8f9fa;
+    border-color: #adb5bd;
+}
+
+.btn-copy.copied {
+    background: #d4edda;
+    color: #155724;
+    border-color: #c3e6cb;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .modal-content {
+        max-width: none;
+        margin: 10px;
+        max-height: 95vh;
+    }
+    
+    .modal-header {
+        padding: 16px 20px;
+    }
+    
+    .modal-body {
+        padding: 20px;
+        max-height: 65vh;
+    }
+    
+    .modal-title {
+        font-size: 1.1rem;
+    }
+    
+    .modal-actions {
+        flex-direction: column;
+        gap: 8px;
+        padding: 16px 20px;
+    }
+    
+    .btn-copy {
+        justify-content: center;
+    }
 }
 </style>
 
@@ -263,13 +522,22 @@ function displaySummaries(summaries) {
     }
     
     container.innerHTML = summaries.map(summary => createSummaryCard(summary)).join('');
+    
+    // Add event listeners to buttons
+    attachModalButtonListeners();
 }
 
 function appendSummaries(summaries) {
     const container = document.getElementById('summaries-container');
     const newCards = summaries.map(summary => createSummaryCard(summary)).join('');
     container.insertAdjacentHTML('beforeend', newCards);
+    
+    // Add event listeners to new buttons
+    attachModalButtonListeners();
 }
+
+// Store summaries data for modal access
+let summariesData = {};
 
 function createSummaryCard(summary) {
     const date = new Date(summary.date).toLocaleDateString('ru-RU', {
@@ -280,16 +548,37 @@ function createSummaryCard(summary) {
     
     const updatedAt = new Date(summary.updated_at).toLocaleString('ru-RU');
     
+    // Check if text is truncated (longer than ~400 characters or multiple paragraphs)
+    const isLongText = summary.summary_text.length > 400 || summary.summary_text.includes('\n\n');
+    const previewText = isLongText ? summary.summary_text.substring(0, 350) + '...' : summary.summary_text;
+    
+    // Store summary data for modal access
+    summariesData[summary.id] = {
+        id: summary.id,
+        category: summary.category,
+        date: date,
+        summary_text: summary.summary_text,
+        articles_count: summary.articles_count,
+        updated_at: updatedAt
+    };
+    
     return `
-        <div class="summary-card">
+        <div class="summary-card" data-summary-id="${summary.id}">
             <div class="summary-header">
                 <div class="summary-date">${date}</div>
                 <div class="summary-category ${summary.category}">${summary.category}</div>
             </div>
-            <div class="summary-text">${summary.summary_text}</div>
-            <div class="summary-meta">
-                <div class="articles-count">📰 ${summary.articles_count} статей</div>
-                <div class="updated-time">Обновлено: ${updatedAt}</div>
+            <div class="summary-text ${isLongText ? 'truncated' : ''}">${previewText}</div>
+            <div class="summary-actions">
+                <div class="summary-meta">
+                    <div class="articles-count">📰 ${summary.articles_count} статей</div>
+                    <div class="updated-time">Обновлено: ${updatedAt}</div>
+                </div>
+                ${isLongText ? `
+                    <button class="btn-read-full" data-summary-id="${summary.id}">
+                        📖 Читать полностью
+                    </button>
+                ` : ''}
             </div>
         </div>
     `;
@@ -303,6 +592,169 @@ function filterSummaries() {
 
 function loadMoreSummaries() {
     loadSummaries(false);
+}
+
+function attachModalButtonListeners() {
+    // Remove old listeners first to avoid duplicates
+    const buttons = document.querySelectorAll('.btn-read-full');
+    buttons.forEach(button => {
+        const newButton = button.cloneNode(true);
+        button.parentNode.replaceChild(newButton, button);
+    });
+    
+    // Add new listeners
+    document.querySelectorAll('.btn-read-full').forEach(button => {
+        button.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const summaryId = this.getAttribute('data-summary-id');
+            console.log('Opening modal for summary:', summaryId); // Debug log
+            openSummaryModalById(summaryId);
+        });
+    });
+}
+
+
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function openSummaryModalById(summaryId) {
+    console.log('openSummaryModalById called with:', summaryId);
+    console.log('Available summaries:', Object.keys(summariesData));
+    
+    const summary = summariesData[summaryId];
+    if (!summary) {
+        console.error('Summary not found:', summaryId);
+        console.log('Available summaries data:', summariesData);
+        return;
+    }
+    
+    console.log('Found summary:', summary);
+    
+    // Set modal content
+    document.getElementById('modalDate').textContent = summary.date;
+    
+    const categoryBadge = document.getElementById('modalCategoryBadge');
+    categoryBadge.textContent = summary.category;
+    categoryBadge.className = `modal-category-badge summary-category ${summary.category}`;
+    
+    document.getElementById('modalArticlesCount').textContent = `📰 ${summary.articles_count} статей`;
+    document.getElementById('modalUpdatedTime').textContent = `Обновлено: ${summary.updated_at}`;
+    document.getElementById('modalSummaryText').textContent = summary.summary_text;
+    
+    // Show modal
+    const modal = document.getElementById('summaryModal');
+    modal.classList.add('show');
+    document.body.style.overflow = 'hidden';
+    
+    // Close on escape key
+    document.addEventListener('keydown', handleEscapeKey);
+    
+    // Close on background click
+    modal.addEventListener('click', handleBackgroundClick);
+}
+
+// Legacy function for backward compatibility
+function openSummaryModal(id, category, date, summaryText, articlesCount, updatedTime) {
+    // Set modal content
+    document.getElementById('modalDate').textContent = date;
+    
+    const categoryBadge = document.getElementById('modalCategoryBadge');
+    categoryBadge.textContent = category;
+    categoryBadge.className = `modal-category-badge summary-category ${category}`;
+    
+    document.getElementById('modalArticlesCount').textContent = `📰 ${articlesCount} статей`;
+    document.getElementById('modalUpdatedTime').textContent = `Обновлено: ${updatedTime}`;
+    document.getElementById('modalSummaryText').textContent = summaryText;
+    
+    // Show modal
+    const modal = document.getElementById('summaryModal');
+    modal.classList.add('show');
+    document.body.style.overflow = 'hidden';
+    
+    // Close on escape key
+    document.addEventListener('keydown', handleEscapeKey);
+    
+    // Close on background click
+    modal.addEventListener('click', handleBackgroundClick);
+}
+
+function closeSummaryModal() {
+    const modal = document.getElementById('summaryModal');
+    modal.classList.remove('show');
+    document.body.style.overflow = '';
+    
+    // Remove event listeners
+    document.removeEventListener('keydown', handleEscapeKey);
+    modal.removeEventListener('click', handleBackgroundClick);
+    
+    // Reset copy button
+    const copyBtn = document.getElementById('copyBtn');
+    copyBtn.textContent = '📋 Копировать текст';
+    copyBtn.classList.remove('copied');
+}
+
+function handleEscapeKey(event) {
+    if (event.key === 'Escape') {
+        closeSummaryModal();
+    }
+}
+
+function handleBackgroundClick(event) {
+    if (event.target === event.currentTarget) {
+        closeSummaryModal();
+    }
+}
+
+async function copySummaryText() {
+    const summaryText = document.getElementById('modalSummaryText').textContent;
+    const copyBtn = document.getElementById('copyBtn');
+    
+    try {
+        await navigator.clipboard.writeText(summaryText);
+        
+        // Update button to show success
+        copyBtn.textContent = '✅ Скопировано!';
+        copyBtn.classList.add('copied');
+        
+        // Reset button after 2 seconds
+        setTimeout(() => {
+            copyBtn.textContent = '📋 Копировать текст';
+            copyBtn.classList.remove('copied');
+        }, 2000);
+        
+    } catch (err) {
+        console.error('Failed to copy text:', err);
+        
+        // Fallback for older browsers
+        const textArea = document.createElement('textarea');
+        textArea.value = summaryText;
+        document.body.appendChild(textArea);
+        textArea.select();
+        
+        try {
+            document.execCommand('copy');
+            copyBtn.textContent = '✅ Скопировано!';
+            copyBtn.classList.add('copied');
+            
+            setTimeout(() => {
+                copyBtn.textContent = '📋 Копировать текст';
+                copyBtn.classList.remove('copied');
+            }, 2000);
+        } catch (fallbackErr) {
+            copyBtn.textContent = '❌ Ошибка копирования';
+            setTimeout(() => {
+                copyBtn.textContent = '📋 Копировать текст';
+            }, 2000);
+        } finally {
+            document.body.removeChild(textArea);
+        }
+    }
 }
 </script>
 {% endblock %}
