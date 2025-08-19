@@ -263,12 +263,60 @@ class NewsOrchestrator:
             from .services.smart_filter import get_smart_filter
             smart_filter = get_smart_filter()
             
+            article_content = article_data.get('content', '')
+            article_url = article_data.get('url', '')
+            
             should_process, filter_reason = smart_filter.should_process_with_ai(
                 title=article_data.get('title', ''),
-                content=article_data.get('content', ''),
-                url=article_data.get('url', ''),
+                content=article_content,
+                url=article_url,
                 source_type=source_type
             )
+            
+            # If content is too short but we have external URL, try to extract full content
+            if not should_process and "Content too short" in filter_reason and source_type == 'telegram':
+                if article_url and not any(domain in article_url.lower() for domain in ['t.me', 'telegram.me']):
+                    try:
+                        print(f"  🔍 Content too short, trying to extract from external URL using full parsing pipeline: {article_url}")
+                        
+                        # Use full content extraction pipeline with all parsing schemas
+                        from .services import get_content_extractor
+                        content_extractor = await get_content_extractor()
+                        
+                        # Try AI-enhanced extraction with metadata first
+                        extracted_content = None
+                        try:
+                            extraction_result = await content_extractor.extract_article_content_with_metadata(article_url)
+                            extracted_content = extraction_result.get('content')
+                        except Exception as e:
+                            print(f"  ⚠️ AI-enhanced extraction failed, trying standard extraction: {e}")
+                            # Fallback to standard content extraction
+                            try:
+                                extracted_content = await content_extractor.extract_article_content(article_url)
+                            except Exception as e2:
+                                print(f"  ❌ Standard extraction also failed: {e2}")
+                                extracted_content = None
+                        
+                        # Check if extracted content is meaningful
+                        if extracted_content and len(extracted_content.strip()) > len(article_content):
+                            print(f"  ✅ Extracted {len(extracted_content)} chars from external URL using parsing schemas")
+                            
+                            # Update article with extracted content
+                            article_data['content'] = extracted_content
+                            update_fields = {'content': extracted_content}
+                            await self._save_article_fields(article_id, update_fields)
+                            
+                            # Re-check smart filter with new content
+                            should_process, filter_reason = smart_filter.should_process_with_ai(
+                                title=article_data.get('title', ''),
+                                content=extracted_content,
+                                url=article_url,
+                                source_type=source_type
+                            )
+                        else:
+                            print(f"  ⚠️ Could not extract meaningful content from external URL")
+                    except Exception as e:
+                        print(f"  ❌ Failed to extract content from external URL: {e}")
             
             if not should_process:
                 print(f"  🚫 Smart Filter: Skipping AI processing - {filter_reason}")
@@ -376,12 +424,59 @@ class NewsOrchestrator:
             from .services.smart_filter import get_smart_filter
             smart_filter = get_smart_filter()
             
+            article_content = article_data.get('content', '')
+            article_url = article_data.get('url', '')
+            
             should_process, filter_reason = smart_filter.should_process_with_ai(
                 title=article_data.get('title', ''),
-                content=article_data.get('content', ''),
-                url=article_data.get('url', ''),
+                content=article_content,
+                url=article_url,
                 source_type=source_type
             )
+            
+            # If content is too short but we have external URL, try to extract full content
+            if not should_process and "Content too short" in filter_reason and source_type == 'telegram':
+                if article_url and not any(domain in article_url.lower() for domain in ['t.me', 'telegram.me']):
+                    try:
+                        print(f"  🔍 Content too short, trying to extract from external URL using full parsing pipeline: {article_url}")
+                        
+                        # Use full content extraction pipeline with all parsing schemas
+                        from .services import get_content_extractor
+                        content_extractor = await get_content_extractor()
+                        
+                        # Try AI-enhanced extraction with metadata first
+                        extracted_content = None
+                        try:
+                            extraction_result = await content_extractor.extract_article_content_with_metadata(article_url)
+                            extracted_content = extraction_result.get('content')
+                        except Exception as e:
+                            print(f"  ⚠️ AI-enhanced extraction failed, trying standard extraction: {e}")
+                            # Fallback to standard content extraction
+                            try:
+                                extracted_content = await content_extractor.extract_article_content(article_url)
+                            except Exception as e2:
+                                print(f"  ❌ Standard extraction also failed: {e2}")
+                                extracted_content = None
+                        
+                        # Check if extracted content is meaningful
+                        if extracted_content and len(extracted_content.strip()) > len(article_content):
+                            print(f"  ✅ Extracted {len(extracted_content)} chars from external URL using parsing schemas")
+                            
+                            # Update article with extracted content
+                            article_data['content'] = extracted_content
+                            await self._save_article_field(article_id, 'content', extracted_content)
+                            
+                            # Re-check smart filter with new content
+                            should_process, filter_reason = smart_filter.should_process_with_ai(
+                                title=article_data.get('title', ''),
+                                content=extracted_content,
+                                url=article_url,
+                                source_type=source_type
+                            )
+                        else:
+                            print(f"  ⚠️ Could not extract meaningful content from external URL")
+                    except Exception as e:
+                        print(f"  ❌ Failed to extract content from external URL: {e}")
             
             if not should_process:
                 print(f"  🚫 Smart Filter: Skipping AI processing - {filter_reason}")

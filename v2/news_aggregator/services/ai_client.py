@@ -1,5 +1,6 @@
 """AI API client for article summarization using Constructor KM."""
 
+import asyncio
 import json
 from typing import Optional, Dict, Any
 
@@ -913,40 +914,58 @@ Focus on detecting content that's primarily promotional rather than informationa
         if not content or len(content.strip()) < 50:
             return self._get_fallback_analysis()
         
-        try:
-            # Build combined prompt
-            prompt = self._build_combined_analysis_prompt(title, content, url)
-            
-            print(f"  🧠 Combined AI analysis for article...")
-            print(f"  📄 Content length: {len(content)} characters")
-            print(f"  📝 Title: {title[:100]}...")
-            
-            # Make API request
-            response_data = await self._make_raw_ai_request(prompt)
-            response = ''
-            if response_data and 'choices' in response_data and response_data['choices']:
-                response = response_data['choices'][0]['message']['content']
-            
-            if not response:
-                print(f"  ❌ Empty response from AI")
-                return self._get_fallback_analysis()
-            
-            # Parse JSON response
+        max_retries = 2
+        for attempt in range(max_retries + 1):
             try:
-                result = json.loads(response.strip())
-                print(f"  ✅ Combined analysis successful")
+                # Build combined prompt
+                prompt = self._build_combined_analysis_prompt(title, content, url)
                 
-                # Validate and clean results
-                return self._validate_analysis_result(result)
+                retry_text = f" (attempt {attempt + 1}/{max_retries + 1})" if attempt > 0 else ""
+                print(f"  🧠 Combined AI analysis for article{retry_text}...")
+                print(f"  📄 Content length: {len(content)} characters")
+                print(f"  📝 Title: {title[:100]}...")
                 
-            except json.JSONDecodeError as e:
-                print(f"  ⚠️ JSON parsing error: {e}")
-                print(f"  📄 Raw response: {response[:200]}...")
-                return self._parse_fallback_response(response)
+                # Make API request
+                response_data = await self._make_raw_ai_request(prompt)
+                response = ''
+                if response_data and 'choices' in response_data and response_data['choices']:
+                    response = response_data['choices'][0]['message']['content']
                 
-        except Exception as e:
-            print(f"  ❌ Error in combined analysis: {e}")
-            return self._get_fallback_analysis()
+                if not response:
+                    print(f"  ❌ Empty response from AI")
+                    if attempt < max_retries:
+                        print(f"  🔄 Retrying in 2 seconds...")
+                        await asyncio.sleep(2)
+                        continue
+                    return self._get_fallback_analysis()
+                
+                # Parse JSON response
+                try:
+                    result = json.loads(response.strip())
+                    print(f"  ✅ Combined analysis successful")
+                    
+                    # Validate and clean results
+                    return self._validate_analysis_result(result)
+                    
+                except json.JSONDecodeError as e:
+                    print(f"  ⚠️ JSON parsing error: {e}")
+                    print(f"  📄 Raw response: {response[:200]}...")
+                    if attempt < max_retries:
+                        print(f"  🔄 Retrying in 2 seconds...")
+                        await asyncio.sleep(2)
+                        continue
+                    return self._parse_fallback_response(response)
+                    
+            except Exception as e:
+                print(f"  ❌ Error in combined analysis: {e}")
+                if attempt < max_retries:
+                    print(f"  🔄 Retrying in 2 seconds...")
+                    await asyncio.sleep(2)
+                    continue
+                return self._get_fallback_analysis()
+        
+        # Fallback if all retries failed
+        return self._get_fallback_analysis()
     
     def _build_combined_analysis_prompt(self, title: str, content: str, url: str) -> str:
         """Build combined prompt for all analysis tasks."""
@@ -996,15 +1015,24 @@ RESPONSE (JSON only):
     
     def _validate_analysis_result(self, result: Dict[str, Any]) -> Dict[str, Any]:
         """Validate and clean analysis result."""
+        # Safe float conversion with fallback
+        def safe_float(value, default=0.0):
+            try:
+                if value is None:
+                    return default
+                return float(value)
+            except (TypeError, ValueError):
+                return default
+        
         return {
             'summary': result.get('summary', '').strip() or None,
             'category': result.get('category', 'Other'),
             'is_advertisement': bool(result.get('is_advertisement', False)),
             'ad_type': result.get('ad_type', 'news_article'),
-            'ad_confidence': max(0.0, min(1.0, float(result.get('ad_confidence', 0.0)))),
+            'ad_confidence': max(0.0, min(1.0, safe_float(result.get('ad_confidence'), 0.0))),
             'ad_reasoning': result.get('ad_reasoning', '').strip() or 'Combined analysis',
             'publication_date': result.get('publication_date'),
-            'confidence': max(0.0, min(1.0, float(result.get('confidence', 0.8))))
+            'confidence': max(0.0, min(1.0, safe_float(result.get('confidence'), 0.8)))
         }
     
     def _get_fallback_analysis(self) -> Dict[str, Any]:
