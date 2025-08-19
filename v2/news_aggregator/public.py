@@ -32,9 +32,18 @@ async def public_feed_alias(request: Request):
     })
 
 
+@router.get("/cards", response_class=HTMLResponse)
+async def public_cards_view(request: Request):
+    """Cards view for news feed."""
+    return templates.TemplateResponse("public/feed.html", {
+        "request": request,
+        "title": "Новости"
+    })
+
+
 @router.get("/list", response_class=HTMLResponse)
 async def public_list_view(request: Request):
-    """List view for news feed."""
+    """List view for news feed (alias for compatibility)."""
     return templates.TemplateResponse("public/list.html", {
         "request": request,
         "title": "Лента новостей"

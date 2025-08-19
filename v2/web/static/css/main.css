@@ -124,7 +124,7 @@ body {
 
 /* Main content */
 .main-content {
-    min-height: calc(100vh - 80px);
+    min-height: calc(100vh - 60px);
     padding: 2.5rem;
     /* Убираем ограничения ширины для админки */
     width: 100%;
@@ -842,38 +842,49 @@ body {
     
     /* Очень компактная навигация */
     .nav-container {
-        height: 25px;
-        padding: 0 0.75rem;
+        height: 20px;
+        padding: 0 0.5rem;
     }
     
     /* Мини кнопка настроек */
     .settings-btn {
-        padding: 0.4rem 0.8rem;
-        font-size: 0.8rem;
-        gap: 0.3rem;
+        padding: 0.3rem 0.6rem;
+        font-size: 0.7rem;
+        gap: 0.25rem;
     }
     
     .nav-brand a {
-        font-size: 0.9rem;
+        font-size: 0.75rem;
     }
     
     .nav-menu a {
-        padding: 0.4rem 0.75rem;
-        font-size: 0.8rem;
+        padding: 0.3rem 0.5rem;
+        font-size: 0.7rem;
     }
     
-    /* Мини заголовок */
+    /* Скрыть API ссылку на мобильных */
+    .nav-menu a[href="/docs"] {
+        display: none;
+    }
+    
+    /* Микро заголовок */
     .news-header {
-        padding: 1rem 0;
+        padding: 0.5rem 0;
     }
     
     .news-header h1 {
-        font-size: 1.75rem;
-        margin-bottom: 0.25rem;
+        font-size: 1.25rem;
+        margin-bottom: 0.1rem;
     }
     
     .news-header p {
-        font-size: 0.85rem;
+        font-size: 0.75rem;
+        display: none; /* Скрыть описание на мобильных */
+    }
+    
+    /* Минимальные отступы контента */
+    .main-content {
+        padding: 1rem;
     }
     
     /* Сверхкомпактные режимы просмотра */

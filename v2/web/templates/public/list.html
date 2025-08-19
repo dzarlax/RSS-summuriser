@@ -28,11 +28,11 @@
                 <div class="toggle-header">
                     <h3>🎛️ Режим просмотра</h3>
                     <div class="view-buttons">
-                        <a href="/" class="view-btn">
+                        <a href="/cards" class="view-btn">
                             <span class="view-icon">⊞</span>
                             <span>Карточки</span>
                         </a>
-                        <a href="/list" class="view-btn active">
+                        <a href="/" class="view-btn active">
                             <span class="view-icon">≡</span>
                             <span>Лента</span>
                         </a>
@@ -319,7 +319,6 @@
     border-radius: 0;
     padding: 24px;
     border-bottom: 1px solid #e9ecef;
-    transition: all 0.3s ease;
     position: relative;
     display: flex;
     gap: 20px;
@@ -340,11 +339,7 @@
     border-bottom: none;
 }
 
-.news-list-item:hover {
-    background: #fafbfc;
-    transform: translateX(8px);
-    box-shadow: 0 4px 15px rgba(0,0,0,0.08);
-}
+/* Убрали hover эффект для новостных блоков - мешает на мобильных */
 
 /* List item image */
 .news-list-image {
@@ -361,12 +356,10 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
-    transition: transform 0.3s ease;
+    /* Убрали transition для изображений */
 }
 
-.news-list-item:hover .news-list-image img {
-    transform: scale(1.05);
-}
+/* Убрали scale эффект для изображений */
 
 .image-placeholder {
     display: flex;
@@ -392,7 +385,7 @@
     line-height: 1.4;
     margin-bottom: 12px;
     cursor: pointer;
-    transition: color 0.3s ease;
+    /* Убрали transition для заголовков */
     display: -webkit-box;
     -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
@@ -424,9 +417,7 @@
     }
 }
 
-.news-list-title:hover {
-    color: #667eea;
-}
+/* Убрали hover эффект для заголовков */
 
 .news-list-summary {
     color: #6c757d;
@@ -906,17 +897,35 @@
 
 /* Responsive Design */
 @media (max-width: 768px) {
+    /* Минимальный header на мобильных */
+    .news-header {
+        padding: 20px 0; /* Сильно уменьшили с 60px */
+    }
+    
+    /* Полная ширина контейнера на мобильных */
+    .container {
+        max-width: 100%;
+        padding: 0; /* Убрали все отступы */
+    }
+    
+    .news-header .container {
+        padding: 0 15px; /* Только для заголовка оставим небольшие отступы */
+    }
+    
     .news-header h1 {
-        font-size: 2rem;
+        font-size: 1.5rem; /* Ещё меньше */
     }
     
     .news-header p {
-        font-size: 1rem;
+        font-size: 0.9rem;
+        display: none; /* Скрываем описание */
     }
     
     .news-list-item {
         flex-direction: column;
         gap: 16px;
+        border-radius: 0; /* Убираем скругления для полной ширины */
+        padding: 20px 15px; /* Внутренние отступы только для контента */
     }
     
     .news-list-image {
@@ -973,18 +982,28 @@
 }
 
 @media (max-width: 480px) {
+    /* Ультракомпактный header на iPhone */
+    .news-header {
+        padding: 10px 0; /* Минимальный отступ */
+    }
+    
+    .news-header h1 {
+        font-size: 1.2rem; /* Очень маленький заголовок */
+        margin-bottom: 0;
+    }
+    
     .news-filters {
-        margin: 20px 0;
-        padding: 16px;
+        margin: 15px 0;
+        padding: 12px 15px; /* Добавляем боковые отступы только для настроек */
     }
     
     .view-toggle {
-        margin: 20px 0 10px 0;
-        padding: 16px;
+        margin: 15px 0 8px 0;
+        padding: 12px 15px; /* Добавляем боковые отступы только для настроек */
     }
     
     .news-list-item {
-        padding: 16px;
+        padding: 15px; /* Ещё компактнее */
     }
     
     .filter-btn {
@@ -1055,14 +1074,22 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     } catch {}
     
-    // Handle window resize for responsive text
+    // Handle window resize for responsive text (only for significant changes)
     let resizeTimeout;
+    let lastWidth = window.innerWidth;
     window.addEventListener('resize', function() {
         clearTimeout(resizeTimeout);
         resizeTimeout = setTimeout(function() {
-            // Reload news to apply new text length
-            loadNews(true);
-        }, 300);
+            const currentWidth = window.innerWidth;
+            const widthDiff = Math.abs(currentWidth - lastWidth);
+            
+            // Only reload if width changed significantly (more than 100px)
+            // This prevents constant reloading on mobile Safari
+            if (widthDiff > 100) {
+                lastWidth = currentWidth;
+                loadNews(true);
+            }
+        }, 500); // Увеличили таймаут для стабильности
     });
 });
 

@@ -28,11 +28,11 @@
                 <div class="toggle-header">
                     <h3>🎛️ Режим просмотра</h3>
                     <div class="view-buttons">
-                        <a href="/" class="view-btn active">
+                        <a href="/cards" class="view-btn active">
                             <span class="view-icon">⊞</span>
                             <span>Карточки</span>
                         </a>
-                        <a href="/list" class="view-btn">
+                        <a href="/" class="view-btn">
                             <span class="view-icon">≡</span>
                             <span>Лента</span>
                         </a>
@@ -1022,14 +1022,22 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     } catch {}
     
-    // Handle window resize for responsive text
+    // Handle window resize for responsive text (only for significant changes)
     let resizeTimeout;
+    let lastWidth = window.innerWidth;
     window.addEventListener('resize', function() {
         clearTimeout(resizeTimeout);
         resizeTimeout = setTimeout(function() {
-            // Reload news to apply new text length
-            loadNews(true);
-        }, 300);
+            const currentWidth = window.innerWidth;
+            const widthDiff = Math.abs(currentWidth - lastWidth);
+            
+            // Only reload if width changed significantly (more than 100px)
+            // This prevents constant reloading on mobile Safari
+            if (widthDiff > 100) {
+                lastWidth = currentWidth;
+                loadNews(true);
+            }
+        }, 500); // Увеличили таймаут для стабильности
     });
 });
 
