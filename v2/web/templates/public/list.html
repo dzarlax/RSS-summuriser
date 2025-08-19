@@ -12,25 +12,36 @@
     </div>
 
     <div class="container">
-        <!-- View Toggle -->
-        <div class="view-toggle">
-            <div class="toggle-header">
-                <h3>🎛️ Режим просмотра</h3>
-                <div class="view-buttons">
-                    <a href="/" class="view-btn">
-                        <span class="view-icon">⊞</span>
-                        <span>Карточки</span>
-                    </a>
-                    <a href="/list" class="view-btn active">
-                        <span class="view-icon">≡</span>
-                        <span>Лента</span>
-                    </a>
-                </div>
-            </div>
+        <!-- Settings Toggle Button -->
+        <div class="settings-toggle">
+            <button class="settings-btn" onclick="toggleSettings()">
+                <span class="settings-icon">⚙️</span>
+                <span>Настройки</span>
+                <span class="toggle-arrow" id="settings-arrow">▼</span>
+            </button>
         </div>
 
-        <!-- Filters -->
-        <div class="news-filters">
+        <!-- Settings Panel (hidden by default) -->
+        <div class="settings-panel" id="settings-panel" style="display: none;">
+            <!-- View Toggle -->
+            <div class="view-toggle">
+                <div class="toggle-header">
+                    <h3>🎛️ Режим просмотра</h3>
+                    <div class="view-buttons">
+                        <a href="/" class="view-btn">
+                            <span class="view-icon">⊞</span>
+                            <span>Карточки</span>
+                        </a>
+                        <a href="/list" class="view-btn active">
+                            <span class="view-icon">≡</span>
+                            <span>Лента</span>
+                        </a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Filters -->
+            <div class="news-filters">
             <div class="filters-header">
                 <h3>📋 Категории</h3>
                 <div style="display:flex; align-items:center; gap:16px; flex-wrap: wrap; justify-content: flex-end;">
@@ -57,6 +68,7 @@
                 </button>
                 <!-- Category buttons will be added dynamically -->
             </div>
+        </div>
         </div>
 
         <!-- News List -->
@@ -912,6 +924,11 @@
         height: 200px;
     }
     
+    /* Скрывать плейсхолдеры изображений на мобильных */
+    .news-list-image.hide-placeholder {
+        display: none;
+    }
+    
     .filter-buttons {
         justify-content: center;
     }
@@ -1171,14 +1188,20 @@ function createNewsListItem(article) {
     // Clean summary for display
     const cleanSummary = cleanHtmlSummary(article.summary || '');
     
+    // Check if mobile device for hiding placeholders
+    const isMobile = window.innerWidth <= 768;
+    const shouldShowImage = imageUrl || !isMobile;
+    
     return `
         <article class="news-list-item" data-category="${category}">
-            <div class="news-list-image">
-                ${imageUrl ? 
-                    `<img src="${imageUrl}" alt="${escapeHtml(article.title)}" loading="lazy" onerror="this.parentElement.innerHTML='&lt;div class=&quot;image-placeholder&quot;&gt;📰&lt;/div&gt;'">` :
-                    `<div class="image-placeholder">📰</div>`
-                }
-            </div>
+            ${shouldShowImage ? `
+                <div class="news-list-image${!imageUrl && isMobile ? ' hide-placeholder' : ''}">
+                    ${imageUrl ? 
+                        `<img src="${imageUrl}" alt="${escapeHtml(article.title)}" loading="lazy" onerror="this.parentElement.innerHTML='&lt;div class=&quot;image-placeholder&quot;&gt;📰&lt;/div&gt;'">` :
+                        `<div class="image-placeholder">📰</div>`
+                    }
+                </div>
+            ` : ''}
             <div class="news-list-content">
                 <div class="news-list-badges">
                     <div class="category-badge category-${category}">
@@ -1295,6 +1318,19 @@ function applyCompactClass() {
     const root = document.querySelector('.news-page');
     if (!root) return;
     root.classList.toggle('compact', isCompact);
+}
+
+function toggleSettings() {
+    const panel = document.getElementById('settings-panel');
+    const arrow = document.getElementById('settings-arrow');
+    
+    if (panel.style.display === 'none' || !panel.style.display) {
+        panel.style.display = 'block';
+        arrow.textContent = '▲';
+    } else {
+        panel.style.display = 'none';
+        arrow.textContent = '▼';
+    }
 }
 
 function loadMoreNews() {

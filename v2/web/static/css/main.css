@@ -69,12 +69,12 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    height: 70px;
-    padding: 0 2rem;
+    height: 40px;
+    padding: 0 1.5rem;
 }
 
 .nav-brand a {
-    font-size: 1.75rem;
+    font-size: 1.5rem;
     font-weight: 700;
     background: var(--gradient-primary);
     -webkit-background-clip: text;
@@ -124,7 +124,7 @@ body {
 
 /* Main content */
 .main-content {
-    min-height: calc(100vh - 140px);
+    min-height: calc(100vh - 80px);
     padding: 2.5rem;
     /* Убираем ограничения ширины для админки */
     width: 100%;
@@ -672,7 +672,7 @@ body {
 
 @media (max-width: 768px) {
     .main-content {
-        padding: 1.5rem;
+        padding: 1rem;
     }
     
     .dashboard-sections {
@@ -683,16 +683,95 @@ body {
         grid-template-columns: repeat(2, 1fr);
     }
     
+    /* Компактная навигация */
     .nav-container {
-        flex-direction: column;
-        height: auto;
-        padding: 1.5rem;
-        gap: 1rem;
+        height: 30px;
+        padding: 0 1rem;
+    }
+    
+    /* Компактная кнопка настроек */
+    .settings-btn {
+        padding: 0.5rem 1rem;
+        font-size: 0.85rem;
+        gap: 0.4rem;
+    }
+    
+    .nav-brand a {
+        font-size: 1rem;
     }
     
     .nav-menu {
-        flex-wrap: wrap;
-        justify-content: center;
+        gap: 0.25rem;
+    }
+    
+    .nav-menu a {
+        padding: 0.5rem 1rem;
+        font-size: 0.875rem;
+    }
+    
+    /* Компактный заголовок новостей */
+    .news-header {
+        padding: 1.5rem 0;
+        text-align: center;
+    }
+    
+    .news-header h1 {
+        font-size: 2rem;
+        margin-bottom: 0.5rem;
+    }
+    
+    .news-header p {
+        font-size: 0.9rem;
+    }
+    
+    /* Компактные режимы просмотра */
+    .view-modes {
+        margin: 1rem 0;
+        gap: 0.5rem;
+    }
+    
+    .view-mode-btn {
+        padding: 0.5rem 1rem;
+        font-size: 0.875rem;
+        border-radius: 0.5rem;
+    }
+    
+    /* Компактные категории */
+    .categories {
+        margin: 1rem 0;
+        padding: 1rem;
+        border-radius: 0.75rem;
+    }
+    
+    .categories h3 {
+        font-size: 1rem;
+        margin-bottom: 1rem;
+    }
+    
+    .category-filters {
+        gap: 0.5rem;
+    }
+    
+    .category-btn {
+        padding: 0.4rem 0.8rem;
+        font-size: 0.8rem;
+        border-radius: 0.5rem;
+    }
+    
+    .category-btn.all {
+        padding: 0.5rem 1rem;
+    }
+    
+    /* Компактные чекбоксы */
+    .filter-options {
+        gap: 1rem;
+        margin-top: 1rem;
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .filter-option {
+        font-size: 0.875rem;
     }
     
     .admin-sidebar h3 {
@@ -702,6 +781,42 @@ body {
     .admin-nav .nav-item {
         justify-content: center;
     }
+    
+    /* Мобильные элементы для планшетов */
+    .view-toggle {
+        margin: 1rem 0;
+        padding: 1rem;
+    }
+    
+    .toggle-header h3 {
+        font-size: 1rem;
+        margin-bottom: 0.75rem;
+    }
+    
+    .view-buttons {
+        gap: 0.75rem;
+    }
+    
+    .view-btn {
+        padding: 0.5rem 1rem;
+        font-size: 0.875rem;
+    }
+    
+    .news-filters {
+        margin: 1rem 0;
+        padding: 1rem;
+    }
+    
+    .filters-header h3 {
+        font-size: 1rem;
+        margin-bottom: 0.75rem;
+    }
+    
+    /* Компактная сетка новостей для планшетов */
+    .news-grid {
+        gap: 1rem;
+        margin: 1rem 0;
+    }
 }
 
 @media (max-width: 480px) {
@@ -710,19 +825,196 @@ body {
     }
     
     .admin-main {
-        padding: 1.5rem;
+        padding: 1rem;
     }
     
     .admin-main h1 {
-        font-size: 1.875rem;
+        font-size: 1.5rem;
     }
     
     .stat-card {
-        padding: 1.5rem;
+        padding: 1rem;
     }
     
     .stat-number {
-        font-size: 2rem;
+        font-size: 1.75rem;
+    }
+    
+    /* Очень компактная навигация */
+    .nav-container {
+        height: 25px;
+        padding: 0 0.75rem;
+    }
+    
+    /* Мини кнопка настроек */
+    .settings-btn {
+        padding: 0.4rem 0.8rem;
+        font-size: 0.8rem;
+        gap: 0.3rem;
+    }
+    
+    .nav-brand a {
+        font-size: 0.9rem;
+    }
+    
+    .nav-menu a {
+        padding: 0.4rem 0.75rem;
+        font-size: 0.8rem;
+    }
+    
+    /* Мини заголовок */
+    .news-header {
+        padding: 1rem 0;
+    }
+    
+    .news-header h1 {
+        font-size: 1.75rem;
+        margin-bottom: 0.25rem;
+    }
+    
+    .news-header p {
+        font-size: 0.85rem;
+    }
+    
+    /* Сверхкомпактные режимы просмотра */
+    .view-modes {
+        margin: 0.75rem 0;
+        gap: 0.25rem;
+    }
+    
+    .view-mode-btn {
+        padding: 0.4rem 0.8rem;
+        font-size: 0.8rem;
+    }
+    
+    /* Мини категории */
+    .categories {
+        margin: 0.75rem 0;
+        padding: 0.75rem;
+    }
+    
+    .categories h3 {
+        font-size: 0.9rem;
+        margin-bottom: 0.75rem;
+    }
+    
+    .category-btn {
+        padding: 0.3rem 0.6rem;
+        font-size: 0.75rem;
+    }
+    
+    .category-btn.all {
+        padding: 0.4rem 0.8rem;
+        font-size: 0.8rem;
+    }
+    
+    /* Компактные фильтры */
+    .filter-options {
+        gap: 0.75rem;
+        margin-top: 0.75rem;
+    }
+    
+    .filter-option {
+        font-size: 0.8rem;
+    }
+    
+    /* Компактный контент */
+    .main-content {
+        padding: 0.75rem;
+    }
+    
+    /* Мобильные новостные элементы */
+    .view-toggle {
+        margin: 0.5rem 0;
+        padding: 0.75rem;
+    }
+    
+    .toggle-header h3 {
+        font-size: 0.9rem;
+        margin-bottom: 0.5rem;
+    }
+    
+    .view-buttons {
+        gap: 0.5rem;
+    }
+    
+    .view-btn {
+        padding: 0.4rem 0.8rem;
+        font-size: 0.8rem;
+    }
+    
+    .news-filters {
+        margin: 0.5rem 0;
+        padding: 0.75rem;
+    }
+    
+    .filters-header h3 {
+        font-size: 0.9rem;
+        margin-bottom: 0.5rem;
+    }
+    
+    /* Компактная сетка новостей */
+    .news-grid {
+        gap: 0.75rem;
+        margin: 0.75rem 0;
+    }
+}
+
+/* Settings Toggle Button */
+.settings-toggle {
+    margin: 1rem 0;
+    text-align: center;
+}
+
+.settings-btn {
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius-sm);
+    padding: 0.75rem 1.5rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 0.9rem;
+    color: var(--text-color);
+    box-shadow: var(--shadow-sm);
+}
+
+.settings-btn:hover {
+    background: var(--surface-hover);
+    border-color: var(--border-hover);
+    box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
+}
+
+.settings-icon {
+    font-size: 1rem;
+}
+
+.toggle-arrow {
+    font-size: 0.8rem;
+    transition: transform 0.2s ease;
+}
+
+/* Settings Panel */
+.settings-panel {
+    background: var(--surface-color);
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow-md);
+    margin: 1rem 0;
+    animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
     }
 }
 
