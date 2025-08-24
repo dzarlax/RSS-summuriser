@@ -54,11 +54,27 @@ async def lifespan(app: FastAPI):
     # Start universal database queue system
     from .services.database_queue import get_database_queue
     db_queue = get_database_queue()
-    await db_queue.start()
+    try:
+        print("🔄 Starting database queue...")
+        await db_queue.start()
+        print("✅ Database queue started successfully")
+    except Exception as e:
+        print(f"❌ Database queue startup error: {e}")
+        import traceback
+        traceback.print_exc()
+        # Don't prevent app startup on queue errors
     
     # Start task scheduler
     from .services.scheduler import start_scheduler
-    await start_scheduler()
+    try:
+        print("🔄 Starting task scheduler...")
+        await start_scheduler()
+        print("✅ Task scheduler started successfully")
+    except Exception as e:
+        print(f"❌ Task scheduler startup error: {e}")
+        import traceback
+        traceback.print_exc()
+        # Don't prevent app startup on scheduler errors
     
     yield
     
