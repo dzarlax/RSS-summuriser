@@ -29,8 +29,10 @@ class MultipleCategoriesMigration(BaseMigration):
             try:
                 await db.execute(text("SELECT 1 FROM categories LIMIT 1"))
                 await db.execute(text("SELECT 1 FROM article_categories LIMIT 1"))
-            except:
+            except Exception as e:
                 logger.info("📋 Categories tables not found - migration needed")
+                # Important: rollback the transaction after failed queries
+                await db.rollback()
                 return True
             
             # Check if we have any composite categories to migrate
@@ -129,49 +131,58 @@ class MultipleCategoriesMigration(BaseMigration):
     
     async def _create_schema(self, db: AsyncSession):
         """Create database schema for multiple categories."""
-        schema_sql = """
-        -- Create categories table
-        CREATE TABLE IF NOT EXISTS categories (
-            id SERIAL PRIMARY KEY,
-            name VARCHAR(50) NOT NULL UNIQUE,
-            display_name VARCHAR(100) NOT NULL,
-            description TEXT,
-            color VARCHAR(7) DEFAULT '#6c757d',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-
-        -- Create junction table
-        CREATE TABLE IF NOT EXISTS article_categories (
-            id SERIAL PRIMARY KEY,
-            article_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
-            category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
-            confidence FLOAT DEFAULT 1.0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(article_id, category_id)
-        );
-
-        -- Create indexes
-        CREATE INDEX IF NOT EXISTS idx_article_categories_article_id ON article_categories(article_id);
-        CREATE INDEX IF NOT EXISTS idx_article_categories_category_id ON article_categories(category_id);
-        CREATE INDEX IF NOT EXISTS idx_article_categories_confidence ON article_categories(confidence);
-        """
         
-        statements = [stmt.strip() for stmt in schema_sql.split(';') if stmt.strip()]
-        for stmt in statements:
-            if stmt.strip():
-                try:
-                    await db.execute(text(stmt))
-                    await db.commit()
-                except Exception as e:
-                    logger.warning(f"Schema statement warning (continuing): {e}")
-                    await db.rollback()
-                    # Continue with next statement
-        
-        logger.info("✅ Schema created")
+        # Create tables with single transaction approach
+        try:
+            # Create categories table
+            await db.execute(text("""
+                CREATE TABLE IF NOT EXISTS categories (
+                    id SERIAL PRIMARY KEY,
+                    name VARCHAR(50) NOT NULL UNIQUE,
+                    display_name VARCHAR(100) NOT NULL,
+                    description TEXT,
+                    color VARCHAR(7) DEFAULT '#6c757d',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+            logger.info("✅ Created categories table")
+            
+            # Create article_categories table
+            await db.execute(text("""
+                CREATE TABLE IF NOT EXISTS article_categories (
+                    id SERIAL PRIMARY KEY,
+                    article_id INTEGER NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+                    category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+                    confidence FLOAT DEFAULT 1.0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(article_id, category_id)
+                )
+            """))
+            logger.info("✅ Created article_categories table")
+            
+            # Create indexes
+            await db.execute(text("CREATE INDEX IF NOT EXISTS idx_article_categories_article_id ON article_categories(article_id)"))
+            await db.execute(text("CREATE INDEX IF NOT EXISTS idx_article_categories_category_id ON article_categories(category_id)"))
+            await db.execute(text("CREATE INDEX IF NOT EXISTS idx_article_categories_confidence ON article_categories(confidence)"))
+            logger.info("✅ Created indexes")
+            
+            # Commit all changes at once
+            await db.commit()
+            logger.info("✅ Schema creation completed successfully")
+            
+        except Exception as e:
+            error_msg = f"Failed to create schema: {e}"
+            logger.error(error_msg)
+            await db.rollback()
+            raise Exception(error_msg)
     
     async def _insert_default_categories(self, db: AsyncSession):
         """Insert default categories."""
         try:
+            # First check if categories table exists
+            await db.execute(text("SELECT 1 FROM categories LIMIT 1"))
+            
+            # Table exists, insert default categories
             await db.execute(text("""
                 INSERT INTO categories (name, display_name, description, color) VALUES
                     ('Business', 'Бизнес', 'Экономика, финансы, компании, инвестиции', '#28a745'),
@@ -184,12 +195,16 @@ class MultipleCategoriesMigration(BaseMigration):
             await db.commit()
             logger.info("✅ Default categories inserted")
         except Exception as e:
-            logger.warning(f"Default categories insertion warning (continuing): {e}")
+            logger.warning(f"Default categories insertion warning (table may not exist): {e}")
             await db.rollback()
     
     async def _migrate_simple_categories(self, db: AsyncSession) -> int:
         """Migrate simple (non-composite) categories."""
         try:
+            # First check if both tables exist
+            await db.execute(text("SELECT 1 FROM categories LIMIT 1"))
+            await db.execute(text("SELECT 1 FROM article_categories LIMIT 1"))
+            
             result = await db.execute(text("""
                 INSERT INTO article_categories (article_id, category_id, confidence)
                 SELECT 
@@ -216,7 +231,7 @@ class MultipleCategoriesMigration(BaseMigration):
             logger.info(f"✅ Migrated {count} simple categories")
             return count
         except Exception as e:
-            logger.warning(f"Simple categories migration warning (continuing): {e}")
+            logger.warning(f"Simple categories migration warning (tables may not exist): {e}")
             await db.rollback()
             return 0
     
@@ -245,9 +260,14 @@ class MultipleCategoriesMigration(BaseMigration):
         if not composite_articles:
             return {'processed': 0, 'relationships_created': 0}
         
-        # Get valid categories
-        cat_result = await db.execute(text("SELECT name, id FROM categories"))
-        valid_categories = {name: cat_id for name, cat_id in cat_result.fetchall()}
+        # Get valid categories - check if table exists first
+        try:
+            cat_result = await db.execute(text("SELECT name, id FROM categories"))
+            valid_categories = {name: cat_id for name, cat_id in cat_result.fetchall()}
+        except Exception as e:
+            logger.warning(f"Could not get categories (table may not exist): {e}")
+            # If categories table doesn't exist, we can't migrate composite categories
+            return {'processed': 0, 'relationships_created': 0}
         
         stats = {'processed': 0, 'relationships_created': 0}
         
