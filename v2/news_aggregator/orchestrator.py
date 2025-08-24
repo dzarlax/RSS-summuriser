@@ -378,8 +378,24 @@ class NewsOrchestrator:
                     update_fields['summary_processed'] = True
                     
                 if needs_category:
+                    # Keep old category field for backward compatibility
                     update_fields['category'] = ai_result.get('category', 'Other')
                     update_fields['category_processed'] = True
+                    
+                    # Handle multiple categories
+                    try:
+                        from .services.category_service import get_category_service
+                        async with AsyncSessionLocal() as db:
+                            category_service = await get_category_service(db)
+                            assigned_categories = await category_service.assign_categories_to_article(
+                                article_id=article_id,
+                                category_raw=ai_result.get('category', 'Other'),
+                                title=article_data.get('title'),
+                                content=article_data.get('content')
+                            )
+                            print(f"  🏷️ Multiple categories assigned: {[c['display_name'] for c in assigned_categories]}")
+                    except Exception as e:
+                        print(f"  ⚠️ Multiple categories assignment failed: {e}")
                     
                 if needs_ad_detection:
                     update_fields['is_advertisement'] = ai_result.get('is_advertisement', False)

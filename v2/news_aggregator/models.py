@@ -66,6 +66,60 @@ class Article(Base):
     # Relationships
     source = relationship("Source", back_populates="articles")
     cluster_articles = relationship("ClusterArticle", back_populates="article")
+    article_categories = relationship("ArticleCategory", back_populates="article", cascade="all, delete-orphan")
+
+    @property
+    def categories(self) -> List[str]:
+        """Get list of category names for this article."""
+        return [ac.category.name for ac in self.article_categories]
+    
+    @property
+    def categories_with_confidence(self) -> List[dict]:
+        """Get list of categories with confidence scores."""
+        return [
+            {
+                'name': ac.category.name,
+                'display_name': ac.category.display_name,
+                'confidence': ac.confidence,
+                'color': ac.category.color
+            }
+            for ac in self.article_categories
+        ]
+
+
+class Category(Base):
+    """Category model."""
+    __tablename__ = "categories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(50), nullable=False, unique=True)
+    display_name = Column(String(100), nullable=False)
+    description = Column(Text)
+    color = Column(String(7), default='#6c757d')  # Hex color for UI
+    created_at = Column(DateTime, default=func.now())
+
+    # Relationships
+    article_categories = relationship("ArticleCategory", back_populates="category")
+
+
+class ArticleCategory(Base):
+    """Junction table for article-category many-to-many relationship."""
+    __tablename__ = "article_categories"
+
+    id = Column(Integer, primary_key=True, index=True)
+    article_id = Column(Integer, ForeignKey("articles.id", ondelete="CASCADE"), nullable=False)
+    category_id = Column(Integer, ForeignKey("categories.id", ondelete="CASCADE"), nullable=False)
+    confidence = Column(Float, default=1.0)  # AI confidence for this categorization
+    created_at = Column(DateTime, default=func.now())
+
+    # Relationships
+    article = relationship("Article", back_populates="article_categories")
+    category = relationship("Category", back_populates="article_categories")
+
+    # Unique constraint
+    __table_args__ = (
+        UniqueConstraint('article_id', 'category_id', name='unique_article_category'),
+    )
 
 
 class NewsCluster(Base):

@@ -88,15 +88,11 @@ class TelegramAI:
             response = await self._make_ai_request(prompt)
             print(f"    📡 AI response: '{response}'")
             
-            # Extract first word and clean it
+            # Parse category using shared parser
             if response and response != "Error":
-                first_word = response.split()[0] if response.split() else self._get_default_category()
-                cleaned_category = ''.join(c for c in first_word if c.isalpha())
-                
-                # Validate category
-                valid_categories = self._get_categories()
-                final_category = cleaned_category if cleaned_category in valid_categories else self._get_default_category()
-                print(f"    ✅ Final category: '{final_category}' (from: '{cleaned_category}')")
+                from .category_parser import parse_category
+                final_category = parse_category(response, self._get_categories(), title, description)
+                print(f"    ✅ Final category: '{final_category}' (from AI response: '{response}')")
                 return final_category
             
             default_category = self._get_default_category()

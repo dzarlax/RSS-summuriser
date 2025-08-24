@@ -13,13 +13,14 @@ from fastapi import APIRouter, Depends, Query, HTTPException, BackgroundTasks, U
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc, func
+from sqlalchemy import select, desc, func, text
 from sqlalchemy.orm import selectinload
 
 from .database import get_db, engine, AsyncSessionLocal
 from .config import settings
 from .models import Article, Source, ProcessingStat, DailySummary, ScheduleSettings
 from .services.source_manager import SourceManager
+from .main import migration_manager
 # from .security import require_api_read, require_api_write, require_admin, limiter
 from .services.extraction_memory import get_extraction_memory
 
@@ -73,8 +74,12 @@ async def get_main_feed(
     db: AsyncSession = Depends(get_db)
 ):
     """Get main news feed in JSON format."""
-    # Build query for articles directly
-    query = select(Article).order_by(desc(Article.published_at))
+    # Build query for articles with categories
+    from .models import ArticleCategory
+    query = select(Article).options(
+        selectinload(Article.source),
+        selectinload(Article.article_categories).selectinload(ArticleCategory.category)
+    ).order_by(desc(Article.fetched_at))
     
     # Apply time filter
     if since_hours:
@@ -87,8 +92,11 @@ async def get_main_feed(
             # Filter for advertising content
             query = query.where(Article.is_advertisement == True)
         else:
-            # Filter by regular category
-            query = query.where(func.lower(Article.category) == category.lower())
+            # Filter by category using new junction table
+            from .models import ArticleCategory, Category
+            query = query.join(ArticleCategory).join(Category).where(
+                func.lower(Category.name) == category.lower()
+            )
     
     # Apply pagination
     query = query.offset(offset).limit(limit)
@@ -113,7 +121,8 @@ async def get_main_feed(
             "image_url": article.image_url,
             "url": article.url,
             "domain": domain,
-            "category": article.category,
+            "category": article.category,  # Legacy field for backward compatibility
+            "categories": article.categories_with_confidence,  # New multiple categories
             "published_at": article.published_at.isoformat() if article.published_at else None,
             "fetched_at": article.fetched_at.isoformat() if article.fetched_at else None,
             # Advertising detection data
@@ -212,20 +221,31 @@ async def health_db():
 @router.get("/categories")
 async def get_categories(db: AsyncSession = Depends(get_db)):
     """Get all available categories with article counts."""
-    # Get regular categories
+    from .models import Category, ArticleCategory
+    
+    # Get categories from new table with article counts
     result = await db.execute(
-        select(Article.category, func.count(Article.id).label('count'))
-        .where(Article.category.isnot(None))
-        .group_by(Article.category)
-        .order_by(func.count(Article.id).desc())
+        select(
+            Category.name,
+            Category.display_name,
+            Category.description,
+            Category.color,
+            func.count(ArticleCategory.article_id).label('count')
+        )
+        .outerjoin(ArticleCategory)
+        .group_by(Category.id, Category.name, Category.display_name, Category.description, Category.color)
+        .order_by(func.count(ArticleCategory.article_id).desc())
     )
     
     categories = []
     total_count = 0
     
-    for category, count in result.all():
+    for name, display_name, description, color, count in result.all():
         categories.append({
-            "category": category,
+            "category": name,
+            "display_name": display_name,
+            "description": description,
+            "color": color,
             "count": count
         })
         total_count += count
@@ -752,6 +772,89 @@ async def get_available_categories(db: AsyncSession = Depends(get_db)):
     return {
         "categories": categories
     }
+
+
+@router.get("/migrations/status")
+async def get_migrations_status(db: AsyncSession = Depends(get_db)):
+    """Get current migration status."""
+    try:
+        # Check if multiple categories migration is needed
+        # Get migration info from universal manager
+        migration_info = migration_manager.get_migration_info('002_multiple_categories')
+        if migration_info:
+            # Check if migration is needed using the registered check function
+            migrations = migration_manager.migrations
+            if '002_multiple_categories' in migrations:
+                migration = migrations['002_multiple_categories']
+                if hasattr(migration, 'check_needed'):
+                    is_needed = await migration.check_needed(db)
+                else:
+                    is_needed = await migration['check_function'](db)
+            else:
+                is_needed = False
+        else:
+            is_needed = False
+        
+        # Get some basic stats
+        result = await db.execute(text("SELECT COUNT(*) FROM articles WHERE category IS NOT NULL"))
+        articles_with_categories = result.scalar() or 0
+        
+        # Check if new tables exist by trying to query them
+        has_categories_table = False
+        has_article_categories_table = False
+        
+        try:
+            await db.execute(text("SELECT 1 FROM categories LIMIT 1"))
+            has_categories_table = True
+        except:
+            pass
+            
+        try:
+            await db.execute(text("SELECT 1 FROM article_categories LIMIT 1"))
+            has_article_categories_table = True
+        except:
+            pass
+        
+        # Get article_categories count if table exists
+        relationships_count = 0
+        if has_article_categories_table:
+            result = await db.execute(text("SELECT COUNT(*) FROM article_categories"))
+            relationships_count = result.scalar() or 0
+        
+        return {
+            "migration_needed": is_needed,
+            "tables_exist": {
+                "categories": has_categories_table,
+                "article_categories": has_article_categories_table
+            },
+            "statistics": {
+                "articles_with_categories": articles_with_categories,
+                "category_relationships": relationships_count
+            },
+            "available_migrations": list(migration_manager.migrations.keys())
+        }
+        
+    except Exception as e:
+        return {
+            "error": str(e),
+            "migration_needed": True  # Assume needed if we can't check
+        }
+
+
+@router.post("/migrations/run")
+async def run_migrations():
+    """Manually trigger migrations."""
+    try:
+        results = await migration_manager.check_and_run_migrations()
+        return {
+            "success": True,
+            "results": results
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 
 @router.get("/schedule/settings")

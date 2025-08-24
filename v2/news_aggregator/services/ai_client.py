@@ -945,7 +945,7 @@ Focus on detecting content that's primarily promotional rather than informationa
                     print(f"  ✅ Combined analysis successful")
                     
                     # Validate and clean results
-                    return self._validate_analysis_result(result)
+                    return self._validate_analysis_result(result, title, content)
                     
                 except json.JSONDecodeError as e:
                     print(f"  ⚠️ JSON parsing error: {e}")
@@ -1003,7 +1003,7 @@ GUIDELINES:
 
 RESPONSE (JSON only):
 {{
-    "category": "Business|Tech|Science|Serbia|Other",
+    "category": "Business OR Tech OR Science OR Serbia OR Other (choose ONE category only)",
     "summary": "краткое содержание статьи на русском языке...",
     "is_advertisement": true/false,
     "ad_type": "product_promotion|service_offer|event_promotion|personal_service|news_article",
@@ -1013,7 +1013,7 @@ RESPONSE (JSON only):
     "confidence": 0.0-1.0
 }}"""
     
-    def _validate_analysis_result(self, result: Dict[str, Any]) -> Dict[str, Any]:
+    def _validate_analysis_result(self, result: Dict[str, Any], title: str = None, content: str = None) -> Dict[str, Any]:
         """Validate and clean analysis result."""
         # Safe float conversion with fallback
         def safe_float(value, default=0.0):
@@ -1024,9 +1024,13 @@ RESPONSE (JSON only):
             except (TypeError, ValueError):
                 return default
         
+        # Import category parser
+        from .category_parser import parse_category
+        
         return {
             'summary': result.get('summary', '').strip() or None,
-            'category': result.get('category', 'Other'),
+            'category': result.get('category'),  # Return raw category for processing by orchestrator
+            'categories_parsed': parse_category(result.get('category'), title=title, content=content[:500] if content else None, return_multiple=True),
             'is_advertisement': bool(result.get('is_advertisement', False)),
             'ad_type': result.get('ad_type', 'news_article'),
             'ad_confidence': max(0.0, min(1.0, safe_float(result.get('ad_confidence'), 0.0))),

@@ -503,6 +503,18 @@
 .category-serbia { background: rgba(220, 53, 69, 0.9); }
 .category-marketing { background: rgba(255, 193, 7, 0.9); }
 .category-other { background: rgba(108, 117, 125, 0.9); }
+.category-more { 
+    background: rgba(108, 117, 125, 0.7); 
+    font-size: 11px;
+    padding: 2px 8px;
+}
+
+.news-list-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+}
 
 .ad-badge {
     padding: 4px 8px;
@@ -1206,7 +1218,13 @@ function renderNews(articles, reset = false) {
 }
 
 function createNewsListItem(article) {
-    const category = (article.category || 'Other').toLowerCase();
+    // Handle multiple categories - use first category for primary display
+    const categories = article.categories || [];
+    const primaryCategory = categories.length > 0 ? categories[0] : null;
+    const legacyCategory = (article.category || 'Other').toLowerCase();
+    
+    // Use primary category from new system, fallback to legacy
+    const category = primaryCategory ? primaryCategory.name.toLowerCase() : legacyCategory;
     const categoryInfo = categoryConfig[category] || categoryConfig['other'];
     
     // Extract image from content or summary
@@ -1219,8 +1237,32 @@ function createNewsListItem(article) {
     const isMobile = window.innerWidth <= 768;
     const shouldShowImage = imageUrl || !isMobile;
     
+    // Create category badges for multiple categories
+    let categoryBadges = '';
+    if (categories.length > 0) {
+        // Show up to 3 categories
+        const displayCategories = categories.slice(0, 3);
+        categoryBadges = displayCategories.map(cat => {
+            const catKey = cat.name.toLowerCase();
+            const catInfo = categoryConfig[catKey] || categoryConfig['other'];
+            return `<div class="category-badge category-${catKey}" style="background-color: ${cat.color}" title="Уверенность: ${Math.round(cat.confidence * 100)}%">
+                ${catInfo.icon} ${cat.display_name}
+            </div>`;
+        }).join('');
+        
+        // Add "+" indicator if there are more categories
+        if (categories.length > 3) {
+            categoryBadges += `<div class="category-badge category-more" title="Ещё ${categories.length - 3} категорий">+${categories.length - 3}</div>`;
+        }
+    } else {
+        // Fallback to legacy category
+        categoryBadges = `<div class="category-badge category-${category}">
+            ${categoryInfo.icon} ${categoryInfo.name}
+        </div>`;
+    }
+    
     return `
-        <article class="news-list-item" data-category="${category}">
+        <article class="news-list-item" data-category="${category}" data-categories="${categories.map(c => c.name.toLowerCase()).join(',')}">
             ${shouldShowImage ? `
                 <div class="news-list-image${!imageUrl && isMobile ? ' hide-placeholder' : ''}">
                     ${imageUrl ? 
@@ -1231,9 +1273,7 @@ function createNewsListItem(article) {
             ` : ''}
             <div class="news-list-content">
                 <div class="news-list-badges">
-                    <div class="category-badge category-${category}">
-                        ${categoryInfo.icon} ${categoryInfo.name}
-                    </div>
+                    ${categoryBadges}
                     ${article.is_advertisement ? `
                         <div class="ad-badge" title="Рекламный контент (Уверенность: ${Math.round((article.ad_confidence || 0) * 100)}%)">
                             🚨 РЕКЛАМА
@@ -1295,12 +1335,21 @@ function updateAllCategoryFilters() {
 }
 
 function updateCurrentCategoryCounts(articles) {
-    // Just count current visible articles for reference
+    // Count articles for each category (articles can be in multiple categories)
     categoryCounts = { all: articles.length };
     
     articles.forEach(article => {
-        const category = (article.category || 'Other').toLowerCase();
-        categoryCounts[category] = (categoryCounts[category] || 0) + 1;
+        // Count for legacy category
+        const legacyCategory = (article.category || 'Other').toLowerCase();
+        categoryCounts[legacyCategory] = (categoryCounts[legacyCategory] || 0) + 1;
+        
+        // Count for new multiple categories
+        if (article.categories && article.categories.length > 0) {
+            article.categories.forEach(cat => {
+                const categoryKey = cat.name.toLowerCase();
+                categoryCounts[categoryKey] = (categoryCounts[categoryKey] || 0) + 1;
+            });
+        }
     });
 }
 
