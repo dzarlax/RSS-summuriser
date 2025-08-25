@@ -118,7 +118,12 @@ async def get_main_feed(
             "title": clean_html_entities(article.title) if article.title else None,
             "summary": clean_html_entities(cleaned_summary) if cleaned_summary else None,
             "content": clean_html_entities(article.content[:500] + "..." if article.content and len(article.content) > 500 else article.content) if article.content else None,
-            "image_url": article.image_url,
+            "image_url": article.image_url,  # Legacy single image field for backward compatibility
+            "media_files": article.media_files or [],  # New multiple media files
+            "images": article.images,  # Convenience property for images only
+            "videos": article.videos,  # Convenience property for videos only
+            "documents": article.documents,  # Convenience property for documents only
+            "primary_image": article.primary_image,  # Primary image URL (first image or legacy image_url)
             "url": article.url,
             "domain": domain,
             "category": article.category,  # Legacy field for backward compatibility

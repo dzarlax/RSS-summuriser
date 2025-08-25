@@ -67,6 +67,7 @@ async def get_public_feed(
         from .models import Source
         
         # Build query for articles with source information
+        # Explicitly select all Article columns including media_files
         query = select(Article, Source).join(Source, Article.source_id == Source.id)
         
         # Apply time filter
@@ -90,12 +91,15 @@ async def get_public_feed(
         # Apply pagination
         query = query.offset(offset).limit(limit)
         
-        # Execute query through read queue
-        rows = await fetch_raw_all(query)
+        # Execute query through direct session (fetch_raw_all may not handle JSON properly)
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(query)
+            rows = result.all()
         
         # Convert to dict format
         articles_data = []
         for article, source in rows:
+
             article_dict = {
                 "id": article.id,
                 "title": article.title,
@@ -111,7 +115,13 @@ async def get_public_feed(
                 "ad_confidence": article.ad_confidence or 0.0,
                 "ad_type": article.ad_type,
                 "ad_reasoning": getattr(article, 'ad_reasoning', None),
-                "ad_markers": getattr(article, 'ad_markers', [])
+                "ad_markers": getattr(article, 'ad_markers', []),
+                # Add media fields
+                "media_files": article.media_files or [],
+                "images": [media for media in (article.media_files or []) if media.get('type') == 'image'],
+                "videos": [media for media in (article.media_files or []) if media.get('type') == 'video'],
+                "documents": [media for media in (article.media_files or []) if media.get('type') == 'document'],
+                "primary_image": (article.media_files or [{}])[0].get('url') if article.media_files else article.image_url
             }
             articles_data.append(article_dict)
         

@@ -12,6 +12,7 @@ from .config import settings
 from .database import init_db, AsyncSessionLocal
 from .migrations.universal_migration_manager import create_migration_manager
 from .migrations.multiple_categories_migration import MultipleCategoriesMigration
+from .migrations.media_files_migration import MediaFilesMigration
 
 import logging
 
@@ -21,9 +22,12 @@ logger = logging.getLogger(__name__)
 # Create migration manager
 migration_manager = create_migration_manager(AsyncSessionLocal, "RSS Summarizer v2")
 
-# Register multiple categories migration
+# Register migrations
 multiple_categories_migration = MultipleCategoriesMigration()
 migration_manager.register_migration(multiple_categories_migration)
+
+media_files_migration = MediaFilesMigration()
+migration_manager.register_migration(media_files_migration)
 
 
 @asynccontextmanager

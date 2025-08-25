@@ -228,6 +228,7 @@ class SourceManager:
                     content=article.content,
                     summary=article.summary,
                     image_url=article.image_url,
+                    media_files=article.media_files or [],
                     published_at=article.published_at,
                     processed=False,
                     hash_content=self._calculate_content_hash(article)

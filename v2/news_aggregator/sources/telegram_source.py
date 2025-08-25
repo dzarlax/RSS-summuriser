@@ -415,6 +415,7 @@ class TelegramSource(BaseSource):
             
             # Extract image and media info
             image_url = self._extract_image_url(message_div)
+            media_files = self._extract_media_files(message_div)
             media_info = self._extract_media_info(message_div)
 
             # Extract external links (buttons/previews) that are not Telegram links
@@ -492,12 +493,14 @@ class TelegramSource(BaseSource):
                 source_type="telegram",
                 source_name=self.name,
                 image_url=image_url,
+                media_files=media_files,
                 raw_data={
                     "channel": self.channel_username,
                     "access_method": base_url,
                     "content_length": len(content),
                     "media_info": media_info,
-                    "has_media": bool(image_url or media_info.get('video_url') or media_info.get('document_url')),
+                    "has_media": bool(image_url or media_info.get('video_url') or media_info.get('document_url') or media_files),
+                    "media_count": len(media_files) if media_files else 0,
                     "external_links": external_links,
                     "hashtags": hashtags,
                     "original_link": original_link,
@@ -569,18 +572,29 @@ class TelegramSource(BaseSource):
         # Fallback to current time (naive UTC)
         return datetime.utcnow()
     
-    def _extract_image_url(self, message_div) -> Optional[str]:
-        """Extract image URL from message div with enhanced media support, excluding channel avatars."""
-        # Enhanced image selectors - prioritize content images over avatars
-        content_img_selectors = [
-            '.media img',                  # Media container images (content)
-            '.photo img',                  # Photo-specific images (content)
-            '.video-thumb img',            # Video thumbnails (content)
-            '.document-thumb img',         # Document thumbnails (content)
-            '.attachment img',             # Attachment images (content)
-            '.message_media img',          # Message media (content)
-            '.tgme_widget_message_photo img',  # Telegram preview photos (content)
-        ]
+    def _extract_media_files(self, message_div) -> List[Dict[str, Any]]:
+        """Extract all media files from message div with enhanced media support, excluding channel avatars."""
+        media_files = []
+        
+        # Enhanced media selectors
+        media_selectors = {
+            'image': [
+                '.media img',                  # Media container images (content)
+                '.photo img',                  # Photo-specific images (content)
+                '.attachment img',             # Attachment images (content)
+                '.message_media img',          # Message media (content)
+                '.tgme_widget_message_photo img',  # Telegram preview photos (content)
+            ],
+            'video': [
+                '.video-thumb img',            # Video thumbnails (content)
+                '.tgme_widget_message_video',  # Video containers
+                'video',                       # Direct video elements
+            ],
+            'document': [
+                '.document-thumb img',         # Document thumbnails (content)
+                '.tgme_widget_message_document', # Document containers
+            ]
+        }
         
         # Avatar/profile selectors to exclude
         avatar_selectors = [
@@ -592,8 +606,6 @@ class TelegramSource(BaseSource):
             '.channel_photo img'                    # Channel photos
         ]
         
-        image_urls = []
-        
         # First, collect avatar URLs to exclude them
         avatar_urls = set()
         for selector in avatar_selectors:
@@ -603,48 +615,109 @@ class TelegramSource(BaseSource):
                 if src:
                     avatar_urls.add(src)
         
-        # Then collect content images, excluding avatars
-        for selector in content_img_selectors:
+        # Extract images
+        for selector in media_selectors['image']:
             imgs = message_div.select(selector)
             for img in imgs:
                 src = img.get('src') or img.get('data-src') or img.get('data-lazy-src')
                 if src and src not in avatar_urls:
-                    # Clean and normalize URL
                     normalized_url = self._normalize_image_url(src)
                     if normalized_url and self._is_content_image(normalized_url):
-                        image_urls.append(normalized_url)
+                        media_files.append({
+                            'url': normalized_url,
+                            'type': 'image',
+                            'thumbnail': normalized_url  # For images, thumbnail is the same as URL
+                        })
         
-        # If no specific content images found, try general img selector but exclude avatars
-        if not image_urls:
-            general_imgs = message_div.select('img[src]')
-            for img in general_imgs:
-                src = img.get('src') or img.get('data-src') or img.get('data-lazy-src')
-                if src and src not in avatar_urls:
-                    normalized_url = self._normalize_image_url(src)
-                    if normalized_url and self._is_content_image(normalized_url):
-                        image_urls.append(normalized_url)
+        # Extract videos
+        for selector in media_selectors['video']:
+            elements = message_div.select(selector)
+            for element in elements:
+                if element.name == 'video':
+                    # Direct video element
+                    src = element.get('src')
+                    poster = element.get('poster')
+                    if src:
+                        media_files.append({
+                            'url': self._normalize_image_url(src),
+                            'type': 'video',
+                            'thumbnail': self._normalize_image_url(poster) if poster else None
+                        })
+                else:
+                    # Video container - look for thumbnail and video URL
+                    thumb_img = element.select_one('img')
+                    if thumb_img:
+                        thumb_src = thumb_img.get('src') or thumb_img.get('data-src')
+                        if thumb_src and thumb_src not in avatar_urls:
+                            # For video containers, we might not have direct video URL
+                            # but we can use the thumbnail and mark it as video
+                            normalized_thumb = self._normalize_image_url(thumb_src)
+                            if normalized_thumb:
+                                media_files.append({
+                                    'url': normalized_thumb,  # Use thumbnail as URL for now
+                                    'type': 'video',
+                                    'thumbnail': normalized_thumb
+                                })
         
-        # Also check for background-image in style attributes
-        style_elements = message_div.select('[style*="background-image"]')
-        for element in style_elements:
+        # Extract documents
+        for selector in media_selectors['document']:
+            elements = message_div.select(selector)
+            for element in elements:
+                thumb_img = element.select_one('img')
+                if thumb_img:
+                    thumb_src = thumb_img.get('src') or thumb_img.get('data-src')
+                    if thumb_src and thumb_src not in avatar_urls:
+                        normalized_thumb = self._normalize_image_url(thumb_src)
+                        if normalized_thumb:
+                            media_files.append({
+                                'url': normalized_thumb,  # Use thumbnail as URL for now
+                                'type': 'document',
+                                'thumbnail': normalized_thumb
+                            })
+        
+        # Check for background images in style attributes
+        for element in message_div.select('[style*="background-image"]'):
             style = element.get('style', '')
-            # Extract URL from background-image: url(...)
             import re
             bg_matches = re.findall(r'background-image:\s*url\(["\']?(.*?)["\']?\)', style)
             for match in bg_matches:
                 if match not in avatar_urls:
                     normalized_url = self._normalize_image_url(match)
                     if normalized_url and self._is_content_image(normalized_url):
-                        image_urls.append(normalized_url)
+                        media_files.append({
+                            'url': normalized_url,
+                            'type': 'image',
+                            'thumbnail': normalized_url
+                        })
         
-        # Return the first valid high-quality content image
-        for url in image_urls:
-            # Prefer full-size images over thumbnails
-            if 'thumb' not in url.lower() and 'preview' not in url.lower():
-                return url
+        # Remove duplicates based on URL
+        seen_urls = set()
+        unique_media = []
+        for media in media_files:
+            if media['url'] not in seen_urls:
+                seen_urls.add(media['url'])
+                unique_media.append(media)
         
-        # Fallback to any content image
-        return image_urls[0] if image_urls else None
+        return unique_media
+    
+    def _extract_image_url(self, message_div) -> Optional[str]:
+        """Extract single image URL for backward compatibility."""
+        media_files = self._extract_media_files(message_div)
+        
+        # Return first image URL for backward compatibility
+        for media in media_files:
+            if media.get('type') == 'image':
+                # Prefer full-size images over thumbnails
+                url = media.get('url', '')
+                if 'thumb' not in url.lower() and 'preview' not in url.lower():
+                    return url
+        
+        # Fallback to any image
+        for media in media_files:
+            if media.get('type') == 'image':
+                return media.get('url')
+        
+        return None
     
     def _normalize_image_url(self, url: str) -> Optional[str]:
         """Normalize image URL to absolute format."""

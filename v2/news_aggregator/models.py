@@ -47,7 +47,8 @@ class Article(Base):
     content = Column(Text)
     summary = Column(Text)
     category = Column(String(50))  # Business, Tech, Science, Nature, Serbia, Marketing, Other
-    image_url = Column(Text)
+    image_url = Column(Text)  # Legacy single image field for backward compatibility
+    media_files = Column(JSON, default=list)  # List of media files: [{"url": "...", "type": "image|video|document", "thumbnail": "..."}]
     published_at = Column(DateTime)
     fetched_at = Column(DateTime, default=func.now())
     processed = Column(Boolean, default=False)  # Legacy field for backward compatibility
@@ -85,6 +86,36 @@ class Article(Base):
             }
             for ac in self.article_categories
         ]
+    
+    @property
+    def images(self) -> List[dict]:
+        """Get list of image media files."""
+        if not self.media_files:
+            # Fallback to legacy image_url for backward compatibility
+            return [{"url": self.image_url, "type": "image"}] if self.image_url else []
+        return [media for media in self.media_files if media.get('type') == 'image']
+    
+    @property
+    def videos(self) -> List[dict]:
+        """Get list of video media files."""
+        if not self.media_files:
+            return []
+        return [media for media in self.media_files if media.get('type') == 'video']
+    
+    @property
+    def documents(self) -> List[dict]:
+        """Get list of document media files."""
+        if not self.media_files:
+            return []
+        return [media for media in self.media_files if media.get('type') == 'document']
+    
+    @property
+    def primary_image(self) -> Optional[str]:
+        """Get primary image URL (first image or legacy image_url)."""
+        images = self.images
+        if images:
+            return images[0].get('url')
+        return self.image_url
 
 
 class Category(Base):

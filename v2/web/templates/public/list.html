@@ -879,6 +879,333 @@
     color: #495057;
 }
 
+/* Gallery Styles */
+.modal-gallery {
+    margin: 0 0 24px 0;
+}
+
+.gallery-container {
+    background: #f8f9fa;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.gallery-main {
+    position: relative;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 300px;
+    max-height: 500px;
+}
+
+.gallery-main img {
+    max-width: 100%;
+    max-height: 500px;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.gallery-main img:hover {
+    transform: scale(1.02);
+}
+
+.gallery-nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    padding: 0 16px;
+    pointer-events: none;
+}
+
+.gallery-nav-btn {
+    background: rgba(0,0,0,0.7);
+    color: white;
+    border: none;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    font-size: 24px;
+    font-weight: bold;
+    cursor: pointer;
+    pointer-events: auto;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.gallery-nav-btn:hover {
+    background: rgba(0,0,0,0.9);
+    transform: scale(1.1);
+}
+
+.gallery-counter {
+    position: absolute;
+    bottom: 16px;
+    right: 16px;
+    background: rgba(0,0,0,0.7);
+    color: white;
+    padding: 6px 12px;
+    border-radius: 16px;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.gallery-thumbnails {
+    display: flex;
+    gap: 8px;
+    padding: 16px;
+    overflow-x: auto;
+    background: #fff;
+}
+
+.gallery-thumbnail {
+    flex-shrink: 0;
+    width: 80px;
+    height: 60px;
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: all 0.2s ease;
+}
+
+.gallery-thumbnail:hover {
+    border-color: #667eea;
+    transform: scale(1.05);
+}
+
+.gallery-thumbnail.active {
+    border-color: #667eea;
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+}
+
+.gallery-thumbnail img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* Fullscreen Gallery Styles */
+.fullscreen-gallery {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0,0,0,0.95);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.3s ease;
+}
+
+.fullscreen-content {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px 20px;
+}
+
+.fullscreen-close {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: rgba(255,255,255,0.2);
+    color: white;
+    border: none;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    font-size: 24px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    z-index: 10001;
+}
+
+.fullscreen-close:hover {
+    background: rgba(255,255,255,0.3);
+    transform: scale(1.1);
+}
+
+.fullscreen-image-container {
+    position: relative;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    max-width: 90vw;
+    max-height: 80vh;
+}
+
+.fullscreen-image-container img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 8px;
+}
+
+.fullscreen-nav {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(255,255,255,0.2);
+    color: white;
+    border: none;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    font-size: 30px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.fullscreen-nav:hover {
+    background: rgba(255,255,255,0.3);
+    transform: translateY(-50%) scale(1.1);
+}
+
+.fullscreen-prev {
+    left: 20px;
+}
+
+.fullscreen-next {
+    right: 20px;
+}
+
+.fullscreen-counter {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(255,255,255,0.2);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 1rem;
+    font-weight: 500;
+}
+
+.fullscreen-thumbnails {
+    display: flex;
+    gap: 12px;
+    padding: 20px;
+    overflow-x: auto;
+    max-width: 100%;
+}
+
+.fullscreen-thumbnail {
+    flex-shrink: 0;
+    width: 100px;
+    height: 75px;
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: all 0.2s ease;
+}
+
+.fullscreen-thumbnail:hover {
+    border-color: white;
+    transform: scale(1.05);
+}
+
+.fullscreen-thumbnail.active {
+    border-color: white;
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.3);
+}
+
+.fullscreen-thumbnail img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* Responsive Gallery Styles */
+@media (max-width: 768px) {
+    .gallery-thumbnails {
+        padding: 12px;
+        gap: 6px;
+    }
+    
+    .gallery-thumbnail {
+        width: 60px;
+        height: 45px;
+    }
+    
+    .gallery-nav-btn {
+        width: 40px;
+        height: 40px;
+        font-size: 20px;
+    }
+    
+    .fullscreen-nav {
+        width: 50px;
+        height: 50px;
+        font-size: 24px;
+    }
+    
+    .fullscreen-thumbnails {
+        padding: 15px;
+        gap: 8px;
+    }
+    
+    .fullscreen-thumbnail {
+        width: 80px;
+        height: 60px;
+    }
+}
+
+@media (max-width: 480px) {
+    .gallery-main {
+        min-height: 200px;
+        max-height: 300px;
+    }
+    
+    .gallery-thumbnails {
+        padding: 8px;
+        gap: 4px;
+    }
+    
+    .gallery-thumbnail {
+        width: 50px;
+        height: 38px;
+    }
+    
+    .fullscreen-content {
+        padding: 50px 10px 10px;
+    }
+    
+    .fullscreen-thumbnails {
+        padding: 10px;
+        gap: 6px;
+    }
+    
+    .fullscreen-thumbnail {
+        width: 70px;
+        height: 53px;
+    }
+}
+
 /* Modal Animations */
 @keyframes modalFadeIn {
     to {
@@ -889,6 +1216,15 @@
 @keyframes modalSlideIn {
     to {
         transform: translateY(0);
+    }
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
     }
 }
 
@@ -1157,6 +1493,8 @@ async function loadNews(reset = false) {
         }
         
         const data = await response.json();
+        
+
         
         if (reset) {
             renderNews(data.articles || [], true);
@@ -1560,6 +1898,59 @@ function getResponsiveTextLength() {
 }
 
 let articlesData = {}; // Store articles data for modal
+let currentGalleryIndex = 0; // Current image index in gallery
+
+function createMediaGallery(mediaFiles, articleTitle) {
+    if (!mediaFiles || mediaFiles.length === 0) return '';
+    
+    // Filter only images for gallery
+    const images = mediaFiles.filter(media => media.type === 'image');
+    if (images.length === 0) return '';
+    
+    console.log('Creating gallery with images:', images);
+    
+    const hasMultipleImages = images.length > 1;
+    
+    const galleryHTML = `
+        <div class="modal-gallery">
+            <div class="gallery-container">
+                <div class="gallery-main">
+                    <img 
+                        id="gallery-main-image" 
+                        src="${images[0].url}" 
+                        alt="${escapeHtml(articleTitle)}" 
+                        onerror="console.warn('Failed to load image:', this.src); this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjhmOWZhIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzZjNzU3ZCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPk5vIEltYWdlPC90ZXh0Pjwvc3ZnPg=='"
+                        onclick="openFullscreenGallery(0)"
+                    >
+                    ${hasMultipleImages ? `
+                        <div class="gallery-nav">
+                            <button class="gallery-nav-btn gallery-prev" onclick="changeGalleryImage(-1)" title="Предыдущее изображение">
+                                ‹
+                            </button>
+                            <button class="gallery-nav-btn gallery-next" onclick="changeGalleryImage(1)" title="Следующее изображение">
+                                ›
+                            </button>
+                        </div>
+                        <div class="gallery-counter">
+                            <span id="gallery-counter-text">1 / ${images.length}</span>
+                        </div>
+                    ` : ''}
+                </div>
+                ${hasMultipleImages ? `
+                    <div class="gallery-thumbnails">
+                        ${images.map((image, index) => `
+                            <div class="gallery-thumbnail ${index === 0 ? 'active' : ''}" onclick="selectGalleryImage(${index})">
+                                <img src="${image.thumbnail || image.url}" alt="Thumbnail ${index + 1}" loading="lazy">
+                            </div>
+                        `).join('')}
+                    </div>
+                ` : ''}
+            </div>
+        </div>
+    `;
+    
+    return galleryHTML;
+}
 
 function showArticleModal(articleId) {
     const article = articlesData[articleId];
@@ -1567,7 +1958,29 @@ function showArticleModal(articleId) {
     
     const category = (article.category || 'Other').toLowerCase();
     const categoryInfo = categoryConfig[category] || categoryConfig['other'];
-    const imageUrl = extractImageFromContent(article.image_url || article.summary || article.content || '');
+    
+    // Get media files - prioritize new media_files field, fallback to legacy image_url
+    let mediaFiles = [];
+    
+
+    
+    // First try to use the new images array from API
+    if (article.images && Array.isArray(article.images) && article.images.length > 0) {
+        mediaFiles = article.images;
+    } else if (article.media_files && Array.isArray(article.media_files) && article.media_files.length > 0) {
+        // Try media_files array
+        mediaFiles = article.media_files.filter(media => media.type === 'image');
+    } else {
+        // Fallback to legacy image_url
+        const legacyImageUrl = extractImageFromContent(article.image_url || article.summary || article.content || '');
+        if (legacyImageUrl) {
+            mediaFiles.push({
+                url: legacyImageUrl,
+                type: 'image',
+                thumbnail: legacyImageUrl
+            });
+        }
+    }
     
     // Create modal HTML
     const modalHtml = `
@@ -1585,11 +1998,7 @@ function showArticleModal(articleId) {
                     <button class="modal-close" onclick="closeArticleModal()">×</button>
                 </div>
                 
-                ${imageUrl ? `
-                    <div class="modal-image">
-                        <img src="${imageUrl}" alt="${escapeHtml(article.title)}" onerror="this.parentElement.style.display='none'">
-                    </div>
-                ` : ''}
+                ${mediaFiles.length > 0 ? createMediaGallery(mediaFiles, article.title) : ''}
                 
                 <div class="modal-body">
                     <h1 class="modal-title">${escapeHtml(article.title)}</h1>
@@ -1628,9 +2037,25 @@ function showArticleModal(articleId) {
         </div>
     `;
     
+    // Store current gallery images for navigation
+    currentGalleryImages = mediaFiles.filter(media => media.type === 'image');
+    currentGalleryIndex = 0;
+    
+    // Debug info (remove in production)
+    if (mediaFiles.length > 0) {
+        console.log('Gallery loaded:', mediaFiles.length, 'media files');
+    }
+    
     // Add modal to page
     document.body.insertAdjacentHTML('beforeend', modalHtml);
     document.body.style.overflow = 'hidden';
+    
+    // Debug: Check if gallery was inserted
+    const galleryElement = document.querySelector('.modal-gallery');
+    console.log('Gallery element found:', !!galleryElement);
+    if (galleryElement) {
+        console.log('Gallery element HTML:', galleryElement.innerHTML.substring(0, 200) + '...');
+    }
 }
 
 function closeArticleModal() {
@@ -1639,6 +2064,143 @@ function closeArticleModal() {
         modal.remove();
         document.body.style.overflow = '';
     }
+    currentGalleryIndex = 0; // Reset gallery index
+}
+
+// Gallery navigation functions
+let currentGalleryImages = []; // Store current gallery images
+
+function selectGalleryImage(index) {
+    if (!currentGalleryImages || index < 0 || index >= currentGalleryImages.length) return;
+    
+    currentGalleryIndex = index;
+    updateGalleryDisplay();
+}
+
+function changeGalleryImage(direction) {
+    if (!currentGalleryImages || currentGalleryImages.length <= 1) return;
+    
+    currentGalleryIndex += direction;
+    
+    // Loop around
+    if (currentGalleryIndex >= currentGalleryImages.length) {
+        currentGalleryIndex = 0;
+    } else if (currentGalleryIndex < 0) {
+        currentGalleryIndex = currentGalleryImages.length - 1;
+    }
+    
+    updateGalleryDisplay();
+}
+
+function updateGalleryDisplay() {
+    const mainImage = document.getElementById('gallery-main-image');
+    const counterText = document.getElementById('gallery-counter-text');
+    const thumbnails = document.querySelectorAll('.gallery-thumbnail');
+    
+    if (mainImage && currentGalleryImages[currentGalleryIndex]) {
+        mainImage.src = currentGalleryImages[currentGalleryIndex].url;
+        mainImage.onclick = () => openFullscreenGallery(currentGalleryIndex);
+    }
+    
+    if (counterText) {
+        counterText.textContent = `${currentGalleryIndex + 1} / ${currentGalleryImages.length}`;
+    }
+    
+    // Update thumbnail active state
+    thumbnails.forEach((thumb, index) => {
+        thumb.classList.toggle('active', index === currentGalleryIndex);
+    });
+}
+
+function openFullscreenGallery(startIndex = 0) {
+    if (!currentGalleryImages || currentGalleryImages.length === 0) return;
+    
+    currentGalleryIndex = startIndex;
+    
+    const fullscreenHtml = `
+        <div class="fullscreen-gallery" onclick="closeFullscreenGallery()">
+            <div class="fullscreen-content" onclick="event.stopPropagation()">
+                <button class="fullscreen-close" onclick="closeFullscreenGallery()">×</button>
+                
+                <div class="fullscreen-image-container">
+                    <img 
+                        id="fullscreen-image" 
+                        src="${currentGalleryImages[currentGalleryIndex].url}" 
+                        alt="Fullscreen image"
+                    >
+                    
+                    ${currentGalleryImages.length > 1 ? `
+                        <button class="fullscreen-nav fullscreen-prev" onclick="changeFullscreenImage(-1)">‹</button>
+                        <button class="fullscreen-nav fullscreen-next" onclick="changeFullscreenImage(1)">›</button>
+                        
+                        <div class="fullscreen-counter">
+                            <span id="fullscreen-counter-text">${currentGalleryIndex + 1} / ${currentGalleryImages.length}</span>
+                        </div>
+                    ` : ''}
+                </div>
+                
+                ${currentGalleryImages.length > 1 ? `
+                    <div class="fullscreen-thumbnails">
+                        ${currentGalleryImages.map((image, index) => `
+                            <div class="fullscreen-thumbnail ${index === currentGalleryIndex ? 'active' : ''}" onclick="selectFullscreenImage(${index})">
+                                <img src="${image.thumbnail || image.url}" alt="Thumbnail ${index + 1}">
+                            </div>
+                        `).join('')}
+                    </div>
+                ` : ''}
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', fullscreenHtml);
+}
+
+function closeFullscreenGallery() {
+    const fullscreen = document.querySelector('.fullscreen-gallery');
+    if (fullscreen) {
+        fullscreen.remove();
+    }
+}
+
+function changeFullscreenImage(direction) {
+    if (!currentGalleryImages || currentGalleryImages.length <= 1) return;
+    
+    currentGalleryIndex += direction;
+    
+    // Loop around
+    if (currentGalleryIndex >= currentGalleryImages.length) {
+        currentGalleryIndex = 0;
+    } else if (currentGalleryIndex < 0) {
+        currentGalleryIndex = currentGalleryImages.length - 1;
+    }
+    
+    updateFullscreenDisplay();
+}
+
+function selectFullscreenImage(index) {
+    if (!currentGalleryImages || index < 0 || index >= currentGalleryImages.length) return;
+    
+    currentGalleryIndex = index;
+    updateFullscreenDisplay();
+}
+
+function updateFullscreenDisplay() {
+    const fullscreenImage = document.getElementById('fullscreen-image');
+    const counterText = document.getElementById('fullscreen-counter-text');
+    const thumbnails = document.querySelectorAll('.fullscreen-thumbnail');
+    
+    if (fullscreenImage && currentGalleryImages[currentGalleryIndex]) {
+        fullscreenImage.src = currentGalleryImages[currentGalleryIndex].url;
+    }
+    
+    if (counterText) {
+        counterText.textContent = `${currentGalleryIndex + 1} / ${currentGalleryImages.length}`;
+    }
+    
+    // Update thumbnail active state
+    thumbnails.forEach((thumb, index) => {
+        thumb.classList.toggle('active', index === currentGalleryIndex);
+    });
 }
 
 function formatHtmlContent(html) {

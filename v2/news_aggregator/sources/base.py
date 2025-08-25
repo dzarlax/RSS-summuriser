@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
-from typing import AsyncGenerator, Dict, Any, Optional
+from typing import AsyncGenerator, Dict, Any, Optional, List
 from enum import Enum
 
 
@@ -24,7 +24,8 @@ class Article:
     url: str
     content: Optional[str] = None
     summary: Optional[str] = None
-    image_url: Optional[str] = None
+    image_url: Optional[str] = None  # Legacy single image field for backward compatibility
+    media_files: Optional[List[Dict[str, Any]]] = None  # List of media files: [{"url": "...", "type": "image|video|document", "thumbnail": "..."}]
     published_at: Optional[datetime] = None
     source_type: str = ""
     source_name: str = ""
