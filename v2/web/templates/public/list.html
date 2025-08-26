@@ -995,6 +995,231 @@
     object-fit: cover;
 }
 
+/* Media Type Styles */
+.media-video-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #000;
+    min-height: 300px;
+}
+
+.media-video-container video {
+    max-width: 100%;
+    max-height: 500px;
+    cursor: pointer;
+}
+
+.media-document-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+    min-height: 300px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.media-document-container:hover {
+    transform: scale(1.02);
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.media-document-container:hover .document-preview {
+    color: white;
+}
+
+.document-preview {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    padding: 32px;
+    transition: color 0.3s ease;
+}
+
+.document-icon {
+    font-size: 4rem;
+    margin-bottom: 8px;
+}
+
+.document-info {
+    text-align: center;
+}
+
+.document-name {
+    font-size: 1.2rem;
+    font-weight: 600;
+    margin-bottom: 8px;
+    word-break: break-word;
+}
+
+.document-type {
+    font-size: 0.9rem;
+    opacity: 0.7;
+    margin-bottom: 12px;
+}
+
+.document-action {
+    font-size: 1rem;
+    font-weight: 500;
+    padding: 8px 16px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.2);
+}
+
+.media-unknown-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f8f9fa;
+    min-height: 300px;
+}
+
+.unknown-media {
+    text-align: center;
+    padding: 32px;
+}
+
+.unknown-icon {
+    font-size: 3rem;
+    margin-bottom: 16px;
+}
+
+.unknown-text {
+    font-size: 1.1rem;
+    margin-bottom: 16px;
+    color: #6c757d;
+}
+
+.unknown-link {
+    display: inline-block;
+    padding: 8px 16px;
+    background: #667eea;
+    color: white;
+    text-decoration: none;
+    border-radius: 6px;
+    transition: background 0.2s ease;
+}
+
+.unknown-link:hover {
+    background: #5a67d8;
+}
+
+/* Media Type Badges */
+.media-type-badge {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    background: rgba(0,0,0,0.7);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 500;
+}
+
+.video-badge {
+    background: rgba(220, 38, 38, 0.9);
+}
+
+.document-badge {
+    background: rgba(59, 130, 246, 0.9);
+}
+
+/* Media Type Display */
+.gallery-media-type {
+    position: absolute;
+    bottom: 16px;
+    left: 16px;
+    background: rgba(0,0,0,0.7);
+    color: white;
+    padding: 6px 12px;
+    border-radius: 16px;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+/* Thumbnail Type Icons */
+.thumbnail-type-icon {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    background: rgba(0,0,0,0.7);
+    color: white;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.7rem;
+}
+
+.video-icon {
+    background: rgba(220, 38, 38, 0.9);
+}
+
+.document-icon {
+    background: rgba(59, 130, 246, 0.9);
+}
+
+/* Document Thumbnail Styles */
+.document-thumbnail {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+}
+
+.doc-icon {
+    font-size: 1.5rem;
+    margin-bottom: 4px;
+}
+
+.doc-ext {
+    font-size: 0.6rem;
+    font-weight: 600;
+    color: #495057;
+}
+
+/* Video Thumbnail Styles */
+.video-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, #1f2937 0%, #374151 100%);
+}
+
+.video-icon {
+    font-size: 2rem;
+    color: white;
+}
+
+/* Unknown Thumbnail Styles */
+.unknown-thumbnail {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    background: #e9ecef;
+}
+
+.unknown-thumbnail .unknown-icon {
+    font-size: 1.5rem;
+    color: #6c757d;
+}
+
 /* Fullscreen Gallery Styles */
 .fullscreen-gallery {
     position: fixed;
@@ -1138,6 +1363,186 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+}
+
+/* Fullscreen Media Container */
+.fullscreen-media-container {
+    position: relative;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    max-width: 90vw;
+    max-height: 80vh;
+}
+
+.fullscreen-media-type {
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(255,255,255,0.2);
+    color: white;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 1rem;
+    font-weight: 500;
+}
+
+/* Fullscreen Document Styles */
+.fullscreen-document {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    min-height: 400px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.fullscreen-document:hover {
+    transform: scale(1.02);
+}
+
+.fullscreen-document-preview {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 24px;
+    padding: 48px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 16px;
+    backdrop-filter: blur(10px);
+    text-align: center;
+}
+
+.fullscreen-document-icon {
+    font-size: 6rem;
+    margin-bottom: 16px;
+}
+
+.fullscreen-document-name {
+    font-size: 1.5rem;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: white;
+    word-break: break-word;
+    max-width: 400px;
+}
+
+.fullscreen-document-type {
+    font-size: 1.1rem;
+    opacity: 0.8;
+    color: white;
+    margin-bottom: 20px;
+}
+
+.fullscreen-document-action .btn {
+    font-size: 1.1rem;
+    padding: 12px 24px;
+}
+
+/* Fullscreen Unknown Media */
+.fullscreen-unknown {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    padding: 48px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 16px;
+    backdrop-filter: blur(10px);
+    text-align: center;
+}
+
+.fullscreen-unknown-icon {
+    font-size: 4rem;
+    color: white;
+}
+
+.fullscreen-unknown-text {
+    font-size: 1.2rem;
+    color: white;
+    margin-bottom: 16px;
+}
+
+/* Fullscreen Thumbnail Styles */
+.fullscreen-video-thumb {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #1f2937;
+}
+
+.fullscreen-video-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, #1f2937 0%, #374151 100%);
+}
+
+.fullscreen-video-icon {
+    font-size: 2.5rem;
+    color: white;
+}
+
+.fullscreen-thumb-play-icon {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 1.5rem;
+    color: white;
+    background: rgba(0,0,0,0.7);
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.fullscreen-document-thumb {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+}
+
+.fullscreen-doc-icon {
+    font-size: 2.5rem;
+    margin-bottom: 8px;
+}
+
+.fullscreen-doc-ext {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #495057;
+}
+
+.fullscreen-unknown-thumb {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    background: #e9ecef;
+}
+
+.fullscreen-unknown-thumb .fullscreen-unknown-icon {
+    font-size: 2rem;
+    color: #6c757d;
 }
 
 /* Responsive Gallery Styles */
@@ -1900,49 +2305,172 @@ function getResponsiveTextLength() {
 let articlesData = {}; // Store articles data for modal
 let currentGalleryIndex = 0; // Current image index in gallery
 
+function renderMediaItem(media, index, articleTitle) {
+    const mediaType = media.type || 'image';
+    const mediaUrl = media.url;
+    const thumbnailUrl = media.thumbnail || media.url;
+    
+    switch (mediaType) {
+        case 'image':
+            return `
+                <img 
+                    id="gallery-main-media" 
+                    src="${mediaUrl}" 
+                    alt="${escapeHtml(articleTitle)}" 
+                    onerror="console.warn('Failed to load image:', this.src); this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjhmOWZhIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzZjNzU3ZCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPk5vIEltYWdlPC90ZXh0Pjwvc3ZnPg=='"
+                    onclick="openFullscreenGallery(${index})"
+                >
+            `;
+            
+        case 'video':
+            return `
+                <div class="media-video-container">
+                    <video 
+                        id="gallery-main-media"
+                        controls 
+                        preload="metadata"
+                        style="max-width: 100%; max-height: 500px;"
+                        onclick="openFullscreenGallery(${index})"
+                    >
+                        <source src="${mediaUrl}" type="video/mp4">
+                        <source src="${mediaUrl}" type="video/webm">
+                        <source src="${mediaUrl}" type="video/ogg">
+                        Ваш браузер не поддерживает видео
+                    </video>
+                    <div class="media-type-badge video-badge">📹 Видео</div>
+                </div>
+            `;
+            
+        case 'document':
+            const fileName = mediaUrl.split('/').pop() || 'Документ';
+            const fileExt = fileName.split('.').pop()?.toLowerCase() || '';
+            let iconEmoji = '📄';
+            
+            if (['pdf'].includes(fileExt)) iconEmoji = '📕';
+            else if (['doc', 'docx'].includes(fileExt)) iconEmoji = '📘';
+            else if (['xls', 'xlsx'].includes(fileExt)) iconEmoji = '📗';
+            else if (['ppt', 'pptx'].includes(fileExt)) iconEmoji = '📙';
+            else if (['txt'].includes(fileExt)) iconEmoji = '📃';
+            else if (['zip', 'rar', '7z'].includes(fileExt)) iconEmoji = '🗜️';
+            
+            return `
+                <div class="media-document-container" onclick="window.open('${mediaUrl}', '_blank')">
+                    <div class="document-preview">
+                        <div class="document-icon">${iconEmoji}</div>
+                        <div class="document-info">
+                            <div class="document-name">${escapeHtml(fileName)}</div>
+                            <div class="document-type">${fileExt.toUpperCase()} документ</div>
+                            <div class="document-action">📥 Скачать / Открыть</div>
+                        </div>
+                    </div>
+                    <div class="media-type-badge document-badge">📄 Документ</div>
+                </div>
+            `;
+            
+        default:
+            return `
+                <div class="media-unknown-container">
+                    <div class="unknown-media">
+                        <div class="unknown-icon">❓</div>
+                        <div class="unknown-text">Неизвестный тип медиа: ${mediaType}</div>
+                        <a href="${mediaUrl}" target="_blank" class="unknown-link">Открыть</a>
+                    </div>
+                </div>
+            `;
+    }
+}
+
+function renderMediaThumbnail(media, index) {
+    const mediaType = media.type || 'image';
+    const thumbnailUrl = media.thumbnail || media.url;
+    
+    let thumbnailContent = '';
+    let typeIcon = '';
+    
+    switch (mediaType) {
+        case 'image':
+            thumbnailContent = `<img src="${thumbnailUrl}" alt="Thumbnail ${index + 1}" loading="lazy">`;
+            typeIcon = '';
+            break;
+        case 'video':
+            thumbnailContent = `
+                <img src="${thumbnailUrl}" alt="Video thumbnail ${index + 1}" loading="lazy" 
+                     onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                <div class="video-placeholder" style="display: none;">
+                    <div class="video-icon">📹</div>
+                </div>
+            `;
+            typeIcon = '<div class="thumbnail-type-icon video-icon">▶️</div>';
+            break;
+        case 'document':
+            const fileName = media.url.split('/').pop() || 'Документ';
+            const fileExt = fileName.split('.').pop()?.toLowerCase() || '';
+            let docIcon = '📄';
+            if (['pdf'].includes(fileExt)) docIcon = '📕';
+            else if (['doc', 'docx'].includes(fileExt)) docIcon = '📘';
+            
+            thumbnailContent = `
+                <div class="document-thumbnail">
+                    <div class="doc-icon">${docIcon}</div>
+                    <div class="doc-ext">${fileExt.toUpperCase()}</div>
+                </div>
+            `;
+            typeIcon = '<div class="thumbnail-type-icon document-icon">📄</div>';
+            break;
+        default:
+            thumbnailContent = `
+                <div class="unknown-thumbnail">
+                    <div class="unknown-icon">❓</div>
+                </div>
+            `;
+            typeIcon = '<div class="thumbnail-type-icon unknown-icon">❓</div>';
+            break;
+    }
+    
+    return `
+        <div class="gallery-thumbnail ${index === 0 ? 'active' : ''}" onclick="selectGalleryImage(${index})">
+            ${thumbnailContent}
+            ${typeIcon}
+        </div>
+    `;
+}
+
 function createMediaGallery(mediaFiles, articleTitle) {
     if (!mediaFiles || mediaFiles.length === 0) return '';
     
-    // Filter only images for gallery
-    const images = mediaFiles.filter(media => media.type === 'image');
-    if (images.length === 0) return '';
+    console.log('Creating gallery with media files:', mediaFiles);
     
-    console.log('Creating gallery with images:', images);
+    const hasMultipleMedia = mediaFiles.length > 1;
     
-    const hasMultipleImages = images.length > 1;
+    // Store current media files globally
+    currentGalleryImages = mediaFiles;
+    currentGalleryIndex = 0;
     
     const galleryHTML = `
         <div class="modal-gallery">
             <div class="gallery-container">
                 <div class="gallery-main">
-                    <img 
-                        id="gallery-main-image" 
-                        src="${images[0].url}" 
-                        alt="${escapeHtml(articleTitle)}" 
-                        onerror="console.warn('Failed to load image:', this.src); this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjE1MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZjhmOWZhIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzZjNzU3ZCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPk5vIEltYWdlPC90ZXh0Pjwvc3ZnPg=='"
-                        onclick="openFullscreenGallery(0)"
-                    >
-                    ${hasMultipleImages ? `
+                    ${renderMediaItem(mediaFiles[0], 0, articleTitle)}
+                    ${hasMultipleMedia ? `
                         <div class="gallery-nav">
-                            <button class="gallery-nav-btn gallery-prev" onclick="changeGalleryImage(-1)" title="Предыдущее изображение">
+                            <button class="gallery-nav-btn gallery-prev" onclick="changeGalleryImage(-1)" title="Предыдущий медиа файл">
                                 ‹
                             </button>
-                            <button class="gallery-nav-btn gallery-next" onclick="changeGalleryImage(1)" title="Следующее изображение">
+                            <button class="gallery-nav-btn gallery-next" onclick="changeGalleryImage(1)" title="Следующий медиа файл">
                                 ›
                             </button>
                         </div>
                         <div class="gallery-counter">
-                            <span id="gallery-counter-text">1 / ${images.length}</span>
+                            <span id="gallery-counter-text">1 / ${mediaFiles.length}</span>
+                        </div>
+                        <div class="gallery-media-type">
+                            <span id="gallery-media-type-text">${getMediaTypeDisplayName(mediaFiles[0].type)}</span>
                         </div>
                     ` : ''}
                 </div>
-                ${hasMultipleImages ? `
+                ${hasMultipleMedia ? `
                     <div class="gallery-thumbnails">
-                        ${images.map((image, index) => `
-                            <div class="gallery-thumbnail ${index === 0 ? 'active' : ''}" onclick="selectGalleryImage(${index})">
-                                <img src="${image.thumbnail || image.url}" alt="Thumbnail ${index + 1}" loading="lazy">
-                            </div>
-                        `).join('')}
+                        ${mediaFiles.map((media, index) => renderMediaThumbnail(media, index)).join('')}
                     </div>
                 ` : ''}
             </div>
@@ -1952,6 +2480,124 @@ function createMediaGallery(mediaFiles, articleTitle) {
     return galleryHTML;
 }
 
+function getMediaTypeDisplayName(mediaType) {
+    switch (mediaType) {
+        case 'image': return '🖼️ Изображение';
+        case 'video': return '📹 Видео';
+        case 'document': return '📄 Документ';
+        default: return '📎 Медиа файл';
+    }
+}
+
+function renderFullscreenMediaItem(media) {
+    const mediaType = media.type || 'image';
+    const mediaUrl = media.url;
+    
+    switch (mediaType) {
+        case 'image':
+            return `
+                <img 
+                    src="${mediaUrl}" 
+                    alt="Fullscreen image"
+                    style="max-width: 100%; max-height: 100%; object-fit: contain;"
+                >
+            `;
+            
+        case 'video':
+            return `
+                <video 
+                    controls 
+                    autoplay
+                    style="max-width: 100%; max-height: 100%;"
+                >
+                    <source src="${mediaUrl}" type="video/mp4">
+                    <source src="${mediaUrl}" type="video/webm">
+                    <source src="${mediaUrl}" type="video/ogg">
+                    Ваш браузер не поддерживает видео
+                </video>
+            `;
+            
+        case 'document':
+            const fileName = mediaUrl.split('/').pop() || 'Документ';
+            const fileExt = fileName.split('.').pop()?.toLowerCase() || '';
+            let iconEmoji = '📄';
+            
+            if (['pdf'].includes(fileExt)) iconEmoji = '📕';
+            else if (['doc', 'docx'].includes(fileExt)) iconEmoji = '📘';
+            else if (['xls', 'xlsx'].includes(fileExt)) iconEmoji = '📗';
+            else if (['ppt', 'pptx'].includes(fileExt)) iconEmoji = '📙';
+            else if (['txt'].includes(fileExt)) iconEmoji = '📃';
+            else if (['zip', 'rar', '7z'].includes(fileExt)) iconEmoji = '🗜️';
+            
+            return `
+                <div class="fullscreen-document" onclick="window.open('${mediaUrl}', '_blank')">
+                    <div class="fullscreen-document-preview">
+                        <div class="fullscreen-document-icon">${iconEmoji}</div>
+                        <div class="fullscreen-document-info">
+                            <div class="fullscreen-document-name">${escapeHtml(fileName)}</div>
+                            <div class="fullscreen-document-type">${fileExt.toUpperCase()} документ</div>
+                            <div class="fullscreen-document-action">
+                                <button class="btn btn-primary">📥 Скачать / Открыть</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+        default:
+            return `
+                <div class="fullscreen-unknown">
+                    <div class="fullscreen-unknown-icon">❓</div>
+                    <div class="fullscreen-unknown-text">Неизвестный тип медиа: ${mediaType}</div>
+                    <a href="${mediaUrl}" target="_blank" class="btn btn-primary">Открыть</a>
+                </div>
+            `;
+    }
+}
+
+function renderFullscreenThumbnail(media, index) {
+    const mediaType = media.type || 'image';
+    const thumbnailUrl = media.thumbnail || media.url;
+    
+    switch (mediaType) {
+        case 'image':
+            return `<img src="${thumbnailUrl}" alt="Thumbnail ${index + 1}">`;
+            
+        case 'video':
+            return `
+                <div class="fullscreen-video-thumb">
+                    <img src="${thumbnailUrl}" alt="Video thumbnail ${index + 1}" 
+                         onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+                    <div class="fullscreen-video-placeholder" style="display: none;">
+                        <div class="fullscreen-video-icon">📹</div>
+                    </div>
+                    <div class="fullscreen-thumb-play-icon">▶️</div>
+                </div>
+            `;
+            
+        case 'document':
+            const fileName = media.url.split('/').pop() || 'Документ';
+            const fileExt = fileName.split('.').pop()?.toLowerCase() || '';
+            let docIcon = '📄';
+            if (['pdf'].includes(fileExt)) docIcon = '📕';
+            else if (['doc', 'docx'].includes(fileExt)) docIcon = '📘';
+            
+            return `
+                <div class="fullscreen-document-thumb">
+                    <div class="fullscreen-doc-icon">${docIcon}</div>
+                    <div class="fullscreen-doc-ext">${fileExt.toUpperCase()}</div>
+                </div>
+            `;
+            
+        default:
+            return `
+                <div class="fullscreen-unknown-thumb">
+                    <div class="fullscreen-unknown-icon">❓</div>
+                </div>
+            `;
+    }
+}
+
 function showArticleModal(articleId) {
     const article = articlesData[articleId];
     if (!article) return;
@@ -1959,26 +2605,43 @@ function showArticleModal(articleId) {
     const category = (article.category || 'Other').toLowerCase();
     const categoryInfo = categoryConfig[category] || categoryConfig['other'];
     
-    // Get media files - prioritize new media_files field, fallback to legacy image_url
+    // Get ALL media files - images, videos, documents
     let mediaFiles = [];
     
-
-    
-    // First try to use the new images array from API
-    if (article.images && Array.isArray(article.images) && article.images.length > 0) {
-        mediaFiles = article.images;
-    } else if (article.media_files && Array.isArray(article.media_files) && article.media_files.length > 0) {
-        // Try media_files array
-        mediaFiles = article.media_files.filter(media => media.type === 'image');
+    // First try to use the new media_files array from API (contains all types)
+    if (article.media_files && Array.isArray(article.media_files) && article.media_files.length > 0) {
+        mediaFiles = article.media_files;
     } else {
-        // Fallback to legacy image_url
-        const legacyImageUrl = extractImageFromContent(article.image_url || article.summary || article.content || '');
-        if (legacyImageUrl) {
-            mediaFiles.push({
-                url: legacyImageUrl,
-                type: 'image',
-                thumbnail: legacyImageUrl
-            });
+        // Try individual type arrays from API  
+        const allMediaTypes = [];
+        
+        // Add images
+        if (article.images && Array.isArray(article.images)) {
+            allMediaTypes.push(...article.images);
+        }
+        
+        // Add videos
+        if (article.videos && Array.isArray(article.videos)) {
+            allMediaTypes.push(...article.videos);
+        }
+        
+        // Add documents
+        if (article.documents && Array.isArray(article.documents)) {
+            allMediaTypes.push(...article.documents);
+        }
+        
+        if (allMediaTypes.length > 0) {
+            mediaFiles = allMediaTypes;
+        } else {
+            // Fallback to legacy image_url
+            const legacyImageUrl = extractImageFromContent(article.image_url || article.summary || article.content || '');
+            if (legacyImageUrl) {
+                mediaFiles.push({
+                    url: legacyImageUrl,
+                    type: 'image',
+                    thumbnail: legacyImageUrl
+                });
+            }
         }
     }
     
@@ -2037,8 +2700,8 @@ function showArticleModal(articleId) {
         </div>
     `;
     
-    // Store current gallery images for navigation
-    currentGalleryImages = mediaFiles.filter(media => media.type === 'image');
+    // Store current gallery media for navigation (all types)
+    currentGalleryImages = mediaFiles;
     currentGalleryIndex = 0;
     
     // Debug info (remove in production)
@@ -2093,17 +2756,34 @@ function changeGalleryImage(direction) {
 }
 
 function updateGalleryDisplay() {
-    const mainImage = document.getElementById('gallery-main-image');
+    const mainMediaContainer = document.querySelector('.gallery-main');
     const counterText = document.getElementById('gallery-counter-text');
+    const mediaTypeText = document.getElementById('gallery-media-type-text');
     const thumbnails = document.querySelectorAll('.gallery-thumbnail');
     
-    if (mainImage && currentGalleryImages[currentGalleryIndex]) {
-        mainImage.src = currentGalleryImages[currentGalleryIndex].url;
-        mainImage.onclick = () => openFullscreenGallery(currentGalleryIndex);
+    if (mainMediaContainer && currentGalleryImages[currentGalleryIndex]) {
+        const currentMedia = currentGalleryImages[currentGalleryIndex];
+        
+        // Replace the media content with new rendered item
+        const mediaElement = mainMediaContainer.querySelector('#gallery-main-media')?.parentNode || mainMediaContainer.querySelector('#gallery-main-media');
+        if (mediaElement) {
+            const newMediaHTML = renderMediaItem(currentMedia, currentGalleryIndex, 'Article Media');
+            
+            // Find the container that holds the media element
+            const mediaContainer = mediaElement.closest('.media-video-container, .media-document-container, .media-unknown-container') || mediaElement;
+            
+            if (mediaContainer && mediaContainer.parentNode) {
+                mediaContainer.outerHTML = newMediaHTML;
+            }
+        }
     }
     
     if (counterText) {
         counterText.textContent = `${currentGalleryIndex + 1} / ${currentGalleryImages.length}`;
+    }
+    
+    if (mediaTypeText && currentGalleryImages[currentGalleryIndex]) {
+        mediaTypeText.textContent = getMediaTypeDisplayName(currentGalleryImages[currentGalleryIndex].type);
     }
     
     // Update thumbnail active state
@@ -2117,17 +2797,17 @@ function openFullscreenGallery(startIndex = 0) {
     
     currentGalleryIndex = startIndex;
     
+    const currentMedia = currentGalleryImages[currentGalleryIndex];
+    
     const fullscreenHtml = `
         <div class="fullscreen-gallery" onclick="closeFullscreenGallery()">
             <div class="fullscreen-content" onclick="event.stopPropagation()">
                 <button class="fullscreen-close" onclick="closeFullscreenGallery()">×</button>
                 
-                <div class="fullscreen-image-container">
-                    <img 
-                        id="fullscreen-image" 
-                        src="${currentGalleryImages[currentGalleryIndex].url}" 
-                        alt="Fullscreen image"
-                    >
+                <div class="fullscreen-media-container">
+                    <div id="fullscreen-media">
+                        ${renderFullscreenMediaItem(currentMedia)}
+                    </div>
                     
                     ${currentGalleryImages.length > 1 ? `
                         <button class="fullscreen-nav fullscreen-prev" onclick="changeFullscreenImage(-1)">‹</button>
@@ -2136,14 +2816,18 @@ function openFullscreenGallery(startIndex = 0) {
                         <div class="fullscreen-counter">
                             <span id="fullscreen-counter-text">${currentGalleryIndex + 1} / ${currentGalleryImages.length}</span>
                         </div>
+                        
+                        <div class="fullscreen-media-type">
+                            <span id="fullscreen-media-type-text">${getMediaTypeDisplayName(currentMedia.type)}</span>
+                        </div>
                     ` : ''}
                 </div>
                 
                 ${currentGalleryImages.length > 1 ? `
                     <div class="fullscreen-thumbnails">
-                        ${currentGalleryImages.map((image, index) => `
+                        ${currentGalleryImages.map((media, index) => `
                             <div class="fullscreen-thumbnail ${index === currentGalleryIndex ? 'active' : ''}" onclick="selectFullscreenImage(${index})">
-                                <img src="${image.thumbnail || image.url}" alt="Thumbnail ${index + 1}">
+                                ${renderFullscreenThumbnail(media, index)}
                             </div>
                         `).join('')}
                     </div>
@@ -2185,16 +2869,22 @@ function selectFullscreenImage(index) {
 }
 
 function updateFullscreenDisplay() {
-    const fullscreenImage = document.getElementById('fullscreen-image');
+    const fullscreenMedia = document.getElementById('fullscreen-media');
     const counterText = document.getElementById('fullscreen-counter-text');
+    const mediaTypeText = document.getElementById('fullscreen-media-type-text');
     const thumbnails = document.querySelectorAll('.fullscreen-thumbnail');
     
-    if (fullscreenImage && currentGalleryImages[currentGalleryIndex]) {
-        fullscreenImage.src = currentGalleryImages[currentGalleryIndex].url;
+    if (fullscreenMedia && currentGalleryImages[currentGalleryIndex]) {
+        const currentMedia = currentGalleryImages[currentGalleryIndex];
+        fullscreenMedia.innerHTML = renderFullscreenMediaItem(currentMedia);
     }
     
     if (counterText) {
         counterText.textContent = `${currentGalleryIndex + 1} / ${currentGalleryImages.length}`;
+    }
+    
+    if (mediaTypeText && currentGalleryImages[currentGalleryIndex]) {
+        mediaTypeText.textContent = getMediaTypeDisplayName(currentGalleryImages[currentGalleryIndex].type);
     }
     
     // Update thumbnail active state

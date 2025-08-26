@@ -553,7 +553,7 @@ Return the complete, absolute URL. If the link is relative, make it absolute usi
         Returns:
             Dictionary with detection results including confidence, reasoning, and classification
         """
-        if not content or len(content.strip()) < 10:
+        if not content or not isinstance(content, str) or len(content.strip()) < 10:
             return {
                 'is_advertisement': False,
                 'confidence': 0.0,
@@ -911,7 +911,7 @@ Focus on detecting content that's primarily promotional rather than informationa
         Returns:
             Dictionary with all analysis results
         """
-        if not content or len(content.strip()) < 50:
+        if not content or not isinstance(content, str) or len(content.strip()) < 50:
             return self._get_fallback_analysis()
         
         max_retries = 2

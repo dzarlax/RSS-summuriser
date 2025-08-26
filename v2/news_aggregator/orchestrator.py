@@ -263,11 +263,11 @@ class NewsOrchestrator:
             from .services.smart_filter import get_smart_filter
             smart_filter = get_smart_filter()
             
-            article_content = article_data.get('content', '')
-            article_url = article_data.get('url', '')
+            article_content = article_data.get('content') or ''
+            article_url = article_data.get('url') or ''
             
             should_process, filter_reason = smart_filter.should_process_with_ai(
-                title=article_data.get('title', ''),
+                title=article_data.get('title') or '',
                 content=article_content,
                 url=article_url,
                 source_type=source_type
@@ -308,7 +308,7 @@ class NewsOrchestrator:
                             
                             # Re-check smart filter with new content
                             should_process, filter_reason = smart_filter.should_process_with_ai(
-                                title=article_data.get('title', ''),
+                                title=article_data.get('title') or '',
                                 content=extracted_content,
                                 url=article_url,
                                 source_type=source_type
@@ -362,9 +362,9 @@ class NewsOrchestrator:
                 
                 # Get combined analysis
                 ai_result = await self.ai_client.analyze_article_complete(
-                    title=article_data.get('title', ''),
-                    content=article_data.get('content', ''),
-                    url=article_data.get('url', '')
+                    title=article_data.get('title') or '',
+                    content=article_data.get('content') or '',
+                    url=article_data.get('url') or ''
                 )
                 
                 elapsed_time = time.time() - start_time
@@ -440,11 +440,11 @@ class NewsOrchestrator:
             from .services.smart_filter import get_smart_filter
             smart_filter = get_smart_filter()
             
-            article_content = article_data.get('content', '')
-            article_url = article_data.get('url', '')
+            article_content = article_data.get('content') or ''
+            article_url = article_data.get('url') or ''
             
             should_process, filter_reason = smart_filter.should_process_with_ai(
-                title=article_data.get('title', ''),
+                title=article_data.get('title') or '',
                 content=article_content,
                 url=article_url,
                 source_type=source_type
@@ -484,7 +484,7 @@ class NewsOrchestrator:
                             
                             # Re-check smart filter with new content
                             should_process, filter_reason = smart_filter.should_process_with_ai(
-                                title=article_data.get('title', ''),
+                                title=article_data.get('title') or '',
                                 content=extracted_content,
                                 url=article_url,
                                 source_type=source_type
