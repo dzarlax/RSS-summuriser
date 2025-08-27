@@ -28,19 +28,8 @@ class AIClient:
         
         self.content_extractor = None
     
-    # ============================================================================
-    # DEPRECATED: get_article_summary() - Replaced by analyze_article_complete()
-    # ============================================================================
-    # This method has been replaced by the combined analysis approach which reduces
-    # AI API calls by ~75% by doing summarization, categorization, and ad detection
-    # in a single request. Only kept for compatibility - use analyze_article_complete() instead.
-    #
-    # @cached(ttl=86400, key_prefix="ai_summary")
-    # async def get_article_summary(self, article_url: str) -> Optional[str]:
-    #     """DEPRECATED: Use analyze_article_complete() instead for combined analysis."""
-    #     # Method body commented out - was doing content extraction and summarization
-    #     # Now replaced by more efficient combined approach
-    #     pass
+    # Note: get_article_summary() method was removed and replaced by analyze_article_complete()
+    # which provides combined analysis (summarization + categorization + ad detection) in a single request.
     
     async def get_article_summary_with_metadata(self, article_url: str) -> Dict[str, Optional[str]]:
         """
@@ -93,8 +82,9 @@ class AIClient:
                     'full_article_url': metadata_result.get('full_article_url')
                 }
             
-            # Summarize the already extracted content to avoid double extraction
-            summary = await self._summarize_content(content)
+            # Use unified analysis to get summary (more reliable than separate summarization)
+            analysis_result = await self.analyze_article_complete(article_url, content, "Article")
+            summary = analysis_result.get('summary') if analysis_result else None
             
             return {
                 'summary': summary,
@@ -419,24 +409,15 @@ Return the complete, absolute URL. If the link is relative, make it absolute usi
                     if summary:
                         news_content += f"  {summary[:200]}...\n"
             
-            prompt = f"""Ты - опытный журналист. Создай {detail_level} связную сводку новостей в HTML.
-
-{total_news} новостей в {categories} категориях.
-
-ТРЕБОВАНИЯ:
-- HTML с <b></b> для заголовков категорий
-- Связные абзацы (НЕ списки!)
-- МАКСИМУМ {char_limit} символов
-- Охвати основные события по категориям
-- Пиши как связный рассказ, а не перечисления
-
-ФОРМАТ:
-<b>{header_text}</b>
-
-Материалы:
-{news_content}
-
-Создай связную сводку главных событий дня в виде единого текста."""
+            from .prompts import NewsPrompts
+            prompt = NewsPrompts.news_digest(
+                total_news=total_news, 
+                categories=categories, 
+                news_content=news_content,
+                char_limit=char_limit, 
+                detail_level=detail_level, 
+                header_text=header_text
+            )
 
             payload = {
                 "model": self.digest_model,  # Configurable model for final digest
@@ -542,184 +523,18 @@ Return the complete, absolute URL. If the link is relative, make it absolute usi
                         response_text=error_text
                     )
     
-    async def detect_advertising(self, content: str, source_info: dict = None) -> dict:
-        """
-        Detect advertising content in messages using AI.
-        
-        Args:
-            content: Message content to analyze
-            source_info: Optional source information (channel name, etc.)
-            
-        Returns:
-            Dictionary with detection results including confidence, reasoning, and classification
-        """
-        if not content or not isinstance(content, str) or len(content.strip()) < 10:
-            return {
-                'is_advertisement': False,
-                'confidence': 0.0,
-                'reasoning': 'Content too short for analysis',
-                'ad_type': None,
-                'markers': []
-            }
-        
-        try:
-            print(f"  🎯 AI analyzing content for advertising...")
-            
-            # Build context information
-            context_info = ""
-            if source_info:
-                channel_name = source_info.get('channel', 'unknown')
-                context_info = f"Channel: {channel_name}\n"
-            
-            prompt = f"""Analyze this message content for advertising/promotional characteristics.
-
-{context_info}
-MESSAGE CONTENT:
-{content}
-
-TASK: Determine if this is advertising, promotional content, or spam.
-
-ADVERTISING INDICATORS TO LOOK FOR:
-1. Direct product/service sales pitches
-2. Affiliate links or referral codes
-3. "Call to action" phrases (buy now, subscribe, join, etc.)
-4. Price mentions with currency symbols
-5. Promotional language (limited time, special offer, discount, etc.)
-6. Contact information for business purposes (telegram channels, websites for sales)
-7. Crypto trading signals or investment advice for profit
-8. Multi-level marketing or pyramid scheme language
-9. Excessive use of promotional emojis (💰, 🔥, ⚡, 💎, 🚀, etc.)
-10. Sponsored content mentions
-
-NEWS/LEGITIMATE CONTENT INDICATORS:
-1. Factual reporting without sales intent
-2. Educational or informational content
-3. News updates or current events
-4. Technical analysis without direct trading signals
-5. General discussion or opinion pieces
-6. Government or official announcements
-
-RESPONSE FORMAT (JSON):
-{{
-  "is_advertisement": true,
-  "confidence": 0.85,
-  "ad_type": "product_promotion",
-  "reasoning": "Contains direct sales pitch with call-to-action and price mention",
-  "markers": ["call_to_action", "price_mention", "promotional_language"],
-  "suspected_intent": "Direct product sales"
-}}
-
-AD_TYPES:
-- "product_promotion" - Direct product/service advertising
-- "affiliate_marketing" - Affiliate links or referral schemes  
-- "crypto_signals" - Trading signals or investment advice
-- "channel_promotion" - Promoting other channels/communities
-- "spam" - Generic spam or low-quality promotional content
-- "sponsored_content" - Paid promotional posts
-
-If not advertising, respond with:
-{{
-  "is_advertisement": false,
-  "confidence": 0.0,
-  "reasoning": "Content appears to be legitimate news/information",
-  "ad_type": null,
-  "markers": []
-}}
-
-Focus on detecting content that's primarily promotional rather than informational."""
-
-            payload = {
-                "model": self.summarization_model,
-                "messages": [
-                    {
-                        "role": "user", 
-                        "content": prompt
-                    }
-                ],
-                "max_tokens": 300,
-                "temperature": 0.1
-            }
-            
-            headers = {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'X-KM-AccessKey': self.api_key
-            }
-            
-            async with get_http_client() as client:
-                response = await client.post(
-                    str(self.endpoint),
-                    json=payload,
-                    headers=headers,
-                    timeout=15
-                )
-                
-                async with response:
-                    if response.status == 200:
-                        data = await response.json()
-                        if 'choices' in data and data['choices']:
-                            ai_text = data['choices'][0]['message']['content'].strip()
-                            return self._parse_advertising_response(ai_text)
-                    else:
-                        print(f"  ❌ Advertising detection API error {response.status}")
-                        return self._default_ad_response()
-        
-        except Exception as e:
-            print(f"  ⚠️ Error detecting advertising: {e}")
-            return self._default_ad_response()
+    # ============================================================================
+    # REMOVED: detect_advertising() - Replaced by unified analysis
+    # ============================================================================
+    # This method was replaced by analyze_article_complete() which includes
+    # advertisement detection along with categorization and summarization
+    # in a single API call for efficiency.
     
-    def _parse_advertising_response(self, ai_response: str) -> dict:
-        """Parse AI response for advertising detection."""
-        try:
-            import re
-            import json
-            
-            # Try to extract JSON from response
-            json_match = re.search(r'\{[\s\S]*\}', ai_response)
-            if not json_match:
-                return self._default_ad_response()
-            
-            data = json.loads(json_match.group())
-            
-            # Validate and normalize response
-            result = {
-                'is_advertisement': bool(data.get('is_advertisement', False)),
-                'confidence': float(data.get('confidence', 0.0)),
-                'reasoning': data.get('reasoning', 'No reasoning provided').strip(),
-                'ad_type': data.get('ad_type'),
-                'markers': data.get('markers', []),
-                'suspected_intent': data.get('suspected_intent', '')
-            }
-            
-            # Ensure confidence is between 0 and 1
-            result['confidence'] = max(0.0, min(1.0, result['confidence']))
-            
-            # Only consider it advertising if confidence is above threshold
-            if result['is_advertisement'] and result['confidence'] < 0.6:
-                result['is_advertisement'] = False
-                result['reasoning'] += ' (Low confidence threshold not met)'
-            
-            if result['is_advertisement']:
-                print(f"  🚨 Advertising detected: {result['ad_type']} (confidence: {result['confidence']:.2f})")
-            else:
-                print(f"  ✅ Content appears legitimate (confidence: {result['confidence']:.2f})")
-            
-            return result
-            
-        except (json.JSONDecodeError, Exception) as e:
-            print(f"  ⚠️ Failed to parse advertising response: {e}")
-            return self._default_ad_response()
-    
-    def _default_ad_response(self) -> dict:
-        """Return default response when advertising detection fails."""
-        return {
-            'is_advertisement': False,
-            'confidence': 0.0,
-            'reasoning': 'Analysis failed - defaulting to non-advertising',
-            'ad_type': None,
-            'markers': [],
-            'suspected_intent': ''
-        }
+    # ============================================================================
+    # REMOVED: Advertising detection helper methods - Replaced by unified analysis
+    # ============================================================================
+    # _parse_advertising_response() and _default_ad_response() were removed as
+    # they are now handled by analyze_article_complete() unified processing.
     
     def _clean_summary_text(self, raw_summary: str) -> str:
         """Clean AI-generated summary from service text and prompt repetition."""
@@ -765,53 +580,8 @@ Focus on detecting content that's primarily promotional rather than informationa
         
         return cleaned_summary.strip()
 
-    async def _summarize_content(self, content: str) -> Optional[str]:
-        """Summarize plain article content with robust empty-output fallback."""
-        if not content:
-            return None
-        # Build prompt
-        base_prompt = (
-            "Прочитай статью и создай краткий пересказ на русском языке.\n\n"
-            "ТРЕБОВАНИЯ:\n"
-            "- Сразу начинай с основного содержания (без вводных фраз)\n"
-            "- Используй 3-5 ключевых пунктов\n"
-            "- Сохрани важные факты и цифры\n"
-            "- Пиши кратко и информативно\n\n"
-            "СТАТЬЯ:\n"
-            f"{content[:8000]}\n\n"  # защитимся от сверхдлинных текстов
-            "ПЕРЕСКАЗ:"
-        )
-
-        # First attempt
-        system_prompt = (
-            "Ты профессиональный новостной редактор. \n"
-            "Отвечай СТРОГО на русском языке, коротко и информативно. \n"
-            "Запрещено копировать большие фрагменты исходного текста."
-        )
-        first = await self._call_summary_llm(base_prompt, system_prompt=system_prompt)
-        cleaned = self._clean_summary_text(first or "") if first is not None else ""
-
-        if not self._is_summary_valid(cleaned, content):
-            # Retry with stricter prompt
-            strict_prompt = (
-                "Перескажи статью СВОИМИ СЛОВАМИ на русском языке. НЕЛЬЗЯ копировать фразы из текста.\n"
-                "Сделай 3–5 лаконичных пунктов (каждый 1–2 предложения). Без вступлений, без списков исходного текста.\n\n"
-                "СТАТЬЯ:\n"
-                f"{content[:8000]}\n\n"
-                "СТРОГИЙ ПЕРЕСКАЗ:"
-            )
-            second = await self._call_summary_llm(strict_prompt, system_prompt=system_prompt)
-            cleaned2 = self._clean_summary_text(second or "") if second is not None else ""
-            if self._is_summary_valid(cleaned2, content):
-                print(f"  ✅ AI summarization successful after retry: {len(cleaned2)} characters")
-                return cleaned2
-            # Final fallback: simple extractive summary
-            fallback = self._simple_extractive_summary(content)
-            print(f"  ✅ Fallback summarization used: {len(fallback)} characters")
-            return fallback
-
-        print(f"  ✅ AI summarization successful: {len(cleaned)} characters")
-        return cleaned
+    # Note: _summarize_content() method removed - all summarization now uses 
+    # analyze_article_complete() which provides better quality results
 
     async def _call_summary_llm(self, prompt: str, *, system_prompt: str | None = None) -> Optional[str]:
         messages = []
@@ -911,7 +681,9 @@ Focus on detecting content that's primarily promotional rather than informationa
         Returns:
             Dictionary with all analysis results
         """
-        if not content or not isinstance(content, str) or len(content.strip()) < 50:
+        # Enhanced content length protection
+        if not content or not isinstance(content, str) or len(content.strip()) < 120:
+            print(f"  ⚠️ Content too short for analysis: {len(content.strip()) if content else 0} chars < 120")
             return self._get_fallback_analysis()
         
         max_retries = 2
@@ -970,48 +742,11 @@ Focus on detecting content that's primarily promotional rather than informationa
     def _build_combined_analysis_prompt(self, title: str, content: str, url: str) -> str:
         """Build combined prompt for all analysis tasks."""
         # Limit content size for cost optimization
-        content_preview = content[:1500] + ("..." if len(content) > 1500 else "")
+        content_preview = content[:2000] + ("..." if len(content) > 2000 else "")
         
-        # Determine if this might be from a news source
-        is_news_source = any(domain in url.lower() for domain in [
-            'balkaninsight.com', 'biznis.rs', 'rts.rs', 'b92.net', 
-            'politika.rs', 'blic.rs', 'novosti.rs', 'euronews.rs'
-        ])
-        
-        source_context = "from a NEWS source" if is_news_source else "from an UNKNOWN source"
-        
-        return f"""Analyze this article and provide complete analysis in JSON format.
-
-ARTICLE INFORMATION:
-Title: {title}
-URL: {url}
-Source: {source_context}
-Content: {content_preview}
-
-ANALYSIS TASKS:
-1. CATEGORIZATION: Choose the most appropriate category
-2. SUMMARIZATION: Create 2-3 sentence summary in Russian
-3. ADVERTISEMENT DETECTION: Determine if content is promotional
-4. DATE EXTRACTION: Find publication date if mentioned
-
-GUIDELINES:
-- NEWS articles report facts, events, research, government actions
-- ADVERTISEMENTS promote products, services, events, or attract customers  
-- News sources have lower advertisement probability
-- Prices/statistics in news context are still news, not ads
-- Personal service announcements are usually advertisements
-
-RESPONSE (JSON only):
-{{
-    "category": "Business OR Tech OR Science OR Serbia OR Other (choose ONE category only)",
-    "summary": "краткое содержание статьи на русском языке...",
-    "is_advertisement": true/false,
-    "ad_type": "product_promotion|service_offer|event_promotion|personal_service|news_article",
-    "ad_confidence": 0.0-1.0,
-    "ad_reasoning": "brief explanation of advertisement decision",
-    "publication_date": "YYYY-MM-DD or null",
-    "confidence": 0.0-1.0
-}}"""
+        from .prompts import NewsPrompts, PromptBuilder
+        source_context = PromptBuilder.build_source_context(url)
+        return NewsPrompts.unified_article_analysis(title, content, url, source_context)
     
     def _validate_analysis_result(self, result: Dict[str, Any], title: str = None, content: str = None) -> Dict[str, Any]:
         """Validate and clean analysis result."""
@@ -1027,29 +762,52 @@ RESPONSE (JSON only):
         # Import category parser
         from .category_parser import parse_category
         
+        # Extract categories from new format (categories array) or fallback to old format
+        categories = result.get('categories', [])
+        if not categories:
+            # Fallback to single category field for backward compatibility
+            single_category = result.get('category')
+            if single_category:
+                categories = [single_category]
+        
+        # Get first category as primary for legacy compatibility
+        primary_category = categories[0] if categories else None
+        
         return {
+            'optimized_title': result.get('optimized_title', '').strip() or None,  # Add optimized title support
             'summary': result.get('summary', '').strip() or None,
-            'category': result.get('category'),  # Return raw category for processing by orchestrator
-            'categories_parsed': parse_category(result.get('category'), title=title, content=content[:500] if content else None, return_multiple=True),
+            'category': primary_category,  # Return primary category for processing by orchestrator
+            'categories': categories,  # New: support multiple categories
+            'category_confidences': result.get('category_confidences', []),  # New: confidence scores
+            'category_confidence': max(0.0, min(1.0, safe_float(result.get('category_confidence'), 0.8))),
+            'summary_confidence': max(0.0, min(1.0, safe_float(result.get('summary_confidence'), 0.8))),
+            'categories_parsed': parse_category(primary_category, title=title, content=content[:500] if content else None, return_multiple=True),
             'is_advertisement': bool(result.get('is_advertisement', False)),
             'ad_type': result.get('ad_type', 'news_article'),
             'ad_confidence': max(0.0, min(1.0, safe_float(result.get('ad_confidence'), 0.0))),
             'ad_reasoning': result.get('ad_reasoning', '').strip() or 'Combined analysis',
             'publication_date': result.get('publication_date'),
-            'confidence': max(0.0, min(1.0, safe_float(result.get('confidence'), 0.8)))
+            'content_quality': max(0.0, min(1.0, safe_float(result.get('content_quality'), 0.7))),
+            'confidence': max(0.0, min(1.0, safe_float(result.get('confidence'), 0.8)))  # Legacy field
         }
     
     def _get_fallback_analysis(self) -> Dict[str, Any]:
         """Get fallback analysis when AI fails."""
         return {
+            'optimized_title': None,  # No title optimization in fallback
             'summary': None,
-            'category': 'Other',
+            'categories': ['Other'],  # Updated to new array format
+            'category_confidences': [0.1],  # Array of confidences matching categories
+            'category': 'Other',  # Keep for backward compatibility
+            'category_confidence': 0.1,  # Keep for backward compatibility
+            'summary_confidence': 0.0,
             'is_advertisement': False,
             'ad_type': 'news_article',
             'ad_confidence': 0.0,
             'ad_reasoning': 'Fallback analysis - AI unavailable',
             'publication_date': None,
-            'confidence': 0.1
+            'content_quality': 0.2,
+            'confidence': 0.1  # Legacy field
         }
     
     def _parse_fallback_response(self, response: str) -> Dict[str, Any]:
@@ -1062,7 +820,10 @@ RESPONSE (JSON only):
         # Extract category
         for category in ['business', 'tech', 'science', 'serbia']:
             if category in response_lower:
-                result['category'] = category.title()
+                category_name = category.title()
+                result['category'] = category_name  # For backward compatibility
+                result['categories'] = [category_name]  # New array format
+                result['category_confidences'] = [0.7]  # Moderate confidence for fallback detection
                 break
         
         # Extract advertisement detection

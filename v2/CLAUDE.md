@@ -3,12 +3,15 @@
 ## Текущее Состояние
 Проект представляет собой полнофункциональную платформу агрегации новостей с ИИ-суммаризацией, веб-интерфейсом и базой данных PostgreSQL.
 
-### Эволюция от Монолитной Архитектуры
+### Эволюция от Монолитной Архитектуры  
 - ✅ **Модульная структура**: Разделение на core, services, sources с четкими границами
 - ✅ **Асинхронная обработка**: Async/await для всех HTTP операций и API вызовов
 - ✅ **Веб-интерфейс**: FastAPI с админ-панелью и публичным API
-- ✅ **База данных**: PostgreSQL с полной схемой для персистентности
+- ✅ **База данных**: PostgreSQL с полной схемой для персистентности (16+ таблиц)
 - ✅ **Контейнеризация**: Docker + Nginx для продакшн развертывания
+- ✅ **AI интеграция**: Constructor KM API с промптами и rate limiting
+- ✅ **Миграционная система**: Универсальный менеджер миграций БД
+- ✅ **Система извлечения**: AI-оптимизированная экстракция контента с обучением
 - ⚠️ **Тестирование**: Отсутствует покрытие тестами (критический пробел)
 
 ## Продакшн Архитектура
@@ -27,41 +30,68 @@ news_aggregator/
 ├── __main__.py             # Точка входа модуля
 ├── config.py               # Конфигурация с Pydantic
 ├── database.py             # SQLAlchemy setup
-├── models.py               # SQLAlchemy модели для БД
+├── database_helpers.py     # DB helpers для оптимизации
+├── models.py               # SQLAlchemy модели для БД (16+ таблиц)
 ├── orchestrator.py         # Главный оркестратор процессов
 ├── main.py                 # FastAPI приложение
-├── api.py                  # API endpoints
+├── api.py                  # API endpoints (50+ endpoints)
 ├── admin.py                # Админ интерфейс
 ├── public.py               # Публичные endpoints
+├── auth.py                 # Аутентификация
+├── auth_api.py             # API аутентификации
+├── security.py             # Функции безопасности
 ├── cli.py                  # CLI интерфейс
 ├── core/
 │   ├── __init__.py
 │   ├── cache.py            # Файловый кеш
 │   ├── http_client.py      # Async HTTP клиент
 │   └── exceptions.py       # Кастомные исключения
+├── migrations/             # Система миграций БД
+│   ├── __init__.py
+│   ├── base_migration.py   # Базовый класс миграций
+│   ├── universal_migration_manager.py # Менеджер миграций
+│   ├── multiple_categories_migration.py # Множественные категории
+│   └── media_files_migration.py # Поддержка медиа файлов
 ├── services/
 │   ├── __init__.py
 │   ├── ai_client.py        # Constructor KM API клиент
+│   ├── prompts.py          # Централизованные AI промпты
 │   ├── source_manager.py   # Управление источниками
 │   ├── telegram_service.py # Telegram уведомления
-│   ├── telegram_ai.py      # Telegram + AI интеграция
 │   ├── telegraph_service.py# Telegraph публикация
 │   ├── backup_service.py   # Система бэкапов
 │   ├── scheduler.py        # Планировщик задач
-│   └── content_extractor.py# Извлечение контента
+│   ├── database_queue.py   # Универсальная очередь БД
+│   ├── content_extractor.py# Извлечение контента
+│   ├── extraction_memory.py# Обучающаяся экстракция
+│   ├── ai_extraction_optimizer.py # AI оптимизация экстракции
+│   ├── domain_stability_tracker.py # Отслеживание стабильности доменов
+│   ├── custom_parsers.py   # Кастомные парсеры
+│   ├── extraction_constants.py # Константы для экстракции
+│   ├── category_parser.py  # Парсер категорий
+│   ├── category_service.py # Сервис категорий
+│   ├── ad_detector.py      # Детектор рекламы
+│   └── smart_filter.py     # Умная фильтрация
 ├── sources/
 │   ├── __init__.py
 │   ├── base.py             # Базовый класс источника
 │   ├── registry.py         # Реестр источников
 │   ├── rss_source.py       # RSS источники
 │   ├── telegram_source.py  # Telegram источники
-│   └── generic_source.py   # Универсальные источники
+│   ├── generic_source.py   # Универсальные источники
+│   ├── page_monitor_source.py # Мониторинг страниц
+│   ├── page_monitor_adapter.py # Адаптер мониторинга
+│   └── ai_page_analyzer.py # AI анализ страниц
 └── utils/
     ├── __init__.py
     └── html_utils.py       # HTML обработка
 
 db/
-└── init.sql               # Полная схема БД (все миграции включены)
+├── init.sql               # Полная схема БД (16+ таблиц)
+└── migrations/            # SQL миграции
+    ├── 001_add_extraction_learning_tables.sql
+    ├── 002_add_multiple_categories_support.sql
+    └── 003_add_media_files_support.sql
 
 docker/
 ├── Dockerfile
@@ -126,61 +156,111 @@ python-dateutil>=2.8.2 # Работа с датами
 pytz>=2023.3            # Часовые пояса
 ```
 
-### 2. База Данных и Персистентность
+### 2. База Данных и Персистентность (16+ Таблиц)
 ```python
 # PostgreSQL схема для полной персистентности
 class Article(Base):
     __tablename__ = 'articles'
     
     id = Column(Integer, primary_key=True)
-    title = Column(String, nullable=False)
+    title = Column(Text, nullable=False)  # Changed to Text
     content = Column(Text)
     summary = Column(Text)
     source_id = Column(Integer, ForeignKey('sources.id'))
-    created_at = Column(DateTime, default=datetime.utcnow)
-    processed = Column(Boolean, default=False)
+    category = Column(String(50))  # Legacy single category
+    media_files = Column(JSON, default=list)  # Multiple media files
+    is_advertisement = Column(Boolean, default=False)  # Ad detection
+    ad_confidence = Column(Float, default=0.0)
+    ad_type = Column(String(50))
+    ad_reasoning = Column(Text)
+    summary_processed = Column(Boolean, default=False)
+    category_processed = Column(Boolean, default=False)
+    ad_processed = Column(Boolean, default=False)
 
-class Source(Base):
-    __tablename__ = 'sources'
+# Множественные категории (новая система)
+class Category(Base):
+    __tablename__ = 'categories'
     
-    id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)
-    url = Column(String, nullable=False)
-    source_type = Column(String, nullable=False)  # rss, telegram, generic
-    is_active = Column(Boolean, default=True)
+    name = Column(String(50), nullable=False, unique=True)
+    display_name = Column(String(100), nullable=False)
+    color = Column(String(7), default='#6c757d')
 
-# Планировщик задач
-class ScheduleSettings(Base):
-    __tablename__ = 'schedule_settings'
+class ArticleCategory(Base):
+    __tablename__ = 'article_categories'
     
-    id = Column(Integer, primary_key=True)
-    task_name = Column(String, nullable=False)
-    enabled = Column(Boolean, default=False)
-    schedule_type = Column(String, default='daily')
-    hour = Column(Integer, default=9)
-    minute = Column(Integer, default=0)
+    article_id = Column(Integer, ForeignKey('articles.id'))
+    category_id = Column(Integer, ForeignKey('categories.id'))
+    confidence = Column(Float, default=1.0)  # AI confidence
+
+# AI-оптимизированная экстракция контента
+class ExtractionPattern(Base):
+    __tablename__ = 'extraction_patterns'
+    
+    domain = Column(String(255), nullable=False)
+    selector_pattern = Column(Text, nullable=False)
+    success_count = Column(Integer, default=0)
+    quality_score_avg = Column(DECIMAL(5, 2), default=0)
+    discovered_by = Column(String(20), default='manual')  # 'ai', 'heuristic'
+    is_stable = Column(Boolean, default=False)
+
+class DomainStability(Base):
+    __tablename__ = 'domain_stability'
+    
+    domain = Column(String(255), unique=True, nullable=False)
+    is_stable = Column(Boolean, default=False)
+    success_rate_7d = Column(DECIMAL(5, 2), default=0)
+    ai_credits_saved = Column(Integer, default=0)
+    needs_reanalysis = Column(Boolean, default=False)
+
+# И еще 9+ таблиц: sources, daily_summaries, processing_stats, 
+# task_queue, schedule_settings, settings, extraction_attempts,
+# ai_usage_tracking, news_clusters, cluster_articles
 ```
 
 ### 3. Rate-Limited AI API Integration
 ```python
-# Constructor KM API с соблюдением лимитов
+# Constructor KM API с централизованными промптами
 class AIClient:
     def __init__(self, api_key: str, rate_limit: int = 3):
         self.api_key = api_key
         self.rate_limiter = AsyncLimiter(max_rate=rate_limit, time_period=1.0)
     
-    async def summarize_text(self, text: str) -> Optional[str]:
+    async def analyze_article_complete(self, title: str, content: str, url: str) -> dict:
+        """Полный анализ статьи: категоризация, суммаризация, детекция рекламы."""
         async with self.rate_limiter:
-            # Гарантированно не превышаем RPS лимит
-            return await self._make_api_request(text)
+            from .services.prompts import NewsPrompts
+            prompt = NewsPrompts.unified_article_analysis(title, content, url)
+            return await self._make_api_request(prompt)
+
+# Система централизованных промптов
+class NewsPrompts:
+    @staticmethod
+    def unified_article_analysis(title: str, content: str, url: str) -> str:
+        """Единый промпт для полного анализа статьи."""
+        return f"""Analyze this article and provide complete analysis in JSON format.
+        
+        ARTICLE: {title}
+        URL: {url}
+        CONTENT: {content[:2000]}...
+        
+        TASKS:
+        1. TITLE OPTIMIZATION: Clear, informative headline (max 120 chars)
+        2. CATEGORIZATION: Choose 1-2 relevant categories  
+        3. SUMMARIZATION: 5-6 sentence summary in Russian
+        4. ADVERTISEMENT DETECTION: Determine if promotional
+        5. DATE EXTRACTION: Find publication date
+        
+        OUTPUT: Valid JSON with optimized_title, categories, summary, 
+        is_advertisement, ad_confidence, etc."""
 
 # Оркестратор для координации всех процессов
 class NewsOrchestrator:
-    async def process_all_sources(self):
-        """Обрабатывает все активные источники параллельно."""
-        sources = await self.get_active_sources()
-        tasks = [self.process_source(source) for source in sources]
-        await asyncio.gather(*tasks, return_exceptions=True)
+    async def run_full_cycle(self):
+        """Полный цикл: синхронизация, обработка, генерация сводок."""
+        await self._sync_all_sources()
+        await self._process_unprocessed_articles()
+        await self._generate_daily_summaries()
+        return await self._create_combined_digest()
 ```
 
 ### 4. Конфигурация с Валидацией
@@ -194,21 +274,35 @@ class Settings(BaseSettings):
     constructor_km_api_key: Optional[str] = None
     model: str = "gpt-4o-mini"
     
-    # Legacy API (для совместимости)
-    api_endpoint: Optional[str] = None
-    api_token: Optional[SecretStr] = None
-    api_rate_limit: int = Field(default=3, alias="RPS")
+    # Специфичные модели для разных задач
+    summarization_model: str = "gpt-4o-mini"
+    categorization_model: str = "gpt-4o-mini" 
+    digest_model: str = "gpt-4.1"
     
     # Telegram
     telegram_token: Optional[SecretStr] = None
     telegram_chat_id: Optional[str] = None
     telegraph_access_token: Optional[str] = None
     
+    # Админ аутентификация
+    admin_username: str = "admin"
+    admin_password: Optional[str] = None
+    
     # Приложение
     log_level: str = "INFO"
     development: bool = False
+    use_custom_parsers: bool = False
     max_workers: int = 5
     cache_ttl: int = 86400
+    cache_dir: str = "/tmp/rss_cache"
+    
+    # API Rate Limiting
+    api_rate_limit: int = Field(default=3, alias="RPS")
+    
+    # Database Connection Pool (увеличенные настройки)
+    db_pool_size: int = 5
+    db_max_overflow: int = 10
+    db_pool_timeout: int = 60
     
     class Config:
         env_file = ".env"
@@ -217,42 +311,76 @@ class Settings(BaseSettings):
 
 ### 5. Веб-интерфейс и API
 ```python
-# FastAPI приложение с админ-панелью
-@app.get("/admin")
-async def admin_dashboard():
-    """Админ панель для управления источниками и мониторинга."""
-    sources = await get_all_sources()
-    stats = await get_processing_stats()
-    return templates.TemplateResponse("admin/dashboard.html", {
-        "sources": sources,
-        "stats": stats
-    })
+# FastAPI приложение с 50+ API endpoints
+@router.get("/")
+async def api_root():
+    """API root с полным списком endpoints."""
+    return {
+        "message": "RSS Summarizer v2 API",
+        "version": "2.0.0",
+        "endpoints": {
+            "feed": "/api/v1/feed - Get news feed",
+            "categories": "/api/v1/categories - Get categories", 
+            "sources": "/api/v1/sources - Manage sources",
+            "summaries": "/api/v1/summaries/daily - Daily summaries",
+            "process": "/api/v1/process/run - Manual processing",
+            "telegram": "/api/v1/telegram/send-digest - Send digest",
+            "backup": "/api/v1/backup - Backup management",
+            "schedule": "/api/v1/schedule/settings - Task scheduling",
+            "migrations": "/api/v1/migrations/status - DB migrations",
+            "stats": "/api/v1/stats/dashboard - Dashboard stats"
+        }
+    }
 
-@app.post("/api/sources")
-async def create_source(source: SourceCreate):
-    """API для создания новых источников."""
-    return await create_new_source(source)
+# Публичный API с фильтрацией рекламы
+@router.get("/api/public/feed") 
+async def get_public_feed(
+    limit: int = Query(20, ge=1, le=1000),
+    category: Optional[str] = None,
+    hide_ads: bool = Query(True)
+):
+    """Публичный API с поддержкой множественных категорий и медиа."""
+    # Поддержка новой системы категорий через ArticleCategory
+    # Автоматическое скрытие рекламы по умолчанию
+    # Поддержка множественных медиа файлов
+    return feed_data
 
-# Публичный API для получения новостей
-@app.get("/api/feed")
-async def get_news_feed(limit: int = 50):
-    """Публичный API для получения новостной ленты."""
-    return await get_latest_news(limit)
+# Админ интерфейс с полной статистикой
+@router.get("/stats/dashboard")
+async def get_dashboard_stats():
+    """Comprehensive dashboard statistics."""
+    return {
+        "total_sources": total_sources,
+        "active_sources": active_sources,
+        "today_articles": today_articles,
+        "api_calls_today": api_calls_today,
+        "extraction_efficiency": extraction_stats,
+        "queue_status": queue_stats
+    }
 ```
 
 ## Статус Реализации
 
 ### ✅ Полностью Реализовано
-1. **Модульная архитектура** - Разделение на core, services, sources
+1. **Модульная архитектура** - Разделение на core, services, sources, migrations
 2. **Async обработка** - Все HTTP операции и БД запросы асинхронные
-3. **База данных** - PostgreSQL с полной схемой (9 таблиц)
-4. **Веб-интерфейс** - FastAPI с админ-панелью и публичным API
+3. **База данных** - PostgreSQL с полной схемой (16+ таблиц)
+4. **Веб-интерфейс** - FastAPI с админ-панелью и публичным API (50+ endpoints)
 5. **Конфигурация** - Pydantic с валидацией и поддержкой .env
 6. **Docker контейнеризация** - Полная настройка для продакшн
-7. **Система источников** - Plugin-based архитектура (RSS, Telegram, Generic)
-8. **Бэкап система** - Автоматические бэкапы БД
+7. **Система источников** - Plugin-based архитектура (RSS, Telegram, Generic, PageMonitor)
+8. **Бэкап система** - Автоматические бэкапы БД с веб-интерфейсом
 9. **Telegraph интеграция** - Публикация в Telegraph
-10. **AI интеграция** - Constructor KM API с rate limiting
+10. **AI интеграция** - Constructor KM API с централизованными промптами
+11. **Множественные категории** - Новая система категорий с уверенностью
+12. **Детекция рекламы** - AI-детекция рекламного контента
+13. **Система миграций** - Универсальный менеджер миграций БД
+14. **AI-экстракция** - Обучающаяся система извлечения контента
+15. **Медиа поддержка** - Множественные медиа файлы (изображения, видео, документы)
+16. **Универсальная очередь** - Database queue для всех операций
+17. **Планировщик задач** - Гибкая настройка автоматических задач
+18. **Аутентификация** - Админ аутентификация с JWT
+19. **Централизованные промпты** - Система промптов в services/prompts.py
 
 ### ⚠️ Частично Реализовано
 1. **Логирование** - Базовая настройка есть, структурированные логи частично
@@ -372,13 +500,19 @@ jobs:
 
 ## Достигнутые Улучшения vs Планируемые
 
-### ✅ Превзошли Ожидания
-- 🏗️ **Архитектура**: Полная веб-платформа вместо CLI инструмента
-- 💾 **Персистентность**: PostgreSQL вместо файлового кеша
-- 🌐 **Интерфейс**: Админ-панель + публичный API вместо CLI-only
-- 🔌 **Расширяемость**: Plugin система источников (RSS, Telegram, Generic)
-- 🔄 **Бэкапы**: Автоматическая система резервных копий
+### ✅ Превзошли Ожидания  
+- 🏗️ **Архитектура**: Полная веб-платформа с 16+ таблицами БД вместо CLI
+- 💾 **Персистентность**: PostgreSQL с миграциями и полной схемой
+- 🌐 **Интерфейс**: Админ-панель + 50+ API endpoints + публичный API
+- 🔌 **Расширяемость**: Plugin система (RSS, Telegram, Generic, PageMonitor)
+- 🔄 **Бэкапы**: Автоматическая система с веб-интерфейсом управления
 - 📰 **Telegraph**: Интеграция для публикации статей
+- 🤖 **AI интеграция**: Централизованные промпты + детекция рекламы
+- 🏷️ **Категоризация**: Множественные категории с AI уверенностью
+- 📱 **Медиа**: Поддержка изображений, видео, документов
+- 📊 **Мониторинг**: Dashboard со статистикой экстракции и очередей
+- 🎯 **AI-экстракция**: Обучающаяся система с отслеживанием доменов
+- ⚙️ **Миграции**: Универсальный менеджер миграций БД
 
 ### ✅ Выполнены Согласно Плану  
 - 🚀 **Производительность**: Async обработка всех операций

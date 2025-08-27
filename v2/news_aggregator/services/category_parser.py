@@ -20,9 +20,9 @@ def parse_category(category_raw, valid_categories=None, title=None, content=None
     if not category_raw:
         return 'Other'
     
-    # Default valid categories
+    # Default valid categories - все 7 фиксированных категорий
     if valid_categories is None:
-        valid_categories = ['Business', 'Tech', 'Science', 'Serbia', 'Other']
+        valid_categories = ['Serbia', 'Tech', 'Business', 'Science', 'Politics', 'International', 'Other']
     
     # Clean the category string
     category_str = str(category_raw).strip()
@@ -100,9 +100,16 @@ def _select_best_category(categories, title=None, content=None):
     category_keywords = {
         'Serbia': [
             'serbia', 'serbian', 'belgrade', 'beograd', 'srbija', 'srbije', 'srbiju',
-            'vučić', 'vucic', 'president', 'government', 'parliament', 'ministry',
+            'сербия', 'сербии', 'сербию', 'сербский', 'сербского', 'сербской', 'сербским',
+            'белград', 'београд', 'београду', 'београда',
+            'vučić', 'vucic', 'вучич', 'вучића', 'president', 'government', 'parliament', 'ministry',
+            'президент', 'правительство', 'парламент', 'министерство',
             'novi sad', 'niš', 'kragujevac', 'subotica', 'zemun', 'vojvodina',
-            'kosovo', 'metohija', 'republika srpska', 'bosnia'
+            'нови сад', 'ниш', 'крагуевац', 'суботица', 'земун', 'воеводина',
+            'kosovo', 'metohija', 'косово', 'метохия', 'метохију', 'косова',
+            'republika srpska', 'bosnia', 'республика srpska', 'босния',
+            'посольство', 'посольство рф', 'суверенитет', 'территориальная целостность',
+            'бомбардировка', 'бомбардировке', 'нато', 'западные страны', 'сербский народ'
         ],
         'Tech': [
             'technology', 'tech', 'software', 'hardware', 'computer', 'digital',
@@ -181,9 +188,16 @@ def _get_categories_with_confidence(categories, title=None, content=None):
     category_keywords = {
         'Serbia': [
             'serbia', 'serbian', 'belgrade', 'beograd', 'srbija', 'srbije', 'srbiju',
-            'vučić', 'vucic', 'president', 'government', 'parliament', 'ministry',
+            'сербия', 'сербии', 'сербию', 'сербский', 'сербского', 'сербской', 'сербским',
+            'белград', 'београд', 'београду', 'београда',
+            'vučić', 'vucic', 'вучич', 'вучића', 'president', 'government', 'parliament', 'ministry',
+            'президент', 'правительство', 'парламент', 'министерство',
             'novi sad', 'niš', 'kragujevac', 'subotica', 'zemun', 'vojvodina',
-            'kosovo', 'metohija', 'republika srpska', 'bosnia'
+            'нови сад', 'ниш', 'крагуевац', 'суботица', 'земун', 'воеводина',
+            'kosovo', 'metohija', 'косово', 'метохия', 'метохију', 'косова',
+            'republika srpska', 'bosnia', 'республика srpska', 'босния',
+            'посольство', 'посольство рф', 'суверенитет', 'территориальная целостность',
+            'бомбардировка', 'бомбардировке', 'нато', 'западные страны', 'сербский народ'
         ],
         'Tech': [
             'technology', 'tech', 'software', 'hardware', 'computer', 'digital',

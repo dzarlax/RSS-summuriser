@@ -989,8 +989,8 @@ let hideAds = true;
 let isWide = false;
 let isCompact = false;
 
-// Category mappings
-const categoryConfig = {
+// Category mappings - both hardcoded and dynamic
+const baseCategoryConfig = {
     'all': { icon: '🔍', name: 'Все' },
     'business': { icon: '💼', name: 'Бизнес' },
     'tech': { icon: '💻', name: 'Технологии' },
@@ -998,8 +998,26 @@ const categoryConfig = {
     'nature': { icon: '🌿', name: 'Природа' },
     'serbia': { icon: '🇷🇸', name: 'Сербия' },
     'marketing': { icon: '📈', name: 'Маркетинг' },
-    'other': { icon: '📰', name: 'Разное' }
+    'other': { icon: '📰', name: 'Разное' },
+    // Additional categories from database
+    'politics': { icon: '🏛️', name: 'Политика' },
+    'news': { icon: '📰', name: 'Новости' },
+    'entertainment': { icon: '🎬', name: 'Развлечения' },
+    'legal': { icon: '⚖️', name: 'Право' },
+    'government': { icon: '🏢', name: 'Правительство' },
+    'european union': { icon: '🇪🇺', name: 'ЕС' },
+    'international relations': { icon: '🌍', name: 'Международные отношения' },
+    'events': { icon: '📅', name: 'События' },
+    'lifestyle': { icon: '✨', name: 'Стиль жизни' },
+    'culture': { icon: '🎭', name: 'Культура' },
+    'human rights': { icon: '✊', name: 'Права человека' },
+    'security': { icon: '🔒', name: 'Безопасность' },
+    'society': { icon: '👥', name: 'Общество' },
+    'europe': { icon: '🌍', name: 'Европа' }
 };
+
+// Dynamic category config that gets updated with database categories
+let categoryConfig = { ...baseCategoryConfig };
 
 document.addEventListener('DOMContentLoaded', function() {
     loadCategories();
@@ -1154,7 +1172,13 @@ function renderNews(articles, reset = false) {
 }
 
 function createNewsItem(article) {
-    const category = (article.category || 'Other').toLowerCase();
+    // Handle multiple categories - use first category for primary display
+    const categories = article.categories || [];
+    const primaryCategory = categories.length > 0 ? categories[0] : null;
+    const legacyCategory = (article.category || 'Other').toLowerCase();
+    
+    // Use primary category from new system, fallback to legacy
+    const category = primaryCategory ? primaryCategory.name.toLowerCase() : legacyCategory;
     const categoryInfo = categoryConfig[category] || categoryConfig['other'];
     
     // Extract image from content or summary
@@ -1163,16 +1187,40 @@ function createNewsItem(article) {
     // Clean summary for display
     const cleanSummary = cleanHtmlSummary(article.summary || '');
     
+    // Create category badges for multiple categories
+    let categoryBadges = '';
+    if (categories.length > 0) {
+        // Adaptive display: fewer categories on smaller screens
+        const isMobile = window.innerWidth <= 768;
+        const maxCategories = isMobile ? 1 : 2;
+        const displayCategories = categories.slice(0, maxCategories);
+        
+        categoryBadges = displayCategories.map(cat => {
+            const catKey = cat.name.toLowerCase();
+            const catInfo = categoryConfig[catKey] || categoryConfig['other'];
+            return `<div class="category-badge category-${catKey}" style="background-color: ${cat.color}" title="Уверенность: ${Math.round(cat.confidence * 100)}%">
+                ${catInfo.icon} ${cat.display_name}
+            </div>`;
+        }).join('');
+        
+        // Add "+" indicator if there are more categories
+        if (categories.length > maxCategories) {
+            categoryBadges += `<div class="category-badge category-more" title="Ещё ${categories.length - maxCategories} категорий">+${categories.length - maxCategories}</div>`;
+        }
+    } else {
+        // Fallback to legacy category
+        categoryBadges = `<div class="category-badge category-${category}">
+            ${categoryInfo.icon} ${categoryInfo.name}
+        </div>`;
+    }
+    
     return `
-        <article class="news-item" data-category="${category}" onclick="showArticleModal('${article.id}')">
+        <article class="news-item" data-category="${category}" data-categories="${categories.map(c => c.name.toLowerCase()).join(',')}" onclick="showArticleModal('${article.id}')">
             <div class="news-image">
                 ${imageUrl ? 
                     `<img src="${imageUrl}" alt="${escapeHtml(article.title)}" loading="lazy" onerror="this.parentElement.innerHTML='&lt;div class=&quot;image-placeholder&quot;&gt;📰&lt;/div&gt;'">` :
                     `<div class="image-placeholder">📰</div>`
                 }
-                <div class="category-badge category-${category}">
-                    ${categoryInfo.icon} ${categoryInfo.name}
-                </div>
                 ${article.is_advertisement ? `
                     <div class="ad-badge" title="Рекламный контент (Уверенность: ${Math.round((article.ad_confidence || 0) * 100)}%)">
                         🚨 РЕКЛАМА
@@ -1180,6 +1228,9 @@ function createNewsItem(article) {
                 ` : ''}
             </div>
             <div class="news-content">
+                <div class="news-feed-badges">
+                    ${categoryBadges}
+                </div>
                 <h2 class="news-title">
                     ${escapeHtml(article.title)}
                 </h2>
@@ -1215,9 +1266,17 @@ function updateAllCategoryFilters() {
     `;
     
     // Add buttons for all categories that exist in database
-    Object.keys(categoryConfig).forEach(category => {
+    Object.keys(allCategories).forEach(category => {
         if (category !== 'all' && allCategories[category] > 0) {
-            const config = categoryConfig[category];
+            // Get config for this category, or create a default one
+            let config = categoryConfig[category];
+            if (!config) {
+                // Auto-generate config for unknown categories
+                const displayName = category.charAt(0).toUpperCase() + category.slice(1);
+                config = { icon: '📄', name: displayName };
+                categoryConfig[category] = config;
+            }
+            
             buttonsHtml += `
                 <button class="filter-btn ${currentCategory === category ? 'active' : ''}" data-category="${category}" onclick="filterByCategory('${category}')">
                     <span class="filter-icon">${config.icon}</span>
@@ -1235,12 +1294,21 @@ function updateAllCategoryFilters() {
 }
 
 function updateCurrentCategoryCounts(articles) {
-    // Just count current visible articles for reference
+    // Count articles for each category (articles can be in multiple categories)
     categoryCounts = { all: articles.length };
     
     articles.forEach(article => {
-        const category = (article.category || 'Other').toLowerCase();
-        categoryCounts[category] = (categoryCounts[category] || 0) + 1;
+        // Count for legacy category
+        const legacyCategory = (article.category || 'Other').toLowerCase();
+        categoryCounts[legacyCategory] = (categoryCounts[legacyCategory] || 0) + 1;
+        
+        // Count for new multiple categories
+        if (article.categories && article.categories.length > 0) {
+            article.categories.forEach(cat => {
+                const categoryKey = cat.name.toLowerCase();
+                categoryCounts[categoryKey] = (categoryCounts[categoryKey] || 0) + 1;
+            });
+        }
     });
 }
 
@@ -1457,17 +1525,40 @@ function showArticleModal(articleId) {
     const article = articlesData[articleId];
     if (!article) return;
     
-    const category = (article.category || 'Other').toLowerCase();
+    // Handle multiple categories
+    const categories = article.categories || [];
+    const primaryCategory = categories.length > 0 ? categories[0] : null;
+    const legacyCategory = (article.category || 'Other').toLowerCase();
+    
+    // Use primary category from new system, fallback to legacy
+    const category = primaryCategory ? primaryCategory.name.toLowerCase() : legacyCategory;
     const categoryInfo = categoryConfig[category] || categoryConfig['other'];
     const imageUrl = extractImageFromContent(article.image_url || article.summary || article.content || '');
+    
+    // Create category badges for modal
+    let modalCategoryBadges = '';
+    if (categories.length > 0) {
+        modalCategoryBadges = categories.map(cat => {
+            const catKey = cat.name.toLowerCase();
+            const catInfo = categoryConfig[catKey] || categoryConfig['other'];
+            return `<div class="modal-category category-${catKey}" style="background-color: ${cat.color}" title="Уверенность: ${Math.round(cat.confidence * 100)}%">
+                ${catInfo.icon} ${cat.display_name}
+            </div>`;
+        }).join('');
+    } else {
+        // Fallback to legacy category
+        modalCategoryBadges = `<div class="modal-category category-${category}">
+            ${categoryInfo.icon} ${categoryInfo.name}
+        </div>`;
+    }
     
     // Create modal HTML
     const modalHtml = `
         <div class="modal-overlay" onclick="closeArticleModal()">
             <div class="modal-content" onclick="event.stopPropagation()">
                 <div class="modal-header">
-                    <div class="modal-category category-${category}">
-                        ${categoryInfo.icon} ${categoryInfo.name}
+                    <div class="modal-categories-container">
+                        ${modalCategoryBadges}
                     </div>
                     ${article.is_advertisement ? `
                         <div class="modal-ad-badge" title="Рекламный контент (Уверенность: ${Math.round((article.ad_confidence || 0) * 100)}%)">

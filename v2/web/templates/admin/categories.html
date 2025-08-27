@@ -1,0 +1,457 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="admin-container">
+    <div class="admin-sidebar">
+        <h3>Администрирование</h3>
+        <nav class="admin-nav">
+            <a href="/admin" class="nav-item">
+                <span class="icon">📊</span> Дашборд
+            </a>
+            <a href="/admin/sources" class="nav-item">
+                <span class="icon">📰</span> Источники
+            </a>
+            <a href="/admin/summaries" class="nav-item">
+                <span class="icon">📄</span> Дневные сводки
+            </a>
+            <a href="/admin/schedule" class="nav-item">
+                <span class="icon">⏰</span> Расписание
+            </a>
+            <a href="/admin/stats" class="nav-item">
+                <span class="icon">📈</span> Статистика
+            </a>
+            <a href="/admin/categories" class="nav-item active">
+                <span class="icon">🏷️</span> Маппинг категорий
+            </a>
+            <a href="/admin/backup" class="nav-item">
+                <span class="icon">💾</span> Резервные копии
+            </a>
+        </nav>
+    </div>
+
+    <div class="admin-main">
+        <h1>{{ title }}</h1>
+        <p style="color: var(--text-muted); margin-bottom: 2rem;">Управление маппингом AI категорий в фиксированные категории</p>
+
+        <!-- Statistics -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon">📊</div>
+                <div class="stat-content">
+                    <h3>Всего маппингов</h3>
+                    <div class="stat-number" id="total-mappings">-</div>
+                    <div class="stat-label">конфигураций</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">✅</div>
+                <div class="stat-content">
+                    <h3>Активных</h3>
+                    <div class="stat-number" id="active-mappings">-</div>
+                    <div class="stat-label">работающих</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">🔄</div>
+                <div class="stat-content">
+                    <h3>Использований</h3>
+                    <div class="stat-number" id="total-usage">-</div>
+                    <div class="stat-label">всего раз</div>
+                </div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon">🏷️</div>
+                <div class="stat-content">
+                    <h3>Категорий</h3>
+                    <div class="stat-number" id="fixed-categories">7</div>
+                    <div class="stat-label">фиксированных</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Alert container -->
+        <div id="alert-container" style="margin-bottom: 1rem;"></div>
+
+        <!-- Mappings Table -->
+        <div class="dashboard-section">
+            <div class="section-header">
+                <h2>🏷️ Маппинг Категорий</h2>
+                <button class="btn btn-success" onclick="openCreateModal()">
+                    + Добавить Маппинг
+                </button>
+            </div>
+            
+            <div class="table-container">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>AI Категория</th>
+                            <th>Фиксированная Категория</th>
+                            <th>Использований</th>
+                            <th>Последнее использование</th>
+                            <th>Статус</th>
+                            <th>Действия</th>
+                        </tr>
+                    </thead>
+                    <tbody id="mappings-tbody">
+                        <tr>
+                            <td colspan="6" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+                                <div class="loading-state">
+                                    <div class="spinner"></div>
+                                    <p>Загрузка маппингов...</p>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- Create/Edit Modal -->
+<div id="mapping-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;">
+    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: var(--surface-color); border-radius: var(--border-radius-lg); padding: 2rem; width: 90%; max-width: 500px; box-shadow: var(--shadow-xl); border: 1px solid var(--border-color);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border-color);">
+            <h3 id="modal-title" style="margin: 0; color: var(--text-color); font-size: 1.25rem;">Добавить Маппинг</h3>
+            <button onclick="closeModal()" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; color: var(--text-muted); width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border-radius: var(--border-radius-sm);" onmouseover="this.style.background='var(--surface-hover)'" onmouseout="this.style.background='none'">&times;</button>
+        </div>
+        
+        <form id="mapping-form">
+            <div class="form-group">
+                <label class="form-label" for="ai-category">AI Категория</label>
+                <input type="text" id="ai-category" name="ai_category" required 
+                       placeholder="Например: Russia, Health, Events"
+                       class="form-input">
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label" for="fixed-category">Фиксированная Категория</label>
+                <select id="fixed-category" name="fixed_category" required class="form-select">
+                    <option value="">Выберите категорию...</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label" for="confidence-threshold">Порог Уверенности</label>
+                <input type="number" id="confidence-threshold" name="confidence_threshold" 
+                       min="0" max="1" step="0.1" value="0.0"
+                       class="form-input">
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label" for="description">Описание (опционально)</label>
+                <textarea id="description" name="description" 
+                          placeholder="Почему используется этот маппинг..."
+                          class="form-input" style="height: 60px; resize: vertical;"></textarea>
+            </div>
+            
+            <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border-color);">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()">Отмена</button>
+                <button type="submit" class="btn btn-primary">Сохранить</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+let mappings = [];
+let fixedCategories = [];
+let editingId = null;
+
+// Load data on page load
+document.addEventListener('DOMContentLoaded', function() {
+    loadFixedCategories();
+    loadMappings();
+});
+
+function getCategoryBadgeClass(category) {
+    const map = {
+        'Serbia': 'category-serbia',
+        'Tech': 'category-tech', 
+        'Business': 'category-business',
+        'Science': 'category-science',
+        'Politics': 'category-politics',
+        'International': 'category-international',
+        'Other': 'category-other'
+    };
+    return map[category] || 'category-other';
+}
+
+function formatDate(dateString) {
+    if (!dateString) return 'Никогда';
+    const date = new Date(dateString);
+    return date.toLocaleDateString('ru-RU');
+}
+
+function showAlert(message, type = 'success') {
+    const container = document.getElementById('alert-container');
+    const alert = document.createElement('div');
+    
+    // Use the design system's notification styles
+    const bgColors = {
+        'success': '#d1fae5',
+        'error': '#fee2e2', 
+        'warning': '#fef3c7',
+        'info': '#dbeafe'
+    };
+    const textColors = {
+        'success': '#065f46',
+        'error': '#dc2626',
+        'warning': '#92400e',
+        'info': '#1e40af'
+    };
+    const borderColors = {
+        'success': '#a7f3d0',
+        'error': '#fca5a5',
+        'warning': '#fde68a',
+        'info': '#bfdbfe'
+    };
+    
+    alert.style.cssText = `
+        background: ${bgColors[type] || bgColors.info};
+        color: ${textColors[type] || textColors.info};
+        border: 1px solid ${borderColors[type] || borderColors.info};
+        padding: 1rem;
+        border-radius: var(--border-radius-sm);
+        font-size: 0.875rem;
+        margin-bottom: 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    `;
+    
+    const icons = {
+        'success': '✅',
+        'error': '❌', 
+        'warning': '⚠️',
+        'info': 'ℹ️'
+    };
+    
+    alert.innerHTML = `
+        <span>${icons[type] || icons.info}</span>
+        <span>${message}</span>
+        <button onclick="this.parentElement.remove()" style="margin-left: auto; background: none; border: none; color: inherit; cursor: pointer; font-size: 1.2rem; padding: 0.25rem;">×</button>
+    `;
+    
+    container.appendChild(alert);
+    
+    setTimeout(() => {
+        if (alert.parentElement) {
+            alert.remove();
+        }
+    }, 5000);
+}
+
+async function loadFixedCategories() {
+    try {
+        const response = await fetch('/api/v1/category-mappings/fixed-categories');
+        const data = await response.json();
+        fixedCategories = data.categories;
+        
+        const select = document.getElementById('fixed-category');
+        select.innerHTML = '<option value="">Выберите категорию...</option>';
+        fixedCategories.forEach(cat => {
+            const option = document.createElement('option');
+            option.value = cat.key;
+            option.textContent = cat.display_name;
+            select.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Failed to load fixed categories:', error);
+    }
+}
+
+async function loadMappings() {
+    try {
+        const response = await fetch('/api/v1/category-mappings?active_only=false');
+        const data = await response.json();
+        mappings = data;
+        
+        renderMappings();
+        updateStats();
+    } catch (error) {
+        console.error('Failed to load mappings:', error);
+        showAlert('Ошибка загрузки маппингов', 'error');
+    }
+}
+
+function renderMappings() {
+    const tbody = document.getElementById('mappings-tbody');
+    
+    if (mappings.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="6" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+                    <div style="display: flex; flex-direction: column; align-items: center; gap: 1rem;">
+                        <span style="font-size: 2rem;">📄</span>
+                        <p style="margin: 0;">Маппингов не найдено</p>
+                    </div>
+                </td>
+            </tr>
+        `;
+        return;
+    }
+    
+    tbody.innerHTML = mappings.map(mapping => `
+        <tr style="${!mapping.is_active ? 'opacity: 0.6; background: var(--surface-hover);' : ''}">
+            <td><strong style="color: var(--text-color);">${mapping.ai_category}</strong></td>
+            <td>
+                <span class="category-badge ${getCategoryBadgeClass(mapping.fixed_category)}">
+                    ${mapping.fixed_category}
+                </span>
+            </td>
+            <td>
+                <span class="badge badge-info" style="background: var(--surface-hover); color: var(--text-muted); padding: 0.25rem 0.5rem; border-radius: var(--border-radius-sm); font-size: 0.75rem;">
+                    ${mapping.usage_count}
+                </span>
+            </td>
+            <td style="color: var(--text-muted); font-size: 0.875rem;">${formatDate(mapping.last_used)}</td>
+            <td>
+                <span class="status-badge ${mapping.is_active ? 'status-active' : 'status-inactive'}">
+                    ${mapping.is_active ? 'Активен' : 'Неактивен'}
+                </span>
+            </td>
+            <td>
+                <div class="table-actions">
+                    <button class="btn btn-small" onclick="editMapping(${mapping.id})" title="Редактировать маппинг" data-tooltip="Редактировать" style="background: var(--primary-color); color: white;">
+                        ✏️
+                    </button>
+                    <button class="btn btn-small" onclick="toggleMapping(${mapping.id})" title="${mapping.is_active ? 'Деактивировать' : 'Активировать'}" data-tooltip="${mapping.is_active ? 'Деактивировать' : 'Активировать'}" style="background: var(--secondary-color); color: white;">
+                        ${mapping.is_active ? '⏸️' : '▶️'}
+                    </button>
+                    <button class="btn btn-small" onclick="deleteMapping(${mapping.id})" title="Удалить маппинг" data-tooltip="Удалить" style="background: var(--danger-color); color: white;">
+                        🗑️
+                    </button>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function updateStats() {
+    document.getElementById('total-mappings').textContent = mappings.length;
+    document.getElementById('active-mappings').textContent = mappings.filter(m => m.is_active).length;
+    document.getElementById('total-usage').textContent = mappings.reduce((sum, m) => sum + m.usage_count, 0);
+}
+
+function openCreateModal() {
+    editingId = null;
+    document.getElementById('modal-title').textContent = 'Добавить Маппинг';
+    document.getElementById('mapping-form').reset();
+    document.getElementById('mapping-modal').style.display = 'flex';
+}
+
+function editMapping(id) {
+    const mapping = mappings.find(m => m.id === id);
+    if (!mapping) return;
+    
+    editingId = id;
+    document.getElementById('modal-title').textContent = 'Редактировать Маппинг';
+    document.getElementById('ai-category').value = mapping.ai_category;
+    document.getElementById('fixed-category').value = mapping.fixed_category;
+    document.getElementById('confidence-threshold').value = mapping.confidence_threshold;
+    document.getElementById('description').value = mapping.description || '';
+    document.getElementById('mapping-modal').style.display = 'flex';
+}
+
+function closeModal() {
+    document.getElementById('mapping-modal').style.display = 'none';
+    editingId = null;
+}
+
+document.getElementById('mapping-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(e.target);
+    const data = {
+        ai_category: formData.get('ai_category'),
+        fixed_category: formData.get('fixed_category'),
+        confidence_threshold: parseFloat(formData.get('confidence_threshold')),
+        description: formData.get('description') || null
+    };
+    
+    try {
+        const url = editingId 
+            ? `/api/v1/category-mappings/${editingId}` 
+            : '/api/v1/category-mappings';
+        const method = editingId ? 'PUT' : 'POST';
+        
+        const response = await fetch(url, {
+            method: method,
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Ошибка сохранения');
+        }
+        
+        closeModal();
+        await loadMappings();
+        showAlert(editingId ? 'Маппинг обновлен' : 'Маппинг создан');
+    } catch (error) {
+        showAlert(error.message, 'error');
+    }
+});
+
+async function toggleMapping(id) {
+    try {
+        const response = await fetch(`/api/v1/category-mappings/${id}/toggle`, {
+            method: 'POST'
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Ошибка переключения');
+        }
+        
+        const result = await response.json();
+        await loadMappings();
+        showAlert(result.message);
+    } catch (error) {
+        showAlert(error.message, 'error');
+    }
+}
+
+async function deleteMapping(id) {
+    const mapping = mappings.find(m => m.id === id);
+    if (!mapping) return;
+    
+    if (!confirm(`Удалить маппинг "${mapping.ai_category}" → "${mapping.fixed_category}"?`)) {
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/v1/category-mappings/${id}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Ошибка удаления');
+        }
+        
+        await loadMappings();
+        showAlert('Маппинг удален');
+    } catch (error) {
+        showAlert(error.message, 'error');
+    }
+}
+
+// Close modal when clicking outside
+document.getElementById('mapping-modal').addEventListener('click', function(event) {
+    if (event.target === this) {
+        closeModal();
+    }
+});
+</script>
+        </div>
+    </div>
+{% endblock %}

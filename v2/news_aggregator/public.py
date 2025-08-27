@@ -11,7 +11,7 @@ from typing import Optional
 
 from .database import get_db
 from .database_helpers import fetch_raw_all, count_query, execute_custom_read
-from .models import Article
+from .models import Article, Category, ArticleCategory
 
 router = APIRouter()
 templates = Jinja2Templates(directory="web/templates")
@@ -63,23 +63,32 @@ async def get_public_feed(
     
     
     try:
-        # Import Source model
-        from .models import Source
+        # Import required models
+        from .models import Source, ArticleCategory, Category
+        from sqlalchemy.orm import selectinload
         
-        # Build query for articles with source information
-        # Explicitly select all Article columns including media_files
-        query = select(Article, Source).join(Source, Article.source_id == Source.id)
+        # Build query for articles with source and categories information
+        query = select(Article).options(
+            selectinload(Article.source),
+            selectinload(Article.article_categories).selectinload(ArticleCategory.category)
+        )
         
         # Apply time filter
         if since_hours:
             since_time = datetime.utcnow() - timedelta(hours=since_hours)
             query = query.where(Article.published_at >= since_time)
         
-        # Apply category filter 
+        # Apply category filter (support both new and legacy systems)
         if category and category.lower() != 'all':
-            # Simple case conversion - capitalize first letter to match database format
-            category_capitalized = category.capitalize()
-            query = query.where(Article.category == category_capitalized)
+            if category.lower() == 'advertisements':
+                # Filter for advertising content
+                query = query.where(Article.is_advertisement == True)
+            else:
+                # Use new category system only
+                subquery_new = select(Article.id).join(ArticleCategory).join(Category).where(
+                    func.lower(Category.name) == category.lower()
+                )
+                query = query.where(Article.id.in_(subquery_new))
         
         # Hide advertisements if requested (default: true)
         if hide_ads:
@@ -91,15 +100,14 @@ async def get_public_feed(
         # Apply pagination
         query = query.offset(offset).limit(limit)
         
-        # Execute query through direct session (fetch_raw_all may not handle JSON properly)
+        # Execute query through direct session
         async with AsyncSessionLocal() as session:
             result = await session.execute(query)
-            rows = result.all()
+            articles = result.scalars().all()
         
         # Convert to dict format
         articles_data = []
-        for article, source in rows:
-
+        for article in articles:
             article_dict = {
                 "id": article.id,
                 "title": article.title,
@@ -107,9 +115,10 @@ async def get_public_feed(
                 "url": article.url,
                 "image_url": article.image_url,
                 "source_id": article.source_id,
-                "source_name": source.name,
-                "category": article.category,
-                "published_at": article.published_at.isoformat() if article.published_at else None,
+                "source_name": article.source.name if article.source else "Unknown",
+                "category": article.primary_category,  # Primary category from new system
+                "categories": article.categories_with_confidence,  # New multiple categories
+                "published_at": (article.published_at or article.fetched_at).isoformat(),
                 "fetched_at": article.fetched_at.isoformat() if article.fetched_at else None,
                 "is_advertisement": article.is_advertisement or False,
                 "ad_confidence": article.ad_confidence or 0.0,
@@ -118,10 +127,10 @@ async def get_public_feed(
                 "ad_markers": getattr(article, 'ad_markers', []),
                 # Add media fields
                 "media_files": article.media_files or [],
-                "images": [media for media in (article.media_files or []) if media.get('type') == 'image'],
-                "videos": [media for media in (article.media_files or []) if media.get('type') == 'video'],
-                "documents": [media for media in (article.media_files or []) if media.get('type') == 'document'],
-                "primary_image": (article.media_files or [{}])[0].get('url') if article.media_files else article.image_url
+                "images": article.images,  # Use property method
+                "videos": article.videos,  # Use property method
+                "documents": article.documents,  # Use property method
+                "primary_image": article.primary_image  # Use property method
             }
             articles_data.append(article_dict)
         
@@ -142,7 +151,7 @@ async def get_public_feed(
                 "summary": "Показываем тестовые данные. Проверьте подключение к БД.",
                 "url": "https://example.com/db-error",
                 "source": "Система",
-                "category": "Error",
+                "category": "Other",
                 "published_at": datetime.utcnow().isoformat(),
                 "created_at": datetime.utcnow().isoformat(),
                 "is_advertisement": False,
@@ -169,22 +178,22 @@ async def get_public_categories():
         total_query = select(func.count(Article.id))
         total_count = await count_query(total_query)
         
-        # Count by category (excluding advertisements)
+        # Count by category using new system (excluding advertisements)
         category_query = select(
-            Article.category, 
-            func.count(Article.id).label('count')
-        ).where(
+            Category.name, 
+            func.count(ArticleCategory.article_id).label('count')
+        ).join(ArticleCategory).join(Article).where(
             Article.is_advertisement != True
-        ).group_by(Article.category)
+        ).group_by(Category.name)
         
         categories = await fetch_raw_all(category_query)
         
         # Build category stats (advertisements are excluded, shown as badges)
         category_stats = {"all": total_count}
         
-        for category, count in categories:
-            if category:
-                category_stats[category.lower()] = count
+        for category_name, count in categories:
+            if category_name:
+                category_stats[category_name.lower()] = count
         
         return {"categories": category_stats}
             

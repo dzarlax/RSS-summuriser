@@ -46,7 +46,6 @@ class Article(Base):
     url = Column(Text, nullable=False, unique=True)
     content = Column(Text)
     summary = Column(Text)
-    category = Column(String(50))  # Business, Tech, Science, Nature, Serbia, Marketing, Other
     image_url = Column(Text)  # Legacy single image field for backward compatibility
     media_files = Column(JSON, default=list)  # List of media files: [{"url": "...", "type": "image|video|document", "thumbnail": "..."}]
     published_at = Column(DateTime)
@@ -86,6 +85,15 @@ class Article(Base):
             }
             for ac in self.article_categories
         ]
+    
+    @property
+    def primary_category(self) -> str:
+        """Get primary category name (highest confidence) for summarization."""
+        if self.article_categories:
+            # Sort by confidence descending and get the first one
+            sorted_categories = sorted(self.article_categories, key=lambda ac: ac.confidence, reverse=True)
+            return sorted_categories[0].category.name
+        return 'Other'
     
     @property
     def images(self) -> List[dict]:
@@ -357,3 +365,20 @@ class AIUsageTracking(Base):
     patterns_successful = Column(Integer, default=0)
     cost_effectiveness = Column(DECIMAL(5, 2))  # successful patterns / cost ratio
     created_at = Column(DateTime, default=func.now(), index=True)
+
+
+class CategoryMapping(Base):
+    """Category mapping model for AI category to fixed category mapping."""
+    __tablename__ = "category_mapping"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    ai_category = Column(String(100), nullable=False, unique=True, index=True)  # Original AI category name
+    fixed_category = Column(String(50), nullable=False, index=True)  # One of our 7 fixed categories
+    confidence_threshold = Column(Float, default=0.0)  # Minimum confidence to apply this mapping
+    description = Column(Text)  # Optional description of why this mapping exists
+    created_by = Column(String(100), default="system")  # Who created this mapping
+    usage_count = Column(Integer, default=0)  # How many times this mapping was used
+    last_used = Column(DateTime)  # When this mapping was last used
+    is_active = Column(Boolean, default=True, index=True)  # Can be disabled without deleting
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())

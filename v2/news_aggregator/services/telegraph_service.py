@@ -43,19 +43,34 @@ class TelegraphService:
             return None
         
         try:
-            # Prepare content
-            content_html = ""
-            categories_processed = 0
+            # Step 1: Collect valid categories and count articles
+            valid_categories = []
+            category_stats = {}
             
             for category, articles in articles_by_category.items():
-                if not articles:
-                    continue
-                    
+                if articles:  # Only categories with articles
+                    valid_categories.append(category)
+                    category_stats[category] = len(articles)
+            
+            if not valid_categories:
+                logging.warning("No valid categories for Telegraph page")
+                return None
+            
+            # Step 2: Create table of contents
+            content_html = self._create_table_of_contents(valid_categories, category_stats)
+            content_html += "<hr>\n\n"  # Separator line
+            
+            # Step 3: Create category content with anchors
+            categories_processed = 0
+            
+            for category in valid_categories:
+                articles = articles_by_category[category]
+                
                 try:
-                    # Category header
-                    content_html += f"<h3>{category}</h3>\n"
+                    # Category header (Telegraph doesn't support id attributes)
+                    content_html += f'<h3>{category}</h3>\n'
                     
-                    # Add articles from this category (like old version)
+                    # Add articles from this category
                     for article in articles:
                         # Use headline/description like old version
                         headline = article.get('headline', '')
@@ -97,7 +112,7 @@ class TelegraphService:
                     logging.warning(f"Error processing category {category}: {e}")
                     continue
             
-            logging.info(f"Processed {categories_processed} categories for Telegraph page")
+            logging.info(f"Processed {categories_processed} categories for Telegraph page with table of contents")
             
             # Sanitize HTML content
             content_html = self._sanitize_html_for_telegraph(content_html)
@@ -237,3 +252,56 @@ class TelegraphService:
         except Exception as e:
             logging.warning(f"Error sanitizing HTML: {e}")
             return html_content
+    
+    def _create_table_of_contents(self, categories: List[str], category_stats: Dict[str, int]) -> str:
+        """Create table of contents with working Telegraph anchor links."""
+        if not categories:
+            return ""
+        
+        toc_html = "<h3>📋 Содержание</h3>\n"
+        toc_html += "<blockquote>\n<p>"
+        
+        # Create compact list without extra paragraph spacing
+        toc_lines = []
+        for category in categories:
+            article_count = category_stats.get(category, 0)
+            # Create Telegraph-compatible anchor link (spaces become dashes)
+            category_anchor = self._create_telegraph_anchor(category)
+            
+            # Create clickable link with article count
+            toc_lines.append(f'<a href="#{category_anchor}">{category}</a> — {article_count} новостей')
+        
+        # Join all category lines with <br> for compact display
+        toc_html += "<br>\n".join(toc_lines)
+        
+        # Add total count on separate line
+        total_articles = sum(category_stats.values())
+        toc_html += f'<br><br><em>Всего: {total_articles} новостей в {len(categories)} категориях</em>'
+        
+        toc_html += "</p>\n</blockquote>\n"
+        return toc_html
+    
+    def _create_telegraph_anchor(self, category: str) -> str:
+        """Create Telegraph-compatible anchor from category name.
+        
+        Telegraph anchor format: spaces become dashes, preserve case.
+        For "Tech News" -> "Tech-News"
+        """
+        if not category:
+            return "category"
+        
+        # Replace spaces with dashes, keep original case
+        anchor = category.replace(' ', '-')
+        
+        # Remove any problematic characters but keep case
+        import re
+        anchor = re.sub(r'[^\w\s-]', '', anchor)
+        anchor = re.sub(r'[-\s]+', '-', anchor)  # Multiple dashes/spaces to single dash
+        anchor = anchor.strip('-')  # Remove leading/trailing dashes
+        
+        # Ensure non-empty result
+        if not anchor:
+            anchor = "category"
+        
+        return anchor
+    

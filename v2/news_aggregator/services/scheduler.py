@@ -142,9 +142,7 @@ class TaskScheduler:
         try:
             logger.info(f"Executing task: {task_name}")
             
-            if task_name == "news_digest":
-                await self._run_news_digest_cycle(task_config)
-            elif task_name == "telegram_digest":
+            if task_name == "telegram_digest":
                 await self._run_telegram_digest(task_config)
             elif task_name == "news_processing":
                 await self._run_news_processing(task_config)

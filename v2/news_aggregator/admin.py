@@ -68,3 +68,13 @@ async def admin_backup(request: Request, admin_user: str = Depends(get_current_a
         "title": "Резервные Копии",
         "admin_user": admin_user
     })
+
+
+@router.get("/categories", response_class=HTMLResponse)
+async def admin_categories(request: Request, admin_user: str = Depends(get_current_admin_user)):
+    """Category mapping management page."""
+    return templates.TemplateResponse("admin/categories.html", {
+        "request": request,
+        "title": "Маппинг Категорий",
+        "admin_user": admin_user
+    })

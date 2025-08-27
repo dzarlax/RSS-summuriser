@@ -1794,8 +1794,8 @@ let hideAds = true;
 let isWide = false;
 let isCompact = false;
 
-// Category mappings
-const categoryConfig = {
+// Category mappings - both hardcoded and dynamic
+const baseCategoryConfig = {
     'all': { icon: '🔍', name: 'Все' },
     'business': { icon: '💼', name: 'Бизнес' },
     'tech': { icon: '💻', name: 'Технологии' },
@@ -1803,8 +1803,26 @@ const categoryConfig = {
     'nature': { icon: '🌿', name: 'Природа' },
     'serbia': { icon: '🇷🇸', name: 'Сербия' },
     'marketing': { icon: '📈', name: 'Маркетинг' },
-    'other': { icon: '📰', name: 'Разное' }
+    'other': { icon: '📰', name: 'Разное' },
+    // Additional categories from database
+    'politics': { icon: '🏛️', name: 'Политика' },
+    'news': { icon: '📰', name: 'Новости' },
+    'entertainment': { icon: '🎬', name: 'Развлечения' },
+    'legal': { icon: '⚖️', name: 'Право' },
+    'government': { icon: '🏢', name: 'Правительство' },
+    'european union': { icon: '🇪🇺', name: 'ЕС' },
+    'international relations': { icon: '🌍', name: 'Международные отношения' },
+    'events': { icon: '📅', name: 'События' },
+    'lifestyle': { icon: '✨', name: 'Стиль жизни' },
+    'culture': { icon: '🎭', name: 'Культура' },
+    'human rights': { icon: '✊', name: 'Права человека' },
+    'security': { icon: '🔒', name: 'Безопасность' },
+    'society': { icon: '👥', name: 'Общество' },
+    'europe': { icon: '🌍', name: 'Европа' }
 };
+
+// Dynamic category config that gets updated with database categories
+let categoryConfig = { ...baseCategoryConfig };
 
 document.addEventListener('DOMContentLoaded', function() {
     loadCategories();
@@ -2058,9 +2076,17 @@ function updateAllCategoryFilters() {
     `;
     
     // Add buttons for all categories that exist in database
-    Object.keys(categoryConfig).forEach(category => {
+    Object.keys(allCategories).forEach(category => {
         if (category !== 'all' && allCategories[category] > 0) {
-            const config = categoryConfig[category];
+            // Get config for this category, or create a default one
+            let config = categoryConfig[category];
+            if (!config) {
+                // Auto-generate config for unknown categories
+                const displayName = category.charAt(0).toUpperCase() + category.slice(1);
+                config = { icon: '📄', name: displayName };
+                categoryConfig[category] = config;
+            }
+            
             buttonsHtml += `
                 <button class="filter-btn ${currentCategory === category ? 'active' : ''}" data-category="${category}" onclick="filterByCategory('${category}')">
                     <span class="filter-icon">${config.icon}</span>
@@ -2602,8 +2628,31 @@ function showArticleModal(articleId) {
     const article = articlesData[articleId];
     if (!article) return;
     
-    const category = (article.category || 'Other').toLowerCase();
+    // Handle multiple categories
+    const categories = article.categories || [];
+    const primaryCategory = categories.length > 0 ? categories[0] : null;
+    const legacyCategory = (article.category || 'Other').toLowerCase();
+    
+    // Use primary category from new system, fallback to legacy
+    const category = primaryCategory ? primaryCategory.name.toLowerCase() : legacyCategory;
     const categoryInfo = categoryConfig[category] || categoryConfig['other'];
+    
+    // Create category badges for modal
+    let modalCategoryBadges = '';
+    if (categories.length > 0) {
+        modalCategoryBadges = categories.map(cat => {
+            const catKey = cat.name.toLowerCase();
+            const catInfo = categoryConfig[catKey] || categoryConfig['other'];
+            return `<div class="modal-category category-${catKey}" style="background-color: ${cat.color}" title="Уверенность: ${Math.round(cat.confidence * 100)}%">
+                ${catInfo.icon} ${cat.display_name}
+            </div>`;
+        }).join('');
+    } else {
+        // Fallback to legacy category
+        modalCategoryBadges = `<div class="modal-category category-${category}">
+            ${categoryInfo.icon} ${categoryInfo.name}
+        </div>`;
+    }
     
     // Get ALL media files - images, videos, documents
     let mediaFiles = [];
@@ -2650,8 +2699,8 @@ function showArticleModal(articleId) {
         <div class="modal-overlay" onclick="closeArticleModal()">
             <div class="modal-content" onclick="event.stopPropagation()">
                 <div class="modal-header">
-                    <div class="modal-category category-${category}">
-                        ${categoryInfo.icon} ${categoryInfo.name}
+                    <div class="modal-categories-container">
+                        ${modalCategoryBadges}
                     </div>
                     ${article.is_advertisement ? `
                         <div class="modal-ad-badge" title="Рекламный контент (Уверенность: ${Math.round((article.ad_confidence || 0) * 100)}%)">

@@ -13,6 +13,9 @@ from .database import init_db, AsyncSessionLocal
 from .migrations.universal_migration_manager import create_migration_manager
 from .migrations.multiple_categories_migration import MultipleCategoriesMigration
 from .migrations.media_files_migration import MediaFilesMigration
+from .migrations.remove_legacy_category_migration import RemoveLegacyCategoryMigration
+from .migrations.fixed_categories_migration import FixedCategoriesMigration
+from .migrations.category_mapping_migration import CategoryMappingMigration
 
 import logging
 
@@ -28,6 +31,15 @@ migration_manager.register_migration(multiple_categories_migration)
 
 media_files_migration = MediaFilesMigration()
 migration_manager.register_migration(media_files_migration)
+
+remove_legacy_category_migration = RemoveLegacyCategoryMigration()
+migration_manager.register_migration(remove_legacy_category_migration)
+
+fixed_categories_migration = FixedCategoriesMigration()
+migration_manager.register_migration(fixed_categories_migration)
+
+category_mapping_migration = CategoryMappingMigration()
+migration_manager.register_migration(category_mapping_migration)
 
 
 @asynccontextmanager

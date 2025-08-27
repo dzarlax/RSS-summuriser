@@ -10,3 +10,4 @@ src/__pycache__
 venv_news
 __pycache__
 v2/docker-compose.dev.yml
+v2/PUBLIC_API_DOCS.md

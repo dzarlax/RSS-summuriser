@@ -11,10 +11,15 @@ from typing import Dict, Any, List, Optional, Tuple
 
 
 class AdDetector:
-    """Detects advertising content using lightweight heuristics and optional AI."""
+    """Detects advertising content using lightweight heuristics only.
+    
+    Note: AI detection is now handled by analyze_article_complete() in unified processing.
+    This class provides heuristic-only detection as fallback.
+    """
 
-    def __init__(self, enable_ai: bool = True):
-        self.enable_ai = enable_ai
+    def __init__(self, enable_ai: bool = False):
+        # AI is disabled - unified analysis handles AI detection
+        self.enable_ai = False
         
         # Strong advertisement markers (high confidence)
         self.strong_ad_markers: List[str] = [
@@ -139,35 +144,11 @@ class AdDetector:
                 'ad_markers': marker_hits,
             }
 
-        # Optional AI refinement when heuristics are inconclusive
-        if self.enable_ai:
-            try:
-                from .ai_client import get_ai_client
-                ai_client = get_ai_client()
-                prompt = self._build_ai_prompt(title=title, content=content, url=url)
-                # Reuse summarization model for classification
-                response = await ai_client._make_raw_ai_request(prompt, model=ai_client.summarization_model)  # type: ignore
-                parsed = self._parse_ai_result(response)
-                if parsed:
-                    # Merge markers and map AI confidence to ad-likelihood
-                    markers = sorted(list(set(marker_hits + parsed.get('markers', []))))
-                    ai_is_ad = bool(parsed.get('is_ad', False))
-                    ai_conf = float(parsed.get('confidence', 0.0))  # model's own confidence
-                    if ai_is_ad:
-                        conf = max(score, ai_conf)
-                    else:
-                        # If AI says not-ad with confidence X, convert to ad-likelihood ~ (1 - X)
-                        conf = max(score, max(0.0, 1.0 - ai_conf))
-                    return {
-                        'is_advertisement': ai_is_ad,
-                        'ad_confidence': round(min(1.0, conf), 2),
-                        'ad_type': parsed.get('ad_type'),
-                        'ad_reasoning': parsed.get('reason'),
-                        'ad_markers': markers,
-                    }
-            except Exception:
-                # Fallback to heuristics result on AI failure
-                pass
+        # ============================================================================
+        # REMOVED: AI refinement - Now handled by unified analysis
+        # ============================================================================
+        # AI detection is now handled by analyze_article_complete() in unified
+        # processing. This AdDetector serves as heuristic-only fallback.
 
         # Default heuristic output
         return {
@@ -188,62 +169,12 @@ class AdDetector:
             return 'subscription_promo'
         return 'product_promotion'
 
-    def _build_ai_prompt(self, *, title: Optional[str], content: Optional[str], url: Optional[str]) -> str:
-        """Build an improved classification prompt for AI."""
-        t = (title or '').strip()
-        c = (content or '').strip()[:1200]
-        u = (url or '').strip()
-        
-        # Determine source context
-        is_news_source = any(domain in u.lower() for domain in self.news_domains)
-        source_context = "from a NEWS source" if is_news_source else "from an UNKNOWN source"
-        
-        return f"""You are an expert at distinguishing news articles from advertisements.
-
-CONTEXT: This article is {source_context}.
-
-GUIDELINES:
-- NEWS articles report facts, events, research, government actions, economic data
-- ADVERTISEMENTS promote products, services, events, or try to attract customers
-- Articles mentioning prices/statistics in NEWS context are still NEWS, not ads
-- Personal service announcements ("I am [name], [profession]") are usually ADS
-- Event announcements with registration/tickets are usually ADS
-- Government/research reports are NEWS even if they mention costs
-
-ARTICLE TO CLASSIFY:
-Title: {t}
-URL: {u}
-Content: {c}
-
-Respond in JSON format:
-{{
-  "is_ad": true/false,
-  "confidence": 0.0-1.0,
-  "ad_type": "personal_service|event_promotion|product_promotion|news_article",
-  "reason": "Brief explanation of your decision",
-  "markers": ["list", "of", "key", "indicators"]
-}}"""
-
-    def _parse_ai_result(self, response: Any) -> Optional[Dict[str, Any]]:
-        """Parse AI JSON-style answer from completion API."""
-        try:
-            if not response or 'choices' not in response:
-                return None
-            text = response['choices'][0]['message']['content']
-            import json, re as _re
-            m = _re.search(r"\{[\s\S]*\}", text)
-            if not m:
-                return None
-            data = json.loads(m.group())
-            return {
-                'is_ad': bool(data.get('is_ad', False)),
-                'confidence': float(data.get('confidence', 0.0)),
-                'ad_type': data.get('ad_type'),
-                'reason': data.get('reason'),
-                'markers': data.get('markers', []) if isinstance(data.get('markers', []), list) else [],
-            }
-        except Exception:
-            return None
+    # ============================================================================
+    # REMOVED: AI prompt and parsing methods - Replaced by unified analysis
+    # ============================================================================
+    # _build_ai_prompt() and _parse_ai_result() were removed as AI detection
+    # is now handled by analyze_article_complete() in unified processing.
+    # This class now provides heuristic-only detection as fallback.
 
 
 def awaitable(func):

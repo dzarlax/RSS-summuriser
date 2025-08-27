@@ -18,7 +18,7 @@ from sqlalchemy.orm import selectinload
 
 from .database import get_db, engine, AsyncSessionLocal
 from .config import settings
-from .models import Article, Source, ProcessingStat, DailySummary, ScheduleSettings
+from .models import Article, Source, ProcessingStat, DailySummary, ScheduleSettings, CategoryMapping
 from .services.source_manager import SourceManager
 from .main import migration_manager
 # from .security import require_api_read, require_api_write, require_admin, limiter
@@ -55,6 +55,7 @@ async def api_root():
             "categories": "/api/v1/categories - Get categories",
             "sources": "/api/v1/sources - Get sources",
             "summaries": "/api/v1/summaries/daily - Daily summaries",
+            "generate_summaries": "/api/v1/summaries/generate - Generate daily summaries",
             "process": "/api/v1/process - Trigger processing",
             "telegram": "/api/v1/telegram/send-digest - Send Telegram digest",
             "backup": "/api/v1/backup - Backup management",
@@ -126,7 +127,7 @@ async def get_main_feed(
             "primary_image": article.primary_image,  # Primary image URL (first image or legacy image_url)
             "url": article.url,
             "domain": domain,
-            "category": article.category,  # Legacy field for backward compatibility
+            "category": article.primary_category,  # Primary category for backward compatibility
             "categories": article.categories_with_confidence,  # New multiple categories
             "published_at": article.published_at.isoformat() if article.published_at else None,
             "fetched_at": article.fetched_at.isoformat() if article.fetched_at else None,
@@ -581,17 +582,19 @@ async def get_dashboard_stats(db: AsyncSession = Depends(get_db)):
     )
     processed_today = processed_today_result.scalar() or 0
     
-    # Get categories statistics
+    # Get categories statistics using new system
+    from .models import Category, ArticleCategory
     categories_result = await db.execute(
-        select(func.count(func.distinct(Article.category))).where(Article.category.isnot(None))
+        select(func.count(func.distinct(Category.id)))
+        .join(ArticleCategory)
     )
     categories_count = categories_result.scalar() or 0
     
-    # Get most popular category
+    # Get most popular category using new system
     top_category_result = await db.execute(
-        select(Article.category, func.count(Article.id).label('count'))
-        .where(Article.category.isnot(None))
-        .group_by(Article.category)
+        select(Category.name, func.count(ArticleCategory.article_id).label('count'))
+        .join(ArticleCategory)
+        .group_by(Category.name)
         .order_by(desc('count'))
         .limit(1)
     )
@@ -760,23 +763,141 @@ async def get_daily_summaries(
 
 @router.get("/summaries/categories")
 async def get_available_categories(db: AsyncSession = Depends(get_db)):
-    """Get list of available categories."""
+    """Get list of available categories from articles (not legacy daily summaries)."""
+    from .models import Category, ArticleCategory
+    
+    # Get categories from current articles, not legacy daily summaries
     result = await db.execute(
-        select(DailySummary.category, func.count(DailySummary.id).label('count'))
-        .group_by(DailySummary.category)
-        .order_by(DailySummary.category)
+        select(Category.name, func.count(ArticleCategory.article_id).label('count'))
+        .join(ArticleCategory)
+        .group_by(Category.name)
+        .order_by(func.count(ArticleCategory.article_id).desc())
     )
     
     categories = []
-    for category, count in result.all():
+    for category_name, count in result.all():
         categories.append({
-            "category": category,
-            "summaries_count": count
+            "category": category_name,
+            "summaries_count": count  # Keep same field name for compatibility
         })
     
     return {
         "categories": categories
     }
+
+
+@router.post("/summaries/generate")
+async def generate_daily_summaries(
+    date: Optional[str] = Query(None, description="YYYY-MM-DD format, defaults to today"),
+    force_regenerate: bool = Query(False, description="Force regenerate existing summaries"),
+    db: AsyncSession = Depends(get_db)
+):
+    """Generate daily summaries for specified date."""
+    from datetime import date as date_type
+    from .orchestrator import NewsOrchestrator
+    
+    # Parse target date
+    if date:
+        try:
+            target_date = datetime.strptime(date, "%Y-%m-%d").date()
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    else:
+        target_date = datetime.utcnow().date()
+    
+    try:
+        # Check if summaries already exist for this date
+        existing_summaries = await db.execute(
+            select(DailySummary).where(func.date(DailySummary.date) == target_date)
+        )
+        existing = existing_summaries.scalars().all()
+        
+        if existing and not force_regenerate:
+            return {
+                "success": True,
+                "message": f"Summaries already exist for {target_date}",
+                "existing_summaries": len(existing),
+                "date": target_date.isoformat(),
+                "force_regenerate": False
+            }
+        
+        # Get articles for the target date
+        articles_result = await db.execute(
+            select(Article).where(
+                func.date(Article.published_at) == target_date,
+                Article.is_advertisement != True  # Exclude advertisements
+            )
+            .order_by(Article.published_at.desc())
+        )
+        articles = articles_result.scalars().all()
+        
+        if not articles:
+            return {
+                "success": False,
+                "message": f"No articles found for {target_date}",
+                "date": target_date.isoformat(),
+                "articles_count": 0
+            }
+        
+        # Group articles by category (using primary category to avoid duplicates)
+        categories = {}
+        for article in articles:
+            # Use primary category (highest confidence) to prevent duplication
+            category = article.primary_category
+            if category not in categories:
+                categories[category] = []
+            
+            categories[category].append({
+                'headline': article.title,
+                'link': article.url,
+                'links': [article.url],
+                'description': article.summary or article.content[:500] + "..." if article.content else "",
+                'category': category,
+                'image_url': article.image_url,
+                'categories_info': article.categories_with_confidence  # For reference
+            })
+        
+        # Generate summaries using orchestrator logic
+        orchestrator = NewsOrchestrator()
+        
+        # Delete existing summaries if force regenerate
+        if existing and force_regenerate:
+            for summary in existing:
+                await db.delete(summary)
+            await db.commit()
+        
+        # Generate new summaries
+        await orchestrator._generate_and_save_daily_summaries(db, target_date, categories)
+        
+        # Get the newly created summaries
+        new_summaries_result = await db.execute(
+            select(DailySummary).where(func.date(DailySummary.date) == target_date)
+        )
+        new_summaries = new_summaries_result.scalars().all()
+        
+        summaries_data = []
+        for summary in new_summaries:
+            summaries_data.append({
+                "id": summary.id,
+                "category": summary.category,
+                "summary_text": summary.summary_text,
+                "articles_count": summary.articles_count,
+                "created_at": summary.created_at.isoformat() if summary.created_at else None
+            })
+        
+        return {
+            "success": True,
+            "message": f"Daily summaries generated successfully for {target_date}",
+            "date": target_date.isoformat(),
+            "articles_processed": len(articles),
+            "categories_found": len(categories),
+            "summaries_generated": len(new_summaries),
+            "summaries": summaries_data,
+            "force_regenerate": force_regenerate
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating summaries: {str(e)}")
 
 
 @router.get("/migrations/status")
@@ -911,7 +1032,7 @@ async def update_schedule_setting(
 ):
     """Update schedule setting for a specific task."""
     # Validate task_name
-    valid_tasks = ["news_digest", "telegram_digest", "news_processing", "daily_summaries"]
+    valid_tasks = ["telegram_digest", "news_processing", "daily_summaries"]
     if task_name not in valid_tasks:
         raise HTTPException(status_code=400, detail=f"Invalid task name. Must be one of: {valid_tasks}")
     
@@ -1727,3 +1848,245 @@ async def get_extractor_stats():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get extractor stats: {str(e)}")
+
+
+# Category Mapping API endpoints
+class CategoryMappingRequest(BaseModel):
+    ai_category: str
+    fixed_category: str
+    confidence_threshold: Optional[float] = 0.0
+    description: Optional[str] = None
+
+class CategoryMappingResponse(BaseModel):
+    id: int
+    ai_category: str
+    fixed_category: str
+    confidence_threshold: float
+    description: Optional[str]
+    created_by: str
+    usage_count: int
+    last_used: Optional[datetime]
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+
+@router.get("/category-mappings", response_model=List[CategoryMappingResponse])
+async def get_category_mappings(
+    active_only: bool = Query(True, description="Return only active mappings"),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get all category mappings."""
+    try:
+        query = select(CategoryMapping).order_by(CategoryMapping.ai_category)
+        if active_only:
+            query = query.where(CategoryMapping.is_active == True)
+        
+        result = await db.execute(query)
+        mappings = result.scalars().all()
+        
+        return [CategoryMappingResponse(
+            id=mapping.id,
+            ai_category=mapping.ai_category,
+            fixed_category=mapping.fixed_category,
+            confidence_threshold=mapping.confidence_threshold,
+            description=mapping.description,
+            created_by=mapping.created_by,
+            usage_count=mapping.usage_count,
+            last_used=mapping.last_used,
+            is_active=mapping.is_active,
+            created_at=mapping.created_at,
+            updated_at=mapping.updated_at
+        ) for mapping in mappings]
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get category mappings: {str(e)}")
+
+@router.post("/category-mappings", response_model=CategoryMappingResponse)
+async def create_category_mapping(
+    mapping_request: CategoryMappingRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """Create new category mapping."""
+    try:
+        from .services.category_service import CategoryService
+        service = CategoryService(db)
+        
+        # Validate that fixed_category is one of our allowed categories
+        if mapping_request.fixed_category not in service.ALLOWED_CATEGORIES:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid fixed_category. Must be one of: {list(service.ALLOWED_CATEGORIES.keys())}"
+            )
+        
+        # Check if mapping already exists
+        existing = await db.execute(
+            select(CategoryMapping).where(CategoryMapping.ai_category == mapping_request.ai_category)
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="Mapping for this AI category already exists")
+        
+        # Create new mapping
+        mapping = CategoryMapping(
+            ai_category=mapping_request.ai_category.strip(),
+            fixed_category=mapping_request.fixed_category,
+            confidence_threshold=mapping_request.confidence_threshold,
+            description=mapping_request.description,
+            created_by="admin"  # TODO: Get from auth
+        )
+        
+        db.add(mapping)
+        await db.commit()
+        await db.refresh(mapping)
+        
+        return CategoryMappingResponse(
+            id=mapping.id,
+            ai_category=mapping.ai_category,
+            fixed_category=mapping.fixed_category,
+            confidence_threshold=mapping.confidence_threshold,
+            description=mapping.description,
+            created_by=mapping.created_by,
+            usage_count=mapping.usage_count,
+            last_used=mapping.last_used,
+            is_active=mapping.is_active,
+            created_at=mapping.created_at,
+            updated_at=mapping.updated_at
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to create category mapping: {str(e)}")
+
+@router.put("/category-mappings/{mapping_id}", response_model=CategoryMappingResponse)
+async def update_category_mapping(
+    mapping_id: int,
+    mapping_request: CategoryMappingRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """Update existing category mapping."""
+    try:
+        from .services.category_service import CategoryService
+        service = CategoryService(db)
+        
+        # Validate that fixed_category is one of our allowed categories
+        if mapping_request.fixed_category not in service.ALLOWED_CATEGORIES:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid fixed_category. Must be one of: {list(service.ALLOWED_CATEGORIES.keys())}"
+            )
+        
+        # Get existing mapping
+        result = await db.execute(
+            select(CategoryMapping).where(CategoryMapping.id == mapping_id)
+        )
+        mapping = result.scalar_one_or_none()
+        if not mapping:
+            raise HTTPException(status_code=404, detail="Category mapping not found")
+        
+        # Update mapping
+        mapping.ai_category = mapping_request.ai_category.strip()
+        mapping.fixed_category = mapping_request.fixed_category
+        mapping.confidence_threshold = mapping_request.confidence_threshold
+        mapping.description = mapping_request.description
+        mapping.updated_at = func.now()
+        
+        await db.commit()
+        await db.refresh(mapping)
+        
+        return CategoryMappingResponse(
+            id=mapping.id,
+            ai_category=mapping.ai_category,
+            fixed_category=mapping.fixed_category,
+            confidence_threshold=mapping.confidence_threshold,
+            description=mapping.description,
+            created_by=mapping.created_by,
+            usage_count=mapping.usage_count,
+            last_used=mapping.last_used,
+            is_active=mapping.is_active,
+            created_at=mapping.created_at,
+            updated_at=mapping.updated_at
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update category mapping: {str(e)}")
+
+@router.delete("/category-mappings/{mapping_id}")
+async def delete_category_mapping(
+    mapping_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete category mapping."""
+    try:
+        # Get existing mapping
+        result = await db.execute(
+            select(CategoryMapping).where(CategoryMapping.id == mapping_id)
+        )
+        mapping = result.scalar_one_or_none()
+        if not mapping:
+            raise HTTPException(status_code=404, detail="Category mapping not found")
+        
+        await db.delete(mapping)
+        await db.commit()
+        
+        return {"success": True, "message": "Category mapping deleted"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete category mapping: {str(e)}")
+
+@router.post("/category-mappings/{mapping_id}/toggle")
+async def toggle_category_mapping(
+    mapping_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """Toggle active status of category mapping."""
+    try:
+        # Get existing mapping
+        result = await db.execute(
+            select(CategoryMapping).where(CategoryMapping.id == mapping_id)
+        )
+        mapping = result.scalar_one_or_none()
+        if not mapping:
+            raise HTTPException(status_code=404, detail="Category mapping not found")
+        
+        # Toggle active status
+        mapping.is_active = not mapping.is_active
+        mapping.updated_at = func.now()
+        
+        await db.commit()
+        
+        return {
+            "success": True, 
+            "message": f"Category mapping {'activated' if mapping.is_active else 'deactivated'}",
+            "is_active": mapping.is_active
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to toggle category mapping: {str(e)}")
+
+@router.get("/category-mappings/fixed-categories")
+async def get_fixed_categories():
+    """Get list of available fixed categories."""
+    try:
+        from .services.category_service import CategoryService
+        # Create a temporary service instance just to access the allowed categories
+        service = CategoryService(None)
+        
+        return {
+            "categories": [
+                {"key": key, "display_name": display_name}
+                for key, display_name in service.ALLOWED_CATEGORIES.items()
+            ]
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get fixed categories: {str(e)}")
