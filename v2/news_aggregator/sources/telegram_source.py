@@ -307,6 +307,8 @@ class TelegramSource(BaseSource):
     def _parse_html(self, html: str, base_url: str) -> List[Article]:
         """Parse HTML and extract articles."""
         soup = BeautifulSoup(html, 'html.parser')
+        # Store soup for meta tag access
+        self._current_soup = soup
         articles = []
         
         # Try different selectors for different page layouts
@@ -389,6 +391,12 @@ class TelegramSource(BaseSource):
             # If no specific text element, try to get all text
             if not content:
                 content = message_div.get_text(separator='\n', strip=True)
+            
+            # Fallback: try to extract from meta tags if content is too short
+            if len(content) < 100:
+                meta_content = self._extract_from_meta_tags(message_div, base_url)
+                if meta_content and len(meta_content) > len(content):
+                    content = meta_content
             
             # Clean up content from HTML artifacts and weird characters
             content = self._clean_message_content(content)
@@ -787,8 +795,17 @@ class TelegramSource(BaseSource):
         content = content.replace('&quot;', '"')
         content = content.replace('&#39;', "'")
         
-        # Remove weird characters and HTML artifacts (keep punctuation incl. dots)
-        content = re.sub(r'[^\w\s\.\,\!\?\;\:\-\(\)\[\]\"\'а-яА-ЯёЁ\d\+\=\#\@\%\&\*\/\\\|]', '', content, flags=re.UNICODE)
+        # Remove weird characters and HTML artifacts but preserve URLs
+        # First save URLs before cleaning
+        urls = re.findall(r'https?://[^\s]+', content)
+        
+        # Keep: letters, digits, common punctuation, cyrillic, emojis, whitespace, URL characters
+        content = re.sub(r'[^\w\s\.\,\!\?\;\:\-\(\)\[\]\"\'а-яА-ЯёЁ\d\+\=\#\@\%\&\*\/\\\|\_\<\>\~\`]', '', content, flags=re.UNICODE)
+        
+        # Restore URLs if they were corrupted
+        for url in urls:
+            if url not in content and len(url) > 20:  # Only restore substantial URLs
+                content += f'\n{url}'
         
         # Remove specific patterns that cause issues
         content = re.sub(r'!!!"?>', '', content)  # Remove the specific artifact seen in screenshot
@@ -808,6 +825,44 @@ class TelegramSource(BaseSource):
         content = re.sub(r'\d+\s+views?\s+\d{2}:\d{2}', '', content)  # Remove "X views XX:XX"
         
         return content.strip()
+
+    def _extract_from_meta_tags(self, message_div, base_url: str = None) -> Optional[str]:
+        """Extract content from meta tags when message content is incomplete."""
+        try:
+            # Get the full page soup for meta tag access
+            if hasattr(self, '_current_soup') and self._current_soup:
+                soup = self._current_soup
+            else:
+                # If we don't have access to the full soup, try to find it from the message div
+                soup = message_div
+                while soup.parent and soup.name != 'html':
+                    soup = soup.parent
+            
+            # Try multiple meta tag selectors
+            meta_selectors = [
+                'meta[property="og:description"]',
+                'meta[name="twitter:description"]', 
+                'meta[name="description"]'
+            ]
+            
+            for selector in meta_selectors:
+                meta_tag = soup.select_one(selector)
+                if meta_tag and meta_tag.get('content'):
+                    meta_content = meta_tag.get('content').strip()
+                    # Clean emojis and format content
+                    meta_content = re.sub(r'[💪📍🕗👥🟰💸💬⚡️🇷🇸]', '', meta_content)
+                    meta_content = meta_content.replace(' — ', '\n')
+                    meta_content = re.sub(r'\n{2,}', '\n\n', meta_content)
+                    
+                    if len(meta_content) > 100:  # Only return if substantial content
+                        print(f"  📝 Using meta content ({len(meta_content)} chars)")
+                        return meta_content
+            
+            return None
+            
+        except Exception as e:
+            print(f"  ⚠️ Meta extraction failed: {e}")
+            return None
     
     def _extract_media_info(self, message_div) -> Dict[str, Any]:
         """Extract comprehensive media information from message."""

@@ -1870,6 +1870,20 @@ class CategoryMappingResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+class CategoryMappingUpdateResponse(BaseModel):
+    id: int
+    ai_category: str
+    fixed_category: str
+    confidence_threshold: float
+    description: Optional[str]
+    created_by: str
+    usage_count: int
+    last_used: Optional[datetime]
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    updated_articles_count: int
+
 @router.get("/category-mappings", response_model=List[CategoryMappingResponse])
 async def get_category_mappings(
     active_only: bool = Query(True, description="Return only active mappings"),
@@ -1958,13 +1972,13 @@ async def create_category_mapping(
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to create category mapping: {str(e)}")
 
-@router.put("/category-mappings/{mapping_id}", response_model=CategoryMappingResponse)
+@router.put("/category-mappings/{mapping_id}", response_model=CategoryMappingUpdateResponse)
 async def update_category_mapping(
     mapping_id: int,
     mapping_request: CategoryMappingRequest,
     db: AsyncSession = Depends(get_db)
 ):
-    """Update existing category mapping."""
+    """Update existing category mapping and apply changes to existing articles."""
     try:
         from .services.category_service import CategoryService
         service = CategoryService(db)
@@ -1984,6 +1998,10 @@ async def update_category_mapping(
         if not mapping:
             raise HTTPException(status_code=404, detail="Category mapping not found")
         
+        # Store old values for change detection
+        old_ai_category = mapping.ai_category
+        old_fixed_category = mapping.fixed_category
+        
         # Update mapping
         mapping.ai_category = mapping_request.ai_category.strip()
         mapping.fixed_category = mapping_request.fixed_category
@@ -1994,7 +2012,14 @@ async def update_category_mapping(
         await db.commit()
         await db.refresh(mapping)
         
-        return CategoryMappingResponse(
+        # Apply changes to existing articles if fixed_category changed
+        updated_articles_count = 0
+        if old_fixed_category != mapping_request.fixed_category:
+            updated_articles_count = await service.apply_mapping_changes_to_existing_articles(
+                old_ai_category, old_fixed_category, mapping_request.fixed_category
+            )
+        
+        return CategoryMappingUpdateResponse(
             id=mapping.id,
             ai_category=mapping.ai_category,
             fixed_category=mapping.fixed_category,
@@ -2005,7 +2030,8 @@ async def update_category_mapping(
             last_used=mapping.last_used,
             is_active=mapping.is_active,
             created_at=mapping.created_at,
-            updated_at=mapping.updated_at
+            updated_at=mapping.updated_at,
+            updated_articles_count=updated_articles_count
         )
         
     except HTTPException:
@@ -2090,3 +2116,78 @@ async def get_fixed_categories():
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get fixed categories: {str(e)}")
+
+
+@router.get("/category-mappings/unmapped")
+async def get_unmapped_ai_categories(db: AsyncSession = Depends(get_db)):
+    """Get AI categories that don't have mappings yet."""
+    try:
+        # Get all existing mapped categories
+        mapped_result = await db.execute(
+            select(CategoryMapping.ai_category).where(CategoryMapping.is_active == True)
+        )
+        mapped_categories = {row[0].lower() for row in mapped_result.all()}
+        
+        # Look for common AI category patterns in content
+        simple_query = text("""
+            SELECT DISTINCT 
+                'business' as ai_category, COUNT(*) as usage_count
+            FROM articles WHERE summary ILIKE '%business%' OR title ILIKE '%business%'
+            UNION ALL
+            SELECT DISTINCT 
+                'technology' as ai_category, COUNT(*) as usage_count  
+            FROM articles WHERE summary ILIKE '%technology%' OR title ILIKE '%tech%'
+            UNION ALL
+            SELECT DISTINCT 
+                'health' as ai_category, COUNT(*) as usage_count
+            FROM articles WHERE summary ILIKE '%health%' OR title ILIKE '%medical%'
+            UNION ALL
+            SELECT DISTINCT 
+                'environment' as ai_category, COUNT(*) as usage_count
+            FROM articles WHERE summary ILIKE '%environment%' OR title ILIKE '%climate%'
+            UNION ALL
+            SELECT DISTINCT 
+                'education' as ai_category, COUNT(*) as usage_count
+            FROM articles WHERE summary ILIKE '%education%' OR title ILIKE '%university%'
+            ORDER BY usage_count DESC
+        """)
+        
+        result = await db.execute(simple_query)
+        ai_categories = result.all()
+        
+        # Filter out already mapped categories
+        unmapped = []
+        for ai_category, usage_count in ai_categories:
+            if ai_category and ai_category.lower() not in mapped_categories:
+                unmapped.append({
+                    "ai_category": ai_category,
+                    "usage_count": usage_count,
+                    "suggested_mapping": _suggest_fixed_category(ai_category)
+                })
+        
+        return {"unmapped_categories": unmapped[:10]}  # Limit to top 10
+        
+    except Exception as e:
+        logging.error(f"Failed to get unmapped categories: {e}")
+        # Return fallback data
+        return {"unmapped_categories": []}
+
+
+def _suggest_fixed_category(ai_category: str) -> str:
+    """Suggest a fixed category based on AI category name."""
+    ai_lower = ai_category.lower()
+    
+    if any(word in ai_lower for word in ['business', 'economy', 'finance', 'trade']):
+        return 'Business'
+    elif any(word in ai_lower for word in ['tech', 'technology', 'digital', 'software']):
+        return 'Tech'
+    elif any(word in ai_lower for word in ['health', 'medical', 'science', 'research']):
+        return 'Science'
+    elif any(word in ai_lower for word in ['serbia', 'belgrade', 'balkan']):
+        return 'Serbia'
+    elif any(word in ai_lower for word in ['politics', 'government', 'law']):
+        return 'Politics'
+    elif any(word in ai_lower for word in ['international', 'global', 'world']):
+        return 'International'
+    else:
+        return 'Other'

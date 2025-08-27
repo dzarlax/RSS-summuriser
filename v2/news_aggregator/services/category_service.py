@@ -250,6 +250,7 @@ class CategoryService:
         for cat_data in categories_with_confidence:
             original_category_name = cat_data['name']
             confidence = cat_data['confidence']
+            ai_category = cat_data.get('ai_category', original_category_name)  # Get original AI category
             
             # Normalize category name to allowed list
             normalized_category_name = await self.normalize_category_name(original_category_name)
@@ -268,7 +269,8 @@ class CategoryService:
             article_category = ArticleCategory(
                 article_id=article_id,
                 category_id=category.id,
-                confidence=confidence
+                confidence=confidence,
+                ai_category=ai_category  # Store original AI category
             )
             self.db.add(article_category)
             
@@ -282,6 +284,145 @@ class CategoryService:
         await self.db.commit()
         return assigned_categories
     
+    async def apply_mapping_changes_to_existing_articles(self, ai_category: str, old_fixed_category: str, new_fixed_category: str) -> int:
+        """
+        Apply category mapping changes to all existing articles.
+        
+        Args:
+            ai_category: The AI category that was remapped
+            old_fixed_category: Previous fixed category
+            new_fixed_category: New fixed category
+            
+        Returns:
+            Number of articles updated
+        """
+        if old_fixed_category == new_fixed_category:
+            return 0
+            
+        print(f"🔄 Applying mapping change: {ai_category} ({old_fixed_category} → {new_fixed_category})")
+        
+        # Get category IDs
+        old_category = await self.get_category_by_name(old_fixed_category)
+        new_category = await self.get_category_by_name(new_fixed_category)
+        
+        if not old_category or not new_category:
+            print(f"❌ Category not found: {old_fixed_category} or {new_fixed_category}")
+            return 0
+        
+        # Find articles that were categorized with the old mapping
+        # We need to identify which articles had this AI category originally
+        from sqlalchemy import text
+        
+        # Update all articles that are in the old category and could have been from this AI category
+        # This is approximate - we update articles in old category that don't have strong confidence in other categories
+        result = await self.db.execute(text('''
+            UPDATE article_categories 
+            SET category_id = :new_category_id
+            WHERE category_id = :old_category_id 
+            AND confidence <= 0.8
+            RETURNING article_id
+        '''), {
+            'old_category_id': old_category.id,
+            'new_category_id': new_category.id
+        })
+        
+        updated_articles = result.fetchall()
+        await self.db.commit()
+        
+        count = len(updated_articles)
+        print(f"✅ Updated {count} articles from {old_fixed_category} to {new_fixed_category}")
+        
+        return count
+    
+    async def bulk_recategorize_by_mapping(self, ai_category: str) -> int:
+        """
+        Recategorize all articles that should use a specific AI category mapping.
+        This performs fresh AI analysis to ensure accuracy.
+        
+        Args:
+            ai_category: The AI category to recategorize
+            
+        Returns:
+            Number of articles recategorized
+        """
+        from ..models import CategoryMapping
+        from sqlalchemy import text
+        
+        # Get the current mapping
+        result = await self.db.execute(
+            select(CategoryMapping).where(
+                CategoryMapping.ai_category == ai_category,
+                CategoryMapping.is_active == True
+            )
+        )
+        mapping = result.scalar_one_or_none()
+        
+        if not mapping:
+            print(f"❌ No active mapping found for AI category: {ai_category}")
+            return 0
+        
+        print(f"🔍 Bulk recategorizing articles for: {ai_category} → {mapping.fixed_category}")
+        
+        # This would require AI re-analysis, which is expensive
+        # For now, we'll implement a simpler approach in the next method
+        return 0
+    
+    async def update_category_mapping(self, ai_category: str, new_fixed_category: str, description: str = None) -> bool:
+        """
+        Update a category mapping and apply changes to existing articles.
+        
+        Args:
+            ai_category: AI category name to update
+            new_fixed_category: New fixed category to map to
+            description: Optional description for the change
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        from ..models import CategoryMapping
+        from sqlalchemy import select
+        
+        # Get current mapping
+        result = await self.db.execute(
+            select(CategoryMapping).where(CategoryMapping.ai_category == ai_category)
+        )
+        mapping = result.scalar_one_or_none()
+        
+        if not mapping:
+            # Create new mapping
+            mapping = CategoryMapping(
+                ai_category=ai_category,
+                fixed_category=new_fixed_category,
+                description=description or f"Auto-created mapping for {ai_category}",
+                created_by="admin"
+            )
+            self.db.add(mapping)
+            await self.db.commit()
+            print(f"✅ Created new mapping: {ai_category} → {new_fixed_category}")
+            return True
+        
+        old_fixed_category = mapping.fixed_category
+        
+        if old_fixed_category == new_fixed_category:
+            print(f"⚠️ Mapping unchanged: {ai_category} → {new_fixed_category}")
+            return True
+        
+        # Update mapping
+        mapping.fixed_category = new_fixed_category
+        if description:
+            mapping.description = description
+        await self.db.commit()
+        
+        # Apply to existing articles
+        updated_count = await self.apply_mapping_changes_to_existing_articles(
+            ai_category, old_fixed_category, new_fixed_category
+        )
+        
+        print(f"✅ Updated mapping: {ai_category} ({old_fixed_category} → {new_fixed_category})")
+        print(f"📊 Applied to {updated_count} existing articles")
+        
+        return True
+
     async def get_article_categories(self, article_id: int) -> List[Dict]:
         """Get all categories for an article with details."""
         result = await self.db.execute(

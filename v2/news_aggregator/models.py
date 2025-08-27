@@ -75,13 +75,14 @@ class Article(Base):
     
     @property
     def categories_with_confidence(self) -> List[dict]:
-        """Get list of categories with confidence scores."""
+        """Get list of categories with confidence scores and original AI categories."""
         return [
             {
                 'name': ac.category.name,
                 'display_name': ac.category.display_name,
                 'confidence': ac.confidence,
-                'color': ac.category.color
+                'color': ac.category.color,
+                'ai_category': ac.ai_category  # Original AI category before mapping
             }
             for ac in self.article_categories
         ]
@@ -149,6 +150,7 @@ class ArticleCategory(Base):
     article_id = Column(Integer, ForeignKey("articles.id", ondelete="CASCADE"), nullable=False)
     category_id = Column(Integer, ForeignKey("categories.id", ondelete="CASCADE"), nullable=False)
     confidence = Column(Float, default=1.0)  # AI confidence for this categorization
+    ai_category = Column(String(100))  # Original AI category name before mapping
     created_at = Column(DateTime, default=func.now())
 
     # Relationships

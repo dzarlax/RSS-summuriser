@@ -822,7 +822,33 @@
     margin-top: 8px;
 }
 
+/* AI Categories Styles */
+.modal-ai-categories {
+    margin: 16px 0;
+    padding: 12px;
+    background: #f8f9fa;
+    border-left: 3px solid #6c757d;
+    border-radius: 4px;
+}
 
+.ai-category-badge {
+    display: inline-block;
+    background: #e9ecef;
+    color: #495057;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    border: 1px solid #dee2e6;
+    cursor: help;
+    transition: all 0.2s ease;
+}
+
+.ai-category-badge:hover {
+    background: #dee2e6;
+    border-color: #adb5bd;
+    transform: translateY(-1px);
+}
 
 .modal-actions {
     display: flex;
@@ -1527,6 +1553,9 @@ function showArticleModal(articleId) {
     
     // Handle multiple categories
     const categories = article.categories || [];
+    
+    // Debug: log categories to see what we're getting
+    console.log('Article ID:', articleId, 'Categories:', categories);
     const primaryCategory = categories.length > 0 ? categories[0] : null;
     const legacyCategory = (article.category || 'Other').toLowerCase();
     
@@ -1597,6 +1626,21 @@ function showArticleModal(articleId) {
                     <div class="modal-summary">
                         ${formatHtmlContent(article.summary || article.content || 'Содержимое недоступно')}
                     </div>
+                    
+                    ${categories.length > 0 ? `
+                        <div class="modal-ai-categories">
+                            <div style="font-size: 0.85rem; color: #6c757d; margin-bottom: 8px; font-weight: 500;">
+                                🤖 Исходные AI категории:
+                            </div>
+                            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                                ${categories.map(cat => `
+                                    <span class="ai-category-badge" title="Исходная категория от AI: ${cat.ai_category || 'null'} → Маппинг: ${escapeHtml(cat.display_name)}">
+                                        ${cat.ai_category || 'empty'}
+                                    </span>
+                                `).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
                     
                     <div class="modal-actions">
                         <a href="${article.url}" target="_blank" rel="noopener noreferrer" class="btn btn-primary">

@@ -74,13 +74,51 @@
         <!-- Alert container -->
         <div id="alert-container" style="margin-bottom: 1rem;"></div>
 
+        <!-- Unmapped Categories Section ---->
+        <div class="dashboard-section" id="unmapped-section" style="display: none;">
+            <div class="section-header">
+                <h2>🔍 Несопоставленные AI Категории</h2>
+                <button class="btn btn-secondary" onclick="toggleUnmappedSection()">
+                    Скрыть
+                </button>
+            </div>
+            
+            <div class="table-container">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>AI Категория</th>
+                            <th>Использований</th>
+                            <th>Предложенное соответствие</th>
+                            <th>Действие</th>
+                        </tr>
+                    </thead>
+                    <tbody id="unmapped-tbody">
+                        <tr>
+                            <td colspan="4" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+                                <div class="loading-state">
+                                    <div class="spinner"></div>
+                                    <p>Загрузка несопоставленных категорий...</p>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
         <!-- Mappings Table -->
         <div class="dashboard-section">
             <div class="section-header">
                 <h2>🏷️ Маппинг Категорий</h2>
-                <button class="btn btn-success" onclick="openCreateModal()">
-                    + Добавить Маппинг
-                </button>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button class="btn btn-info" onclick="toggleUnmappedSection()">
+                        🔍 Показать несопоставленные
+                    </button>
+                    <button class="btn btn-success" onclick="openCreateModal()">
+                        + Добавить Маппинг
+                    </button>
+                </div>
             </div>
             
             <div class="table-container">
@@ -160,12 +198,14 @@
 <script>
 let mappings = [];
 let fixedCategories = [];
+let unmappedCategories = [];
 let editingId = null;
 
 // Load data on page load
 document.addEventListener('DOMContentLoaded', function() {
     loadFixedCategories();
     loadMappings();
+    loadUnmappedCategories();
 });
 
 function getCategoryBadgeClass(category) {
@@ -276,6 +316,23 @@ async function loadMappings() {
     } catch (error) {
         console.error('Failed to load mappings:', error);
         showAlert('Ошибка загрузки маппингов', 'error');
+    }
+}
+
+async function loadUnmappedCategories() {
+    try {
+        const response = await fetch('/api/v1/category-mappings/unmapped');
+        const data = await response.json();
+        unmappedCategories = data.unmapped_categories || [];
+        
+        // Update button text with count
+        const button = document.querySelector('button[onclick="toggleUnmappedSection()"]');
+        if (button && button.textContent.includes('Показать')) {
+            button.textContent = `🔍 Показать несопоставленные (${unmappedCategories.length})`;
+        }
+        
+    } catch (error) {
+        console.error('Failed to load unmapped categories:', error);
     }
 }
 
@@ -395,6 +452,7 @@ document.getElementById('mapping-form').addEventListener('submit', async functio
         
         closeModal();
         await loadMappings();
+        await loadUnmappedCategories(); // Refresh unmapped categories
         showAlert(editingId ? 'Маппинг обновлен' : 'Маппинг создан');
     } catch (error) {
         showAlert(error.message, 'error');
@@ -414,6 +472,7 @@ async function toggleMapping(id) {
         
         const result = await response.json();
         await loadMappings();
+        await loadUnmappedCategories(); // Refresh unmapped categories
         showAlert(result.message);
     } catch (error) {
         showAlert(error.message, 'error');
@@ -439,10 +498,75 @@ async function deleteMapping(id) {
         }
         
         await loadMappings();
+        await loadUnmappedCategories(); // Refresh unmapped categories
         showAlert('Маппинг удален');
     } catch (error) {
         showAlert(error.message, 'error');
     }
+}
+
+function toggleUnmappedSection() {
+    const section = document.getElementById('unmapped-section');
+    const button = document.querySelector('button[onclick="toggleUnmappedSection()"]');
+    
+    if (section.style.display === 'none' || !section.style.display) {
+        section.style.display = 'block';
+        button.textContent = 'Скрыть несопоставленные';
+        renderUnmappedCategories();
+    } else {
+        section.style.display = 'none';
+        button.textContent = `🔍 Показать несопоставленные (${unmappedCategories.length})`;
+    }
+}
+
+function renderUnmappedCategories() {
+    const tbody = document.getElementById('unmapped-tbody');
+    
+    if (unmappedCategories.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="4" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+                    <div style="display: flex; flex-direction: column; align-items: center; gap: 1rem;">
+                        <span style="font-size: 2rem;">✅</span>
+                        <p style="margin: 0;">Все AI категории уже сопоставлены</p>
+                    </div>
+                </td>
+            </tr>
+        `;
+        return;
+    }
+    
+    tbody.innerHTML = unmappedCategories.map(item => `
+        <tr>
+            <td><strong style="color: var(--primary-color);">${item.ai_category}</strong></td>
+            <td>
+                <span class="badge badge-info" style="background: var(--surface-hover); color: var(--text-muted); padding: 0.25rem 0.5rem; border-radius: var(--border-radius-sm); font-size: 0.75rem;">
+                    ${item.usage_count}
+                </span>
+            </td>
+            <td>
+                <span class="category-badge ${getCategoryBadgeClass(item.suggested_mapping)}">
+                    ${item.suggested_mapping}
+                </span>
+            </td>
+            <td>
+                <button class="btn btn-small btn-success" onclick="createMappingFromSuggestion('${item.ai_category}', '${item.suggested_mapping}')" title="Создать маппинг с предложенным соответствием">
+                    ➕ Создать
+                </button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function createMappingFromSuggestion(aiCategory, suggestedMapping) {
+    // Pre-fill the modal with suggested data
+    editingId = null;
+    document.getElementById('modal-title').textContent = 'Добавить Маппинг';
+    document.getElementById('ai-category').value = aiCategory;
+    document.getElementById('fixed-category').value = suggestedMapping;
+    document.getElementById('confidence-threshold').value = '0.0';
+    document.getElementById('description').value = `Автоматически предложено на основе анализа контента`;
+    document.getElementById('mapping-modal').style.display = 'flex';
 }
 
 // Close modal when clicking outside

@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 
 from .database import AsyncSessionLocal
 from .models import Source, Article, ProcessingStat, DailySummary
@@ -430,7 +430,8 @@ class NewsOrchestrator:
                                 confidence = confidences_result[i] if i < len(confidences_result) else 0.8
                                 categories_with_confidence.append({
                                     'name': category_name,
-                                    'confidence': max(0.0, min(1.0, float(confidence)))  # Clamp to 0-1 range
+                                    'confidence': max(0.0, min(1.0, float(confidence))),  # Clamp to 0-1 range
+                                    'ai_category': category_name  # Store original AI category
                                 })
                             
                             assigned_categories = await category_service.assign_categories_with_confidences(
@@ -929,7 +930,7 @@ class NewsOrchestrator:
                         if categories_result:
                             from .services.category_service import get_category_service
                             category_service = await get_category_service(db)
-                            await category_service.assign_categories_to_article(
+                            await category_service.assign_categories_with_confidences(
                                 article.id, categories_result
                             )
                             article.category_processed = True  # Mark as processed on success
@@ -1198,16 +1199,36 @@ class NewsOrchestrator:
             if not content_for_analysis.strip():
                 return []
             
-            # Use analyze_content which returns categories array
-            analysis_result = await ai_client.analyze_content(
+            # Use analyze_article_complete which returns categories array
+            analysis_result = await ai_client.analyze_article_complete(
+                article.title or "", 
                 content_for_analysis,
-                article.title or ""
+                article.url or ""
             )
             
             if analysis_result and 'categories' in analysis_result:
                 categories = analysis_result['categories']
                 stats['api_calls_made'] += 1
-                return categories
+                
+                # Ensure each category dict has ai_category field for original AI category tracking
+                processed_categories = []
+                for cat in categories:
+                    if isinstance(cat, str):
+                        # If category is just a string, convert to dict format
+                        processed_categories.append({
+                            'name': cat,
+                            'confidence': 1.0,
+                            'ai_category': cat  # Store original AI category
+                        })
+                    elif isinstance(cat, dict):
+                        # If already a dict, ensure ai_category field exists
+                        processed_categories.append({
+                            'name': cat.get('name', cat.get('category', 'Other')),
+                            'confidence': cat.get('confidence', 1.0),
+                            'ai_category': cat.get('ai_category', cat.get('name', cat.get('category', 'Other')))
+                        })
+                
+                return processed_categories
             else:
                 return []
                 
@@ -1664,3 +1685,179 @@ class NewsOrchestrator:
                 'total_processing_time': sum(s.processing_time_seconds for s in stats)
             }
         }
+    
+    async def reprocess_failed_extractions(self, limit: int = 50, dry_run: bool = False) -> Dict[str, Any]:
+        """
+        Find and reprocess articles where title equals summary (indicates failed content extraction).
+        
+        Args:
+            limit: Maximum number of articles to reprocess
+            dry_run: If True, only identify candidates without processing
+            
+        Returns:
+            Dictionary with processing results and statistics
+        """
+        print(f"🔍 Finding articles with failed content extraction (limit: {limit})...")
+        
+        # Find articles where title equals summary (indicates failed extraction)
+        query = select(Article).where(
+            # Title equals summary (indicates failed extraction)
+            ((Article.title == Article.summary) | 
+             ((Article.summary.isnot(None)) & (func.trim(Article.title) == func.trim(Article.summary)))),
+            # Exclude test URLs
+            ~Article.url.like('%test.example.com%'),
+            # Include all articles with short content - even Telegram posts might have external links
+            func.length(func.coalesce(Article.content, '')) < 1000
+        ).order_by(Article.fetched_at.desc()).limit(limit)
+        
+        candidates = await fetch_all(query)
+        
+        print(f"📊 Found {len(candidates)} articles needing reprocessing")
+        
+        if dry_run:
+            results = {
+                'found_candidates': len(candidates),
+                'candidates': [
+                    {
+                        'id': article.id,
+                        'title': article.title[:100] + '...' if len(article.title) > 100 else article.title,
+                        'url': article.url,
+                        'content_length': len(article.content or ''),
+                        'domain': article.url.split('/')[2] if '://' in article.url else 'unknown'
+                    }
+                    for article in candidates
+                ]
+            }
+            return results
+        
+        # Process articles
+        stats = {
+            'processed': 0,
+            'improved': 0,
+            'failed': 0,
+            'errors': [],
+            'improvements': []
+        }
+        
+        for article in candidates:
+            try:
+                print(f"\n🔧 Processing article {article.id}: {article.title[:80]}...")
+                print(f"   URL: {article.url}")
+                print(f"   Current content: {len(article.content or '')} chars")
+                
+                # Reset processing flags to force complete reprocessing
+                async with AsyncSessionLocal() as reset_session:
+                    await reset_session.execute(
+                        text("UPDATE articles SET summary_processed = false, category_processed = false, ad_processed = false WHERE id = :article_id"),
+                        {'article_id': article.id}
+                    )
+                    await reset_session.commit()
+                
+                # Create article data for processing
+                article_data = {
+                    'id': article.id,
+                    'title': article.title,
+                    'url': article.url,
+                    'content': article.content,
+                    'source_id': article.source_id,
+                    'source_type': 'rss'  # Default, will be overridden by source manager if needed
+                }
+                
+                # First: Try to extract content again with new encoding-aware method
+                print(f"   🔄 Step 1: Re-extracting content with encoding-aware method...")
+                
+                from .services.content_extractor import get_content_extractor
+                extractor = await get_content_extractor()
+                
+                try:
+                    # Try to extract fresh content
+                    extraction_result = await extractor.extract_article_content_with_metadata(article.url)
+                    new_content = extraction_result.get('content') if extraction_result else None
+                    
+                    if new_content and len(new_content) > len(article.content or ''):
+                        print(f"   ✅ Content improved: {len(article.content or '')} → {len(new_content)} chars")
+                        
+                        # Update content in database
+                        async with AsyncSessionLocal() as content_session:
+                            await content_session.execute(
+                                text("UPDATE articles SET content = :content WHERE id = :article_id"),
+                                {'content': new_content, 'article_id': article.id}
+                            )
+                            await content_session.commit()
+                        
+                        # Update article data with new content
+                        article_data['content'] = new_content
+                        print(f"   📝 Content updated in database")
+                    else:
+                        print(f"   ⚠️ No content improvement: {len(article.content or '')} → {len(new_content or '')} chars")
+                        
+                except Exception as e:
+                    print(f"   ❌ Content extraction failed: {e}")
+                    # Continue with existing content
+                    
+                # Step 2: Process with AI if content is now long enough
+                print(f"   🔄 Step 2: Processing with AI (content: {len(article_data.get('content', '') or '')} chars)...")
+                
+                processing_stats = {'api_calls_made': 0, 'errors': []}  # Initialize stats properly
+                result = await self._process_article_ai_combined(article_data, processing_stats)
+                
+                if result and result.get('success'):
+                    stats['processed'] += 1
+                    
+                    # Check if content improved
+                    original_length = len(article.content or '')
+                    new_length = result.get('content_length', 0)
+                    
+                    if new_length > original_length:
+                        improvement = new_length - original_length
+                        stats['improved'] += 1
+                        stats['improvements'].append({
+                            'article_id': article.id,
+                            'title': article.title[:80],
+                            'url': article.url,
+                            'original_length': original_length,
+                            'new_length': new_length,
+                            'improvement': improvement,
+                            'percentage': (improvement / max(original_length, 1)) * 100
+                        })
+                        print(f"   ✅ Improved: {original_length} → {new_length} chars (+{improvement}, +{improvement/max(original_length,1)*100:.1f}%)")
+                    else:
+                        print(f"   ⚠️ No improvement: {original_length} → {new_length} chars")
+                else:
+                    stats['failed'] += 1
+                    print(f"   ❌ Processing failed")
+                    
+            except Exception as e:
+                stats['failed'] += 1
+                stats['errors'].append({
+                    'article_id': article.id,
+                    'title': article.title[:80],
+                    'url': article.url,
+                    'error': str(e)
+                })
+                print(f"   ❌ Error processing article {article.id}: {e}")
+        
+        # Final statistics
+        success_rate = (stats['processed'] / len(candidates)) * 100 if candidates else 0
+        improvement_rate = (stats['improved'] / len(candidates)) * 100 if candidates else 0
+        
+        results = {
+            'found_candidates': len(candidates),
+            'processed': stats['processed'],
+            'improved': stats['improved'],
+            'failed': stats['failed'],
+            'success_rate': success_rate,
+            'improvement_rate': improvement_rate,
+            'errors': stats['errors'],
+            'improvements': stats['improvements']
+        }
+        
+        print(f"\n📈 Reprocessing completed:")
+        print(f"   Found: {len(candidates)} articles")
+        print(f"   Processed: {stats['processed']}")
+        print(f"   Improved: {stats['improved']}")
+        print(f"   Failed: {stats['failed']}")
+        print(f"   Success rate: {success_rate:.1f}%")
+        print(f"   Improvement rate: {improvement_rate:.1f}%")
+        
+        return results

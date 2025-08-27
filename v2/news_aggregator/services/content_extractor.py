@@ -8,11 +8,15 @@ from typing import Optional, Dict, Any, List, Tuple
 from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup, Comment
-from readability import Document
+from readability.readability import Document
 from playwright.async_api import async_playwright, Browser, Page
 from langdetect import detect
 from langdetect.lang_detect_exception import LangDetectException
 import textstat
+import chardet
+import requests
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
 
 from ..core.http_client import get_http_client
 from ..core.cache import cached
@@ -162,9 +166,14 @@ class ContentExtractor:
         print(f"🧠 AI-enhanced extraction with metadata for {domain}")
         
         try:
-            # First, get the page HTML for analysis
+            # First, try to get the page HTML for analysis
             html_content = await self._fetch_html_content(url)
             if not html_content:
+                print(f"  ⚠️ Failed to fetch HTML, trying direct content extraction strategies...")
+                # Skip HTML analysis and go directly to content extraction strategies
+                content = await self.extract_article_content(url)
+                if content:
+                    result['content'] = content
                 return result
             
             # Try canonical/AMP alternatives early (non-AI) to reach full article
@@ -280,10 +289,24 @@ class ContentExtractor:
         
         print(f"🧠 AI-optimized extraction for {domain}")
 
-        # Hard short-circuit for Telegram domains to avoid wasting credits/time
+        # Check if this is a Telegram domain and handle specially
         if domain in ("t.me", "telegram.me", "www.t.me", "www.telegram.me"):
-            print("  ⏩ Skipping heavy extraction for Telegram domain; using preview-only mode")
-            return None
+            print("  📱 Telegram domain detected - attempting enhanced extraction")
+            
+            # For reprocessing, we should try to extract content from Telegram messages
+            # that might contain external links
+            try:
+                telegram_content = await self._extract_from_telegram_with_links(url)
+                if telegram_content and len(telegram_content) > 200:
+                    print(f"  ✅ Extracted enhanced Telegram content: {len(telegram_content)} chars")
+                    return self._finalize_content(telegram_content)
+                else:
+                    print(f"  ⚠️ Telegram content not sufficient for reprocessing: {len(telegram_content or '')} chars")
+                    return None
+                    
+            except Exception as e:
+                print(f"  ❌ Telegram enhanced extraction failed: {e}")
+                return None
         
         try:
             # Get AI services
@@ -468,6 +491,7 @@ class ContentExtractor:
             
             # Define all available strategies
             all_strategies = {
+                'encoding_aware': self._extract_with_encoding_detection,
                 'readability': self._extract_with_readability,
                 'html_parsing': self._extract_with_enhanced_selectors,
                 'playwright': self._extract_with_browser
@@ -488,8 +512,8 @@ class ContentExtractor:
                 remaining_strategies = [(name, func) for name, func in all_strategies.items() if name != best_method]
                 strategies.extend(remaining_strategies)
             else:
-                # Use available strategies in default order
-                default_order = ['readability', 'html_parsing', 'playwright']
+                # Use available strategies in default order (encoding_aware first)
+                default_order = ['encoding_aware', 'readability', 'html_parsing', 'playwright']
                 strategies = [(name, all_strategies[name]) for name in default_order if name in all_strategies]
             
             for strategy_name, strategy_func in strategies:
@@ -753,6 +777,129 @@ class ContentExtractor:
             return parsed.netloc.lower()
         except:
             return "unknown"
+    
+    async def _extract_with_encoding_detection(self, url: str) -> Optional[str]:
+        """Extract content using automatic encoding detection for international sites."""
+        
+        try:
+            print(f"    🔍 Trying encoding-aware extraction...")
+            
+            # Create session with retry logic
+            session = requests.Session()
+            retry_strategy = Retry(
+                total=2,
+                backoff_factor=1,
+                status_forcelist=[429, 500, 502, 503, 504],
+            )
+            adapter = HTTPAdapter(max_retries=retry_strategy)
+            session.mount("http://", adapter)
+            session.mount("https://", adapter)
+            
+            # Request with no encoding assumption
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5,sr;q=0.3,ru;q=0.3',
+                'Accept-Encoding': 'gzip, deflate',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+            }
+            
+            response = session.get(url, headers=headers, timeout=15)
+            response.raise_for_status()
+            
+            # Get raw bytes
+            raw_content = response.content
+            print(f"    📦 Downloaded {len(raw_content)} bytes")
+            
+            # Auto-detect encoding
+            detected_encoding = chardet.detect(raw_content)
+            encoding = detected_encoding.get('encoding', 'utf-8')
+            confidence = detected_encoding.get('confidence', 0.0)
+            
+            print(f"    🔍 Detected encoding: {encoding} (confidence: {confidence:.2f})")
+            
+            # Try detected encoding first
+            try:
+                html_content = raw_content.decode(encoding)
+            except (UnicodeDecodeError, LookupError):
+                print(f"    ⚠️ Failed to decode with {encoding}, trying fallbacks...")
+                
+                # Fallback encodings for different regions
+                fallback_encodings = ['utf-8', 'windows-1251', 'iso-8859-2', 'windows-1252', 'cp1250']
+                html_content = None
+                
+                for fallback_enc in fallback_encodings:
+                    try:
+                        html_content = raw_content.decode(fallback_enc, errors='ignore')
+                        print(f"    ✅ Successfully decoded with {fallback_enc}")
+                        encoding = fallback_enc
+                        break
+                    except (UnicodeDecodeError, LookupError):
+                        continue
+                
+                if not html_content:
+                    print(f"    ❌ All encoding attempts failed")
+                    return None
+            
+            print(f"    📄 Decoded HTML: {len(html_content)} characters")
+            
+            # Parse with BeautifulSoup
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            # Try multiple content extraction strategies
+            content_selectors = [
+                'div.content', 'div.article-content', 'div.post-content',
+                'article', 'main', 'div.entry-content',
+                '.content-body', '.article-body', '.post-body',
+                '#content', '#main-content', '#article-content',
+                'div[class*="content"]', 'div[class*="article"]',
+                'div[class*="text"]', 'div[class*="body"]'
+            ]
+            
+            extracted_text = ""
+            for selector in content_selectors:
+                elements = soup.select(selector)
+                if elements:
+                    # Get text from the largest element
+                    best_element = max(elements, key=lambda el: len(el.get_text()))
+                    text = best_element.get_text(separator='\n', strip=True)
+                    if len(text) > len(extracted_text):
+                        extracted_text = text
+                        print(f"    ✅ Found content with selector: {selector} ({len(text)} chars)")
+            
+            # Fallback: get all paragraph text
+            if len(extracted_text) < 200:
+                paragraphs = soup.find_all(['p', 'div'])
+                text_parts = []
+                for p in paragraphs:
+                    text = p.get_text(strip=True)
+                    if len(text) > 50:  # Only substantial paragraphs
+                        text_parts.append(text)
+                
+                if text_parts:
+                    extracted_text = '\n\n'.join(text_parts)
+                    print(f"    📝 Fallback paragraph extraction: {len(extracted_text)} chars")
+            
+            # Clean and validate content
+            if extracted_text:
+                # Remove extra whitespace
+                extracted_text = re.sub(r'\n{3,}', '\n\n', extracted_text)
+                extracted_text = re.sub(r'[ \t]+', ' ', extracted_text)
+                extracted_text = extracted_text.strip()
+                
+                # Validate minimum length
+                if len(extracted_text) >= self.min_content_length:
+                    print(f"    ✅ Encoding-aware extraction successful: {len(extracted_text)} chars")
+                    return extracted_text
+                else:
+                    print(f"    ⚠️ Content too short: {len(extracted_text)} chars")
+            
+            return None
+            
+        except Exception as e:
+            print(f"    ❌ Encoding-aware extraction failed: {e}")
+            return None
     
     async def _extract_with_readability(self, url: str) -> Optional[str]:
         """Extract content using Mozilla's readability algorithm with retry."""
@@ -1872,6 +2019,92 @@ class ContentExtractor:
                 base_headers[key] = value
         
         return base_headers
+
+    async def _extract_from_telegram_with_links(self, telegram_url: str) -> Optional[str]:
+        """Extract content from Telegram messages, following external links if present."""
+        try:
+            # First, get the HTML content of the Telegram message
+            html_content = await self._fetch_html_content(telegram_url)
+            if not html_content:
+                return None
+            
+            soup = BeautifulSoup(html_content, 'html.parser')
+            
+            # Extract message text from meta tags (modern Telegram structure)
+            message_text = ""
+            
+            # Try og:description first
+            og_description = soup.find('meta', property='og:description')
+            if og_description:
+                message_text = og_description.get('content', '').strip()
+                print(f"    📱 Found message in og:description: {len(message_text)} chars")
+            
+            # Try twitter:description as fallback
+            if not message_text:
+                twitter_description = soup.find('meta', name='twitter:description')
+                if twitter_description:
+                    message_text = twitter_description.get('content', '').strip()
+                    print(f"    📱 Found message in twitter:description: {len(message_text)} chars")
+            
+            if not message_text:
+                print("    ❌ No message text found in meta tags")
+                return None
+            
+            # Clean the message text (remove @channel mentions at the end)
+            import re
+            message_text = re.sub(r'\s*@\w+\s*$', '', message_text).strip()
+            
+            print(f"    📱 Cleaned message text: \"{message_text}\" ({len(message_text)} chars)")
+            
+            # Look for external links in scripts or data attributes
+            external_links = []
+            
+            # Check scripts for any URLs
+            scripts = soup.find_all('script')
+            for script in scripts:
+                if script.string:
+                    # Look for URLs in script content
+                    urls = re.findall(r'https?://(?!t\.me)[^\s"\'<>]+', script.string)
+                    for url in urls:
+                        if not url.startswith('https://t.me/') and not url.endswith(('.js', '.css', '.png', '.jpg')):
+                            external_links.append(url.rstrip(',;)'))
+            
+            # Also look in all href attributes
+            all_links = soup.find_all('a', href=True)
+            for link in all_links:
+                href = link.get('href', '')
+                if href and not href.startswith(('https://t.me/', '#', '@', 'tg://')):
+                    if href.startswith('http'):
+                        external_links.append(href)
+            
+            # Remove duplicates
+            external_links = list(set(external_links))
+            print(f"    🔗 Found {len(external_links)} potential external links: {external_links[:3]}")
+            
+            # If we found external links, try to extract content from them
+            best_content = message_text
+            best_length = len(message_text)
+            
+            for link_url in external_links[:2]:  # Try up to 2 links
+                try:
+                    print(f"    🔍 Extracting from external link: {link_url}")
+                    link_content = await self.extract_article_content(link_url)
+                    
+                    if link_content and len(link_content) > 300:  # Only if we get substantial content
+                        print(f"    ✅ Better content from link: {len(link_content)} chars")
+                        best_content = f"{message_text}\n\n--- Полный текст из ссылки ---\n\n{link_content}"
+                        best_length = len(best_content)
+                        break  # Use the first successful extraction
+                        
+                except Exception as e:
+                    print(f"    ⚠️ Link extraction failed for {link_url}: {e}")
+                    continue
+            
+            return best_content if best_length > len(message_text) else None
+            
+        except Exception as e:
+            print(f"    ❌ Telegram message parsing failed: {e}")
+            return None
 
 
 # Создаем глобальный экземпляр для использования

@@ -273,6 +273,147 @@ async def config():
     console.print(table)
 
 
+@cli.command()
+@click.option('--limit', default=50, help='Maximum number of articles to process')
+@click.option('--dry-run', is_flag=True, help='Only show candidates without processing')
+async def reprocess_failed(limit: int, dry_run: bool):
+    """Find and reprocess articles where content extraction failed (title equals summary)."""
+    orchestrator = NewsOrchestrator()
+    
+    try:
+        await orchestrator.start()
+        
+        if dry_run:
+            console.print(f"[bold yellow]🔍 Dry run: Finding articles with failed content extraction (limit: {limit})[/bold yellow]")
+        else:
+            console.print(f"[bold green]🔧 Reprocessing articles with failed content extraction (limit: {limit})[/bold green]")
+        
+        # Run the reprocessing
+        results = await orchestrator.reprocess_failed_extractions(limit=limit, dry_run=dry_run)
+        
+        # Display results in a nice table
+        console.print(f"\n[bold blue]📊 Results:[/bold blue]")
+        
+        # Summary table
+        summary_table = Table()
+        summary_table.add_column("Metric", style="cyan")
+        summary_table.add_column("Value", style="white")
+        
+        summary_table.add_row("Found candidates", str(results['found_candidates']))
+        if not dry_run:
+            summary_table.add_row("Processed", str(results['processed']))
+            summary_table.add_row("Improved", str(results['improved']))
+            summary_table.add_row("Failed", str(results['failed']))
+            summary_table.add_row("Success rate", f"{results['success_rate']:.1f}%")
+            summary_table.add_row("Improvement rate", f"{results['improvement_rate']:.1f}%")
+        
+        console.print(summary_table)
+        
+        # Show improvements if any
+        if not dry_run and results.get('improvements'):
+            console.print(f"\n[bold green]✅ Articles with improved content:[/bold green]")
+            
+            improvements_table = Table()
+            improvements_table.add_column("ID", style="cyan")
+            improvements_table.add_column("Title", style="white", max_width=50)
+            improvements_table.add_column("Original", style="red")
+            improvements_table.add_column("New", style="green")
+            improvements_table.add_column("Improvement", style="yellow")
+            
+            for improvement in results['improvements'][:10]:  # Show top 10
+                improvements_table.add_row(
+                    str(improvement['article_id']),
+                    improvement['title'],
+                    f"{improvement['original_length']} chars",
+                    f"{improvement['new_length']} chars",
+                    f"+{improvement['improvement']} (+{improvement['percentage']:.1f}%)"
+                )
+            
+            console.print(improvements_table)
+            
+            if len(results['improvements']) > 10:
+                console.print(f"[dim]... and {len(results['improvements']) - 10} more improvements[/dim]")
+        
+        # Show candidates in dry run mode
+        if dry_run and results.get('candidates'):
+            console.print(f"\n[bold yellow]🎯 Reprocessing candidates:[/bold yellow]")
+            
+            candidates_table = Table()
+            candidates_table.add_column("ID", style="cyan")
+            candidates_table.add_column("Title", style="white", max_width=50)
+            candidates_table.add_column("Domain", style="blue")
+            candidates_table.add_column("Content", style="red")
+            
+            for candidate in results['candidates'][:15]:  # Show top 15
+                candidates_table.add_row(
+                    str(candidate['id']),
+                    candidate['title'],
+                    candidate['domain'],
+                    f"{candidate['content_length']} chars"
+                )
+            
+            console.print(candidates_table)
+            
+            if len(results['candidates']) > 15:
+                console.print(f"[dim]... and {len(results['candidates']) - 15} more candidates[/dim]")
+            
+            console.print(f"\n[bold yellow]💡 Run without --dry-run to process these articles[/bold yellow]")
+        
+        # Show errors if any
+        if not dry_run and results.get('errors'):
+            console.print(f"\n[bold red]❌ Processing errors:[/bold red]")
+            
+            for error in results['errors'][:5]:  # Show first 5 errors
+                console.print(f"   Article {error['article_id']}: {error['error']}")
+            
+            if len(results['errors']) > 5:
+                console.print(f"   [dim]... and {len(results['errors']) - 5} more errors[/dim]")
+        
+    except Exception as e:
+        console.print(f"[bold red]❌ Error during reprocessing: {e}[/bold red]")
+        raise
+    finally:
+        await orchestrator.stop()
+
+
+@cli.command()
+@click.argument('ai_category')
+@click.argument('new_fixed_category')
+@click.option('--description', help='Description for the mapping change')
+async def update_mapping(ai_category: str, new_fixed_category: str, description: str):
+    """Update a category mapping and apply changes to existing articles."""
+    try:
+        from .services.category_service import CategoryService
+        
+        async with AsyncSessionLocal() as db:
+            service = CategoryService(db)
+            
+            # Validate fixed category
+            if new_fixed_category not in service.ALLOWED_CATEGORIES:
+                console.print(f"[red]❌ Invalid fixed category: {new_fixed_category}[/red]")
+                console.print(f"[yellow]Allowed categories: {list(service.ALLOWED_CATEGORIES.keys())}[/yellow]")
+                sys.exit(1)
+            
+            console.print(f"[cyan]🔄 Updating mapping: {ai_category} → {new_fixed_category}[/cyan]")
+            
+            # Apply the mapping change
+            success = await service.update_category_mapping(
+                ai_category=ai_category,
+                new_fixed_category=new_fixed_category,
+                description=description or f"CLI update: {ai_category} → {new_fixed_category}"
+            )
+            
+            if success:
+                console.print(f"[green]✅ Successfully updated mapping and applied to existing articles[/green]")
+            else:
+                console.print(f"[red]❌ Failed to update mapping[/red]")
+                sys.exit(1)
+    
+    except Exception as e:
+        console.print(f"[red]❌ Error updating mapping: {e}[/red]")
+        sys.exit(1)
+
+
 # Async command support
 def async_command(f):
     """Decorator to support async click commands."""
@@ -288,6 +429,8 @@ add_source = async_command(add_source)
 test_source = async_command(test_source)
 stats = async_command(stats)
 config = async_command(config)
+reprocess_failed = async_command(reprocess_failed)
+update_mapping = async_command(update_mapping)
 
 
 if __name__ == '__main__':
