@@ -69,6 +69,7 @@ class TaskScheduler:
         
     async def _scheduler_loop(self):
         """Main scheduler loop."""
+        print("🔄 Scheduler loop started (enhanced version)")
         logger.info("Scheduler loop started")
         
         while self.running:
@@ -77,9 +78,11 @@ class TaskScheduler:
                 await asyncio.sleep(self._check_interval)
                 
             except asyncio.CancelledError:
+                print("⏸️ Scheduler loop cancelled")
                 logger.info("Scheduler loop cancelled")
                 break
             except Exception as e:
+                print(f"❌ Error in scheduler loop: {e}")
                 logger.error(f"Error in scheduler loop: {e}", exc_info=True)
                 await asyncio.sleep(self._check_interval)
                 
@@ -95,9 +98,23 @@ class TaskScheduler:
                 
             now_utc = datetime.utcnow().replace(tzinfo=pytz.UTC)
             
+            # Debug output every 10 minutes or when tasks are overdue
+            if now_utc.minute % 10 == 0 or any(now_utc >= (s.next_run.replace(tzinfo=pytz.UTC) if s.next_run and s.next_run.tzinfo is None else s.next_run.astimezone(pytz.UTC) if s.next_run else now_utc) for s in settings if s.next_run):
+                print(f"🕐 Scheduler check at {now_utc}: {len(settings)} tasks available")
+                for setting in settings:
+                    if setting.next_run:
+                        next_run_utc = setting.next_run.replace(tzinfo=pytz.UTC) if setting.next_run.tzinfo is None else setting.next_run.astimezone(pytz.UTC)
+                        should_run = now_utc >= next_run_utc
+                        delay = (now_utc - next_run_utc).total_seconds() / 60 if should_run else (next_run_utc - now_utc).total_seconds() / 60
+                        status = "OVERDUE" if should_run else f"in {delay:.1f}m"
+                        print(f"  {setting.task_name}: {status}")
+                
             for setting in settings:
                     # Check if task should run
-                    if await self._should_run_task(setting, now_utc):
+                    should_run = await self._should_run_task(setting, now_utc)
+                    
+                    if should_run:
+                        print(f"🚀 Starting scheduled task: {setting.task_name}")
                         logger.info(f"Running scheduled task: {setting.task_name}")
                         
                         # Mark as running through write queue
@@ -121,25 +138,42 @@ class TaskScheduler:
                         )
                         
         except Exception as e:
+            print(f"❌ Error checking tasks: {e}")
             logger.error(f"Error checking tasks: {e}", exc_info=True)
             
     async def _should_run_task(self, setting: ScheduleSettings, now_utc: datetime) -> bool:
         """Check if a task should run based on its schedule."""
-        if not setting.next_run:
+        try:
+            if not setting.next_run:
+                return False
+                
+            # Convert next_run to UTC for comparison
+            next_run_utc = setting.next_run
+            if next_run_utc.tzinfo is None:
+                next_run_utc = next_run_utc.replace(tzinfo=pytz.UTC)
+            elif next_run_utc.tzinfo != pytz.UTC:
+                next_run_utc = next_run_utc.astimezone(pytz.UTC)
+                
+            should_run = now_utc >= next_run_utc
+            
+            # Debug logging for overdue tasks
+            if should_run:
+                delay_minutes = (now_utc - next_run_utc).total_seconds() / 60
+                if delay_minutes > 5:  # If more than 5 minutes late
+                    print(f"⏰ Task {setting.task_name} is {delay_minutes:.1f} minutes overdue")
+                    
+            return should_run
+            
+        except Exception as e:
+            print(f"❌ Error checking if task {setting.task_name} should run: {e}")
+            logger.error(f"Error checking if task {setting.task_name} should run: {e}", exc_info=True)
             return False
-            
-        # Convert next_run to UTC for comparison
-        next_run_utc = setting.next_run
-        if next_run_utc.tzinfo is None:
-            next_run_utc = next_run_utc.replace(tzinfo=pytz.UTC)
-        elif next_run_utc.tzinfo != pytz.UTC:
-            next_run_utc = next_run_utc.astimezone(pytz.UTC)
-            
-        return now_utc >= next_run_utc
         
     async def _run_task(self, task_name: str, task_config: Dict[str, Any], setting_id: int):
         """Run a specific task."""
+        start_time = datetime.utcnow()
         try:
+            print(f"🏃 Executing task: {task_name}")
             logger.info(f"Executing task: {task_name}")
             
             if task_name == "telegram_digest":
@@ -151,11 +185,16 @@ class TaskScheduler:
             elif task_name == "backup":
                 await self._run_backup_task(task_config)
             else:
+                print(f"⚠️ Unknown task type: {task_name}")
                 logger.warning(f"Unknown task type: {task_name}")
                 
-            logger.info(f"Task completed successfully: {task_name}")
+            duration = (datetime.utcnow() - start_time).total_seconds()
+            print(f"✅ Task completed successfully: {task_name} (took {duration:.1f}s)")
+            logger.info(f"Task completed successfully: {task_name} (took {duration:.1f}s)")
             
         except Exception as e:
+            duration = (datetime.utcnow() - start_time).total_seconds()
+            print(f"❌ Error running task {task_name} after {duration:.1f}s: {e}")
             logger.error(f"Error running task {task_name}: {e}", exc_info=True)
             
         finally:
@@ -165,24 +204,39 @@ class TaskScheduler:
     async def _run_telegram_digest(self, config: Dict[str, Any]):
         """Run telegram digest task using unified orchestrator logic."""
         try:
+            print(f"📱 Starting telegram digest task...")
             logger.info("Starting telegram digest task via orchestrator")
             
             # Use the same logic as button-triggered digest for consistency
             stats = await self.orchestrator.send_telegram_digest()
             
             if stats.get('telegram_digest_sent'):
-                logger.info(f"Telegram digest sent successfully: {stats.get('telegram_digest_length', 0)} chars, "
-                           f"{stats.get('telegram_articles', 0)} articles in {stats.get('telegram_categories', 0)} categories")
+                articles = stats.get('telegram_articles', 0)
+                categories = stats.get('telegram_categories', 0)
+                length = stats.get('telegram_digest_length', 0)
+                print(f"📱 Telegram digest sent: {articles} articles in {categories} categories ({length} chars)")
+                logger.info(f"Telegram digest sent successfully: {length} chars, {articles} articles in {categories} categories")
             else:
+                print(f"❌ Failed to send telegram digest")
                 logger.warning("Failed to send telegram digest")
                 
         except Exception as e:
+            print(f"❌ Error in telegram digest task: {e}")
             logger.error(f"Error in telegram digest task: {e}", exc_info=True)
+            raise
                 
     async def _run_news_processing(self, config: Dict[str, Any]):
         """Run news processing task."""
-        stats = await self.orchestrator.run_full_cycle()
-        logger.info(f"News processing completed: {stats.get('articles_processed', 0)} articles processed")
+        try:
+            print(f"📰 Starting news processing cycle...")
+            stats = await self.orchestrator.run_full_cycle()
+            processed = stats.get('articles_processed', 0)
+            print(f"📰 News processing completed: {processed} articles processed")
+            logger.info(f"News processing completed: {processed} articles processed")
+        except Exception as e:
+            print(f"❌ News processing failed: {e}")
+            logger.error(f"News processing failed: {e}", exc_info=True)
+            raise
         
     async def _run_news_digest_cycle(self, config: Dict[str, Any]):
         """Run complete news digest cycle using unified orchestrator logic."""
