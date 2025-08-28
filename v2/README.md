@@ -1,169 +1,192 @@
 # News Aggregator v2.0
 
-Продакшн система агрегации новостей с ИИ-суммаризацией, веб-интерфейсом и базой данных PostgreSQL. Поддерживает множественные категории, автоматические миграции и интеллектуальную экстракцию контента.
+A production-ready news aggregation system with AI summarization, web interface, and PostgreSQL database. Features multi-category support, dynamic category management, AI category mapping, and intelligent content extraction.
 
-## 🚀 Быстрый запуск
+## 🚀 Quick Start
 
-### Docker (Продакшн)
+### Docker (Production)
 ```bash
 cd v2
-# Настройте переменные окружения
+# Configure environment variables
 cp docker-compose.override.yml.example docker-compose.override.yml
-# Отредактируйте переменные в docker-compose.override.yml
+# Edit variables in docker-compose.override.yml
 docker-compose up -d
 ```
 
-### Docker (Разработка)
+### Docker (Development)
 ```bash
 cd v2
-# Используйте dev-конфигурацию с автоматической перезагрузкой
+# Use dev configuration with auto-reload
 docker-compose -f docker-compose.dev.yml up -d
 ```
 
-### Локальная разработка
+### Local Development
 ```bash
 cd v2
 pip install -r requirements.txt
 python -m news_aggregator
 ```
 
-## 🏗️ Архитектура
+## 🏗️ Architecture
 
-### Ключевые компоненты
-- **`news_aggregator/`** - FastAPI приложение с async обработкой
-- **`web/`** - HTML шаблоны и статические файлы
-- **`db/`** - PostgreSQL схема (автоинициализация)
-- **`docker/`** - Docker конфигурации для dev/prod
-- **`scripts/`** - Утилиты бэкапа и восстановления
+### Key Components
+- **`news_aggregator/`** - FastAPI application with async processing
+- **`web/`** - HTML templates and static files with modal interfaces
+- **`db/`** - PostgreSQL schema (auto-initialization)
+- **`docker/`** - Docker configurations for dev/prod
+- **`scripts/`** - Backup and restore utilities
 
-### Технологический стек
+### Technology Stack
 - **Backend**: FastAPI + SQLAlchemy + asyncpg
 - **Database**: PostgreSQL 15
-- **Frontend**: Jinja2 + vanilla JS/CSS
+- **Frontend**: Jinja2 + vanilla JS/CSS with dynamic modals
 - **Deployment**: Docker + Nginx
 - **AI**: Constructor KM API integration
 
-## ✅ Статус реализации
+## ✅ Implementation Status
 
-### Полностью готово
-- [x] **Модульная архитектура** - core, services, sources
-- [x] **База данных** - PostgreSQL с полной схемой (16+ таблиц)
-- [x] **Веб-интерфейс** - Админ-панель + публичный API
-- [x] **Docker контейнеризация** - dev/prod окружения
-- [x] **Система источников** - Plugin архитектура (RSS, Telegram, Generic, Custom)
-- [x] **AI интеграция** - Constructor KM API с rate limiting
-- [x] **AI-enhanced контент экстракция** - Публикация дат, полные статьи
-- [x] **Реклама detection** - ИИ-детекция рекламы в Telegram каналах
-- [x] **Telegraph публикация** - Автоматическая публикация статей
-- [x] **Backup система** - Автоматические бэкапы БД
-- [x] **Async обработка** - Все операции асинхронные
-- [x] **CLI интерфейс** - Управление через командную строку
-- [x] **Множественные категории** - Поддержка нескольких категорий на статью с AI confidence
-- [x] **Автоматические миграции** - Самопроверяющаяся система миграций БД
-- [x] **Универсальная система миграций** - Переиспользуемый менеджер миграций
-- [x] **Интеллектуальная категоризация** - AI с контекстным анализом и confidence scoring
-- [x] **Планировщик задач** - Надежная система автоматического выполнения задач
-- [x] **Универсальная очередь БД** - Database queue для всех операций
-- [x] **AI категории в интерфейсе** - Отображение исходных AI категорий в модальных окнах
-- [x] **Медиа поддержка** - Множественные медиа файлы (изображения, видео, документы)
-- [x] **Централизованные промпты** - Система управления AI промптами
+### Fully Implemented
+- [x] **Modular Architecture** - core, services, sources
+- [x] **Database** - PostgreSQL with full schema (16+ tables)
+- [x] **Web Interface** - Admin panel + public API + modal article views
+- [x] **Docker Containerization** - dev/prod environments
+- [x] **Source System** - Plugin architecture (RSS, Telegram, Generic, Custom)
+- [x] **AI Integration** - Constructor KM API with rate limiting
+- [x] **AI-Enhanced Content Extraction** - Publication dates, full articles
+- [x] **Advertisement Detection** - AI-based ad detection in Telegram channels
+- [x] **Telegraph Publishing** - Automatic article publishing
+- [x] **Backup System** - Automated database backups
+- [x] **Async Processing** - All operations asynchronous
+- [x] **CLI Interface** - Command-line management
+- [x] **Multiple Categories** - Support for multiple categories per article with AI confidence
+- [x] **Dynamic Category Management** - Color-coded categories, CRUD operations in admin
+- [x] **AI Category Mapping** - Original AI categories with customizable mapping to main categories
+- [x] **Category Mapping in Admin** - Visual interface for managing category mappings
+- [x] **Automatic Migrations** - Self-checking database migration system
+- [x] **Universal Migration System** - Reusable migration manager
+- [x] **Intelligent Categorization** - AI with contextual analysis and confidence scoring
+- [x] **Task Scheduler** - Reliable automatic task execution system
+- [x] **Universal Database Queue** - Database queue for all operations
+- [x] **AI Categories in Interface** - Display of original AI categories in modal windows
+- [x] **Media Support** - Multiple media files (images, videos, documents)
+- [x] **Centralized Prompts** - AI prompt management system
+- [x] **Process Monitor** - Automated process monitoring and cleanup
+- [x] **Modal Article Views** - Rich article modals with media galleries and category display
 
-### Частично реализовано
-- [x] **Мониторинг** - Prometheus метрики (частично)
-- [x] **Логирование** - Базовая настройка structlog
+### Partially Implemented
+- [x] **Monitoring** - Prometheus metrics (partial)
+- [x] **Logging** - Basic structlog configuration
 
-### Критические пробелы
-- [ ] **Тестирование** - 0% покрытие тестами
-- [ ] **GitHub Actions** - Workflows не адаптированы под новую архитектуру
-- [ ] **API документация** - OpenAPI документация неполная
+### Critical Gaps
+- [ ] **Testing** - 0% test coverage
+- [ ] **GitHub Actions** - Workflows not adapted to new architecture
+- [ ] **API Documentation** - Incomplete OpenAPI documentation
 
-## 💻 Использование
+## 💻 Usage
 
-### Веб-интерфейс
-- **Главная страница (новости)**: http://localhost:8000
-- **Админ-панель**: http://localhost:8000/admin (защищена паролем)
-- **API документация**: http://localhost:8000/docs  
-- **API endpoints**: http://localhost:8000/api/*
-- **Статус аутентификации**: http://localhost:8000/auth-status
+### Web Interface
+- **Homepage (news feed)**: http://localhost:8000
+- **Admin Panel**: http://localhost:8000/admin (password protected)
+- **API Documentation**: http://localhost:8000/docs  
+- **API Endpoints**: http://localhost:8000/api/*
+- **Auth Status**: http://localhost:8000/auth-status
 
-### Ключевые API endpoints
-- **GET /api/v1/feed** - Лента новостей с поддержкой множественных категорий
-- **GET /api/v1/categories** - Список всех категорий с количеством статей
-- **GET /api/v1/migrations/status** - Статус системы миграций
-- **POST /api/v1/migrations/run** - Запуск миграций вручную
-- **GET /api/v1/sources** - Управление источниками новостей
-- **POST /api/v1/process/run** - Запуск обработки новостей
-- **GET /api/v1/schedule/settings** - Управление расписанием задач
-- **POST /api/v1/telegram/send-digest** - Отправка дайджеста в Telegram
-- **GET /api/v1/stats/dashboard** - Статистика дашборда
-- **GET /api/v1/backup** - Управление бэкапами
+### Key API Endpoints
 
-### CLI команды
+#### Public API
+- **GET /api/public/feed** - Public news feed with category filtering
+- **GET /api/public/article/{article_id}** - Detailed article with media and AI categories
+- **GET /api/public/categories/config** - Dynamic category configuration for UI
+
+#### Admin API
+- **GET /api/v1/categories** - List all categories with article counts
+- **POST /api/v1/categories** - Create new category with color and description
+- **PUT /api/v1/categories/{category_id}** - Update existing category
+- **GET /api/v1/category-mappings/unmapped** - Get unmapped AI categories
+- **POST /api/v1/category-mappings** - Create AI category mapping
+- **PUT /api/v1/category-mappings/{mapping_id}** - Update category mapping
+- **GET /api/v1/migrations/status** - Migration system status
+- **POST /api/v1/migrations/run** - Manual migration execution
+- **GET /api/v1/sources** - Source management
+- **POST /api/v1/process/run** - Trigger news processing
+- **GET /api/v1/schedule/settings** - Task scheduling management
+- **POST /api/v1/telegram/send-digest** - Send Telegram digest
+- **GET /api/v1/stats/dashboard** - Dashboard statistics
+- **GET /api/v1/backup** - Backup management
+- **GET /api/v1/system/process-monitor** - Process monitor status
+- **POST /api/v1/system/process-monitor/cleanup** - Manual process cleanup
+
+### CLI Commands
 ```bash
-# Обработка новостей
+# News processing
 python -m news_aggregator.cli process
 
-# Управление источниками
+# Source management
 python -m news_aggregator.cli sources list
 python -m news_aggregator.cli sources add --name "Habr" --type rss --url "https://habr.com/rss/"
 
-# Система бэкапов
+# Backup system
 ./scripts/backup.sh
 ./scripts/restore.sh <backup_path>
 
-# Статистика и мониторинг
+# Statistics and monitoring
 python -m news_aggregator.cli stats
-python -m news_aggregator.cli config  # Проверка конфигурации
+python -m news_aggregator.cli config  # Configuration check
 
-# Запуск только веб-сервера
+# Web server only
 python -m news_aggregator
-# или
+# or
 uvicorn news_aggregator.main:app --host 0.0.0.0 --port 8000
 ```
 
 ### API Integration
 ```python
-# Программный доступ к API
+# Programmatic API access
 import aiohttp
 
 async def get_news():
     async with aiohttp.ClientSession() as session:
-        async with session.get('http://localhost:8000/api/feed') as resp:
+        async with session.get('http://localhost:8000/api/public/feed') as resp:
+            return await resp.json()
+
+async def get_article_details(article_id):
+    async with aiohttp.ClientSession() as session:
+        async with session.get(f'http://localhost:8000/api/public/article/{article_id}') as resp:
             return await resp.json()
 ```
 
-## 🔧 Конфигурация
+## 🔧 Configuration
 
-### Обязательные переменные окружения
+### Required Environment Variables
 ```bash
-# База данных
+# Database
 DATABASE_URL=postgresql://user:pass@localhost:5432/newsdb
 
-# Constructor KM API (основной ИИ)
+# Constructor KM API (main AI)
 CONSTRUCTOR_KM_API=https://training.constructor.app/api/platform-kmapi/v1/knowledge-models/your-model-id/chat/completions/direct_llm
 CONSTRUCTOR_KM_API_KEY=Bearer your_api_key_here
-RPS=3  # Rate limiting для API (строго соблюдается!)
+RPS=3  # Rate limiting for API (strictly enforced!)
 
-# Telegram интеграция
+# Telegram integration
 TELEGRAM_TOKEN=your_bot_token
 TELEGRAM_CHAT_ID=your_chat_id
 TELEGRAPH_ACCESS_TOKEN=your_telegraph_token
 
-# Аутентификация админки (ОБЯЗАТЕЛЬНО!)
+# Admin authentication (REQUIRED!)
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=your_secure_password
 
-# AI модели для разных задач
-SUMMARIZATION_MODEL=gpt-4.1-nano    # Быстрая модель для суммаризации
-CATEGORIZATION_MODEL=gpt-4.1-mini   # Основная модель для категоризации
-DIGEST_MODEL=gpt-4.1                # Полная модель для финальных дайджестов
-MODEL=gpt-4.1                       # Совместимость с существующим кодом
+# AI models for different tasks
+SUMMARIZATION_MODEL=gpt-4.1-nano    # Fast model for summarization
+CATEGORIZATION_MODEL=gpt-4.1-mini   # Main model for categorization
+DIGEST_MODEL=gpt-4.1                # Full model for final digests
+MODEL=gpt-4.1                       # Compatibility with existing code
 
-# Настройка категорий (опционально)
+# Category settings (optional)
 NEWS_CATEGORIES=Business,Tech,Science,Serbia,Nature,Media,Marketing,Other
 DEFAULT_CATEGORY=Other
 
-# Настройки приложения
+# Application settings
 LOG_LEVEL=INFO
 DEVELOPMENT=false
 USE_CUSTOM_PARSERS=false
@@ -176,7 +199,7 @@ DB_POOL_SIZE=5
 DB_MAX_OVERFLOW=10
 DB_POOL_TIMEOUT=60
 
-# Настройки экстракции контента (опционально)
+# Content extraction settings (optional)
 MAX_CONTENT_LENGTH=8000
 MIN_CONTENT_LENGTH=200
 BROWSER_CONCURRENCY=2
@@ -186,51 +209,73 @@ PLAYWRIGHT_TIMEOUT_FIRST_MS=25000
 ### Docker Compose Override
 ```bash
 cp docker-compose.override.yml.example docker-compose.override.yml
-# Отредактируйте переменные окружения
+# Edit environment variables
 ```
 
-## 🔍 Методы экстракции статей
+## 🎨 Category Management System
 
-Система поддерживает несколько типов источников и методов экстракции контента:
+### Dynamic Categories
+- **Color-coded categories** - Each category has customizable colors
+- **Display names** - Separate internal names and user-facing display names
+- **Admin CRUD** - Full create, read, update operations in admin panel
+- **Category statistics** - Article counts per category
 
-### 🗂️ Типы источников
+### AI Category Mapping
+- **Original AI categories** - Preserved AI-generated category names
+- **Mapping system** - Map AI categories to main categories
+- **Confidence scores** - AI confidence levels for categorization
+- **Unmapped categories** - Track and manage unmapped AI categories
+- **Automatic application** - Apply mappings to existing articles
+
+### Web Interface Features
+- **Modal article views** - Rich popups with full article content
+- **Media galleries** - Support for multiple images, videos, documents
+- **Category badges** - Dynamic color-coded category display
+- **Filter toolbar** - Category filtering with sticky toolbar
+- **Mobile responsive** - Optimized for mobile devices
+
+## 🔍 Article Extraction Methods
+
+The system supports multiple source types and content extraction methods:
+
+### 🗂️ Source Types
 
 #### **RSS Sources** (`rss`)
-- **Описание**: Стандартные RSS/Atom фиды
-- **Экстракция**: Парсинг XML структуры фида
-- **Метаданные**: Заголовок, описание, ссылка, дата публикации
-- **Пример**: `https://habr.com/rss/`, `https://lenta.ru/rss`
+- **Description**: Standard RSS/Atom feeds
+- **Extraction**: XML feed parsing
+- **Metadata**: Title, description, link, publication date
+- **Example**: `https://habr.com/rss/`, `https://lenta.ru/rss`
 
 #### **Telegram Sources** (`telegram`)
-- **Описание**: Telegram каналы через Bot API
-- **Экстракция**: Получение сообщений через Telegram Bot
-- **Особенности**: AI-детекция рекламы, обработка медиа
-- **Пример**: `https://t.me/tech_news_channel`
+- **Description**: Telegram channels via Bot API
+- **Extraction**: Message retrieval through Telegram Bot
+- **Features**: AI ad detection, media processing
+- **Example**: `https://t.me/tech_news_channel`
 
 #### **Generic Sources** (`reddit`, `twitter`, `news_api`)
-- **Описание**: Универсальные источники без автоматической загрузки
-- **Экстракция**: Ручное добавление или внешние интеграции
-- **Использование**: Для источников, требующих специальной обработки
+- **Description**: Universal sources without automatic loading
+- **Extraction**: Manual addition or external integrations
+- **Usage**: For sources requiring special handling
 
 #### **Custom Sources** (`custom`)
-- **Описание**: Мониторинг веб-страниц с настраиваемыми селекторами
-- **Экстракция**: Page Monitor с CSS селекторами
-- **Особенности**: Отслеживание изменений, снапшоты страниц
+- **Description**: Web page monitoring with configurable selectors
+- **Extraction**: Page Monitor with CSS selectors
+- **Features**: Change tracking, page snapshots
 
-### 🧠 AI-Enhanced экстракция контента
+### 🧠 AI-Enhanced Content Extraction
 
-#### **Многоуровневая экстракция**
-1. **HTML парсинг** - BeautifulSoup + Readability
-2. **CSS селекторы** - Schema.org, семантические теги
-3. **Playwright браузер** - JavaScript-рендеринг для SPA
-4. **AI оптимизация** - Машинное обучение для улучшения селекторов
+#### **Multi-level Extraction**
+1. **HTML parsing** - BeautifulSoup + Readability
+2. **CSS selectors** - Schema.org, semantic tags
+3. **Playwright browser** - JavaScript rendering for SPAs
+4. **AI optimization** - Machine learning for selector improvement
 
-#### **Поддерживаемые схемы разметки**
+#### **Supported Markup Schemas**
 
 ##### **Schema.org Microdata**
 ```html
 <article itemtype="http://schema.org/NewsArticle">
-  <div itemprop="articleBody">Содержание статьи...</div>
+  <div itemprop="articleBody">Article content...</div>
   <time itemprop="datePublished">2024-01-15</time>
 </article>
 ```
@@ -240,15 +285,15 @@ cp docker-compose.override.yml.example docker-compose.override.yml
 {
   "@context": "https://schema.org",
   "@type": "NewsArticle",
-  "articleBody": "Содержание статьи...",
+  "articleBody": "Article content...",
   "datePublished": "2024-01-15"
 }
 ```
 
 ##### **Open Graph Protocol**
 ```html
-<meta property="og:title" content="Заголовок статьи" />
-<meta property="og:description" content="Описание..." />
+<meta property="og:title" content="Article Title" />
+<meta property="og:description" content="Description..." />
 <meta property="article:published_time" content="2024-01-15" />
 ```
 
@@ -256,171 +301,105 @@ cp docker-compose.override.yml.example docker-compose.override.yml
 ```html
 <main>
   <article role="main">
-    <header><h1>Заголовок</h1></header>
-    <section>Содержание статьи...</section>
-    <time datetime="2024-01-15">15 января 2024</time>
+    <header><h1>Title</h1></header>
+    <section>Article content...</section>
+    <time datetime="2024-01-15">January 15, 2024</time>
   </article>
 </main>
 ```
 
-#### **CSS селекторы по приоритету**
+### 🤖 AI Processing Services
 
-##### **Высокий приоритет** (Schema.org)
-- `[itemtype*="Article"] [itemprop="articleBody"]`
-- `[itemtype*="NewsArticle"] [itemprop="articleBody"]`
-- `[itemtype*="BlogPosting"] [itemprop="articleBody"]`
+#### **Combined Analysis** (`analyze_article_complete`)
+- **Summarization**: 2-3 sentences in Russian
+- **Categorization**: Business, Tech, Science, Serbia, Other + confidence
+- **Ad Detection**: Heuristics + AI with typing
+- **Date Extraction**: Automatic publication date detection
 
-##### **Средний приоритет** (Семантические теги)
-- `article[role="main"]`
-- `main article`
-- `[role="main"] article`
-
-##### **Современные фреймворки**
-- `.prose` (TailwindCSS typography)
-- `.container .text-base`
-- `[class*="text-"] div:not([class*="nav"])`
-
-##### **Специфичные для русских сайтов**
-- `.mb-14` (N+1.ru)
-- `.article__text`
-- `.news-text`, `.news-content`
-- `.material-text`, `.full-text`
-
-##### **CMS паттерны**
-- `.entry-content` (WordPress)
-- `.post-content`
-- `.article-content`
-- `.content-body`
-
-#### **Пользовательские парсеры**
-
-##### **BalkanInsight Parser**
-- **Домен**: `balkaninsight.com`
-- **Селекторы**: Специализированные для структуры сайта
-- **Метаданные**: Дата публикации, автор, теги
-
-##### **Расширяемая архитектура**
-```python
-class CustomParser(BaseCustomParser):
-    def can_parse(self, url: str) -> bool:
-        return "example.com" in url
-    
-    def extract_content(self, soup: BeautifulSoup, url: str) -> str:
-        return soup.select_one('.custom-content').get_text()
-```
-
-### 🤖 AI-сервисы обработки
-
-#### **Комбинированный анализ** (`analyze_article_complete`)
-- **Суммаризация**: 2-3 предложения на русском языке
-- **Категоризация**: Business, Tech, Science, Serbia, Other + confidence
-- **Детекция рекламы**: Heuristics + AI с типизацией
-- **Извлечение дат**: Автоматическое определение даты публикации
-
-#### **Специализированные AI-сервисы**
+#### **Specialized AI Services**
 
 ##### **CategorizationAI**
-- **Модель**: Настраиваемая через `CATEGORIZATION_MODEL`
-- **Категории**: Конфигурируемые через `NEWS_CATEGORIES`
-- **Кэширование**: 1 час TTL
-- **Fallback**: Категория по умолчанию
+- **Model**: Configurable via `CATEGORIZATION_MODEL`
+- **Categories**: Configurable via `NEWS_CATEGORIES`
+- **Caching**: 1 hour TTL
+- **Fallback**: Default category
 
 ##### **TelegramAI**
-- **Специализация**: Обработка Telegram контента
-- **Особенности**: Детекция медиа, обработка форвардов
-- **Интеграция**: С Telegram Bot API
+- **Specialization**: Telegram content processing
+- **Features**: Media detection, forward processing
+- **Integration**: With Telegram Bot API
 
 ##### **AdDetector**
-- **Эвристики**: Регулярные выражения для маркеров рекламы
-- **AI уточнение**: Контекстный анализ для спорных случаев
-- **Типизация**: `product_promotion`, `service_offer`, `event_promotion`
-- **Confidence scoring**: 0.0-1.0 с объяснением решения
+- **Heuristics**: Regular expressions for ad markers
+- **AI refinement**: Contextual analysis for disputed cases
+- **Typing**: `product_promotion`, `service_offer`, `event_promotion`
+- **Confidence scoring**: 0.0-1.0 with explanation
 
-#### **Система обучения и оптимизации**
 
-##### **ExtractionMemory**
-- **Отслеживание**: Успешность экстракции по доменам
-- **Обучение**: Автоматическое улучшение селекторов
-- **Статистика**: Качество экстракции, время обработки
+## 📚 Documentation
 
-##### **DomainStabilityTracker**
-- **Мониторинг**: Стабильность доменов во времени
-- **Адаптация**: Переключение методов при изменении структуры
-- **Предупреждения**: Уведомления о проблемных доменах
+### Main Documentation
+- **CLAUDE.md** - Complete architectural project documentation
+- **PROMPTS_GUIDE.md** - AI prompts and usage guide
 
-##### **AIExtractionOptimizer**
-- **Машинное обучение**: Улучшение селекторов на основе успешности
-- **A/B тестирование**: Сравнение разных подходов
-- **Автоматизация**: Самообучающаяся система
+### Feature Guides
+- **QUICKSTART.md** - Quick start for developers
+- **BACKUP_SYSTEM.md** - Backup and restore system
+- **MIGRATION_GUIDE.md** - Data migration guide
+- **SYNOLOGY_MIGRATION_GUIDE.md** - Automatic migrations for Synology
 
-### ⚙️ Конфигурация экстракции
+### Technical Details
+- **CONTENT_EXTRACTOR_IMPROVEMENTS.md** - AI-enhanced content extraction
+- **AI_ENHANCEMENTS.md** - AI enhancement and ad detection system
 
-#### **Константы производительности**
-```python
-MAX_CONTENT_LENGTH = 8000        # Максимальная длина контента
-MIN_CONTENT_LENGTH = 200         # Минимальная длина для валидности
-BROWSER_CONCURRENCY = 2          # Параллельные браузерные сессии
-PLAYWRIGHT_TIMEOUT_FIRST_MS = 25000   # Таймаут первой попытки
-PLAYWRIGHT_TOTAL_BUDGET_MS = 90000    # Общий бюджет времени
-MIN_QUALITY_SCORE = 30           # Минимальный балл качества
-```
+### API and Interface
+- **Swagger UI**: http://localhost:8000/docs - Interactive API documentation
+- **ReDoc**: http://localhost:8000/redoc - Alternative API documentation
 
-#### **Кэширование**
-```python
-HTML_CACHE_TTL_SECONDS = 300     # Кэш HTML на 5 минут
-SELECTOR_CACHE_TTL_SECONDS = 21600 # Кэш селекторов на 6 часов
-```
+## 📈 New Features v2.0
 
-## 📚 Документация
+### ✅ Recently Added
+- **🎨 Dynamic Category Management** - Color-coded categories with admin CRUD operations
+- **🤖 AI Category Mapping** - Intelligent mapping of AI categories to main categories
+- **📱 Rich Modal Interface** - Enhanced article modals with media galleries
+- **🔄 Process Monitor** - Automated process monitoring and cleanup
+- **📊 Category Analytics** - Real-time category statistics and usage tracking
+- **🎯 Confidence Scoring** - AI confidence levels for categorization accuracy
+- **🔧 Auto-remapping** - Automatic application of category mappings to existing articles
+- **🌈 UI Color System** - Dynamic category colors with accessibility features
+- **📋 Unmapped Category Tracking** - Monitor and manage unmapped AI categories
 
-### Основная документация
-- **CLAUDE.md** - Полная архитектурная документация проекта
-- **PROMPTS_GUIDE.md** - Руководство по AI промптам и их использованию
+### 🚧 Planned Features
+- **🧪 Testing System** - Complete pytest coverage (critical priority)
+- **🔄 GitHub Actions** - Workflow adaptation to new architecture
+- **📊 Extended Monitoring** - Full Prometheus metrics
+- **📚 API Documentation** - Complete OpenAPI specification
 
-### Руководства по функциональности
-- **QUICKSTART.md** - Быстрый старт для разработчиков
-- **BACKUP_SYSTEM.md** - Система бэкапов и восстановления
-- **MIGRATION_GUIDE.md** - Руководство по миграции данных
-- **SYNOLOGY_MIGRATION_GUIDE.md** - Автоматические миграции для Synology
+## 🐛 Known Issues
 
-### Технические детали
-- **CONTENT_EXTRACTOR_IMPROVEMENTS.md** - AI-enhanced экстракция контента
-- **AI_ENHANCEMENTS.md** - Система ИИ-улучшений и детекции рекламы
+1. **No Tests** - Critical gap, requires pytest addition
+2. **GitHub Actions** - Workflows not adapted to new architecture
+3. **Monitoring** - Prometheus metrics partially configured
 
-### API и интерфейс
-- **Swagger UI**: http://localhost:8000/docs - Интерактивная документация API
-- **ReDoc**: http://localhost:8000/redoc - Альтернативная документация API
+## 🔒 Database Migration Requirements
 
-## 📈 Новые возможности v2.0
+Before deploying the updated code, ensure these database changes are applied:
 
-### ✅ Недавно добавлено
-- **🔄 Надежный планировщик** - Улучшенная система с детальным логированием и обработкой ошибок
-- **🏷️ AI категории в интерфейсе** - Отображение исходных AI категорий в модальных окнах статей
-- **📊 Улучшенный дашборд** - Реальная статистика вместо моковых данных
-- **🔧 Автоматическая рекатегоризация** - При изменении маппинга категорий
-- **📱 Медиа галерея** - Поддержка множественных изображений, видео и документов
-- **🤖 Централизованные промпты** - Управляемая система AI промптов
+1. **Create required tables** - `article_categories`, `category_mapping`
+2. **Add indexes** - Performance indexes for category queries
+3. **Insert base categories** - Default category set
+4. **Add ai_category field** - Critical for AI category tracking
 
-### 🚧 Планируется
-- **🧪 Система тестирования** - Полное покрытие pytest (критический приоритет)
-- **🔄 GitHub Actions** - Адаптация workflows под новую архитектуру
-- **📊 Расширенный мониторинг** - Полные Prometheus метрики
-- **📚 API документация** - Завершение OpenAPI спецификации
+⚠️ **Warning**: The application will not start without these database updates.
 
-## 🐛 Известные проблемы
+## 🤝 Contributing
 
-1. **Отсутствие тестов** - Критический пробел, требует добавления pytest
-2. **GitHub Actions** - Workflows не адаптированы под новую архитектуру
-3. **Мониторинг** - Prometheus метрики настроены частично
+1. Fork the repository
+2. Create a feature branch
+3. Add tests for new functionality
+4. Ensure all checks pass
+5. Create a Pull Request
 
-## 🤝 Вклад в проект
+## 📄 License
 
-1. Fork репозитория
-2. Создайте feature branch
-3. Добавьте тесты для новой функциональности
-4. Убедитесь, что все проверки проходят
-5. Создайте Pull Request
-
-## 📄 Лицензия
-
-[Укажите лицензию проекта]
+[Specify project license]
