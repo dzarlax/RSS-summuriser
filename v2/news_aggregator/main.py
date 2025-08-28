@@ -16,7 +16,6 @@ from .migrations.media_files_migration import MediaFilesMigration
 from .migrations.remove_legacy_category_migration import RemoveLegacyCategoryMigration
 from .migrations.fixed_categories_migration import FixedCategoriesMigration
 from .migrations.category_mapping_migration import CategoryMappingMigration
-from .migrations.ai_category_migration import AiCategoryMigration
 
 import logging
 
@@ -42,8 +41,6 @@ migration_manager.register_migration(fixed_categories_migration)
 category_mapping_migration = CategoryMappingMigration()
 migration_manager.register_migration(category_mapping_migration)
 
-ai_category_migration = AiCategoryMigration()
-migration_manager.register_migration(ai_category_migration)
 
 
 @asynccontextmanager

@@ -14,11 +14,11 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func, text
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, joinedload
 
 from .database import get_db, engine, AsyncSessionLocal
 from .config import settings
-from .models import Article, Source, ProcessingStat, DailySummary, ScheduleSettings, CategoryMapping
+from .models import Article, Source, ProcessingStat, DailySummary, ScheduleSettings, CategoryMapping, ArticleCategory
 from .services.source_manager import SourceManager
 from .main import migration_manager
 # from .security import require_api_read, require_api_write, require_admin, limiter
@@ -821,15 +821,17 @@ async def generate_daily_summaries(
                 "force_regenerate": False
             }
         
-        # Get articles for the target date
+        # Get articles for the target date with their categories loaded
         articles_result = await db.execute(
-            select(Article).where(
+            select(Article)
+            .options(joinedload(Article.article_categories).joinedload(ArticleCategory.category))
+            .where(
                 func.date(Article.published_at) == target_date,
                 Article.is_advertisement != True  # Exclude advertisements
             )
             .order_by(Article.published_at.desc())
         )
-        articles = articles_result.scalars().all()
+        articles = articles_result.scalars().unique().all()
         
         if not articles:
             return {
@@ -1085,7 +1087,12 @@ async def update_schedule_setting(
                 # Use interval_minutes from task_config, default 30
                 interval_minutes = int(schedule_data.task_config.get('interval_minutes', 30)) if schedule_data.task_config else 30
                 interval_minutes = max(1, min(interval_minutes, 24*60))
-                next_run = now + timedelta(minutes=interval_minutes)
+                # For interval tasks, set next run immediately if task is not currently running
+                # This allows the scheduler to start the task right away if needed
+                if not setting.is_running:
+                    next_run = now + timedelta(minutes=1)  # Start in 1 minute
+                else:
+                    next_run = now + timedelta(minutes=interval_minutes)
             else:
                 next_run = None
             

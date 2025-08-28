@@ -164,20 +164,28 @@ class NewsOrchestrator:
         }
         
         try:
-            async with AsyncSessionLocal() as db:
-                print("📱 Generating Telegram digest...")
+            from .database_helpers import execute_custom_read
+            print("📱 Generating Telegram digest...")
+            
+            # Use database queue to avoid session conflicts
+            async def digest_operation(db):
                 await self._generate_telegram_digest(db, stats)
-                
-                stats['completed_at'] = datetime.utcnow()
-                stats['duration_seconds'] = (stats['completed_at'] - start_time).total_seconds()
-                
-                print(f"✅ Digest sent in {stats['duration_seconds']:.1f}s")
                 return stats
                 
+            await execute_custom_read(digest_operation)
+            
+            stats['completed_at'] = datetime.utcnow()
+            stats['duration_seconds'] = (stats['completed_at'] - start_time).total_seconds()
+            
+            print(f"✅ Digest sent in {stats['duration_seconds']:.1f}s")
+            return stats
+            
         except Exception as e:
             error_msg = f"Digest sending error: {e}"
             stats['errors'].append(error_msg)
             print(f"❌ {error_msg}")
+            import traceback
+            traceback.print_exc()
             raise NewsAggregatorError(error_msg) from e
     
     async def _process_articles_with_ai_separate_sessions(self, article_ids: List[int], 
@@ -255,13 +263,14 @@ class NewsOrchestrator:
                 
         return processed_articles
     
-    async def _process_article_ai_combined(self, article_data: Dict[str, Any], stats: Dict[str, Any]) -> Dict[str, Any]:
+    async def _process_article_ai_combined(self, article_data: Dict[str, Any], stats: Dict[str, Any], force_processing: bool = False) -> Dict[str, Any]:
         """Process article with combined AI analysis - all tasks in one API call."""
         source_type = article_data.get('source_type', 'rss')
         source_name = article_data.get('source_name', 'Unknown')
         article_id = article_data['id']
         
         print(f"  📡 Source: {source_name} (type: {source_type})")
+        print(f"  🔧 DEBUG: force_processing = {force_processing}")
         
         # Check what processing is needed
         needs_summary = not article_data.get('summary_processed', False) and not article_data.get('summary')
@@ -276,12 +285,17 @@ class NewsOrchestrator:
             article_content = article_data.get('content') or ''
             article_url = article_data.get('url') or ''
             
-            should_process, filter_reason = smart_filter.should_process_with_ai(
-                title=article_data.get('title') or '',
-                content=article_content,
-                url=article_url,
-                source_type=source_type
-            )
+            if force_processing:
+                should_process = True
+                filter_reason = "Force processing enabled (reprocessing mode)"
+                print(f"  🔄 Smart Filter: Bypassed for forced reprocessing")
+            else:
+                should_process, filter_reason = smart_filter.should_process_with_ai(
+                    title=article_data.get('title') or '',
+                    content=article_content,
+                    url=article_url,
+                    source_type=source_type
+                )
             
             # If content is too short but we have external URL, try to extract full content
             if not should_process and "Content too short" in filter_reason and source_type == 'telegram':
@@ -296,15 +310,15 @@ class NewsOrchestrator:
                         # Try AI-enhanced extraction with metadata first
                         extracted_content = None
                         try:
-                            extraction_result = await content_extractor.extract_article_content_with_metadata(article_url)
+                            extraction_result = await content_extractor.extract_article_content_with_metadata(article_url, retry_count=4)
                             extracted_content = extraction_result.get('content')
                         except Exception as e:
-                            print(f"  ⚠️ AI-enhanced extraction failed, trying standard extraction: {e}")
+                            print(f"  ⚠️ AI-enhanced extraction failed after retries, trying standard extraction: {e}")
                             # Fallback to standard content extraction
                             try:
-                                extracted_content = await content_extractor.extract_article_content(article_url)
+                                extracted_content = await content_extractor.extract_article_content(article_url, retry_count=3)
                             except Exception as e2:
-                                print(f"  ❌ Standard extraction also failed: {e2}")
+                                print(f"  ❌ Standard extraction also failed after retries: {e2}")
                                 extracted_content = None
                         
                         # Check if extracted content is meaningful
@@ -336,7 +350,6 @@ class NewsOrchestrator:
                     update_fields['summary'] = article_data.get('title', 'No summary available')
                     update_fields['summary_processed'] = True
                 if needs_category:
-                    update_fields['category'] = 'Other'
                     update_fields['category_processed'] = True
                 if needs_ad_detection:
                     update_fields['is_advertisement'] = False
@@ -480,23 +493,31 @@ class NewsOrchestrator:
                 
                 print(f"  🚨 Advertisement: {ai_result.get('is_advertisement', False)} (confidence: {ai_result.get('ad_confidence', 0.0):.2f})")
                 
-                return {**article_data, **update_fields}
+                return {**article_data, **update_fields, 'success': True, 'content_length': len(article_data.get('content', ''))}
                 
             except Exception as e:
-                print(f"  ❌ Combined analysis failed: {e}")
-                # Fall back to incremental processing
-                return await self._process_article_ai_incremental(article_data, stats)
+                # Check if this is just a duplicate category error (normal during reprocessing)
+                if "duplicate key value violates unique constraint" in str(e) and "article_categories" in str(e):
+                    print(f"  ⚠️ Combined analysis completed with duplicate category warning (normal during reprocessing)")
+                    # Return success even with duplicate category error
+                    safe_update_fields = locals().get('update_fields', {})
+                    return {**article_data, **safe_update_fields, 'success': True, 'content_length': len(article_data.get('content', ''))}
+                else:
+                    print(f"  ❌ Combined analysis failed: {e}")
+                    # Fall back to incremental processing
+                    return await self._process_article_ai_incremental(article_data, stats, force_processing)
         else:
             # Use incremental processing for single tasks
-            return await self._process_article_ai_incremental(article_data, stats)
+            return await self._process_article_ai_incremental(article_data, stats, force_processing)
 
-    async def _process_article_ai_incremental(self, article_data: Dict[str, Any], stats: Dict[str, Any]) -> Dict[str, Any]:
+    async def _process_article_ai_incremental(self, article_data: Dict[str, Any], stats: Dict[str, Any], force_processing: bool = False) -> Dict[str, Any]:
         """Process article with AI, saving after each API call."""
         source_type = article_data.get('source_type', 'rss')
         source_name = article_data.get('source_name', 'Unknown')
         article_id = article_data['id']
         
         print(f"  📡 Source: {source_name} (type: {source_type})")
+        print(f"  🔧 DEBUG incremental: force_processing = {force_processing}")
         
         # Check what processing is needed
         needs_summary = not article_data.get('summary_processed', False) and not article_data.get('summary')
@@ -511,12 +532,17 @@ class NewsOrchestrator:
             article_content = article_data.get('content') or ''
             article_url = article_data.get('url') or ''
             
-            should_process, filter_reason = smart_filter.should_process_with_ai(
-                title=article_data.get('title') or '',
-                content=article_content,
-                url=article_url,
-                source_type=source_type
-            )
+            if force_processing:
+                should_process = True
+                filter_reason = "Force processing enabled (reprocessing mode)"
+                print(f"  🔄 Smart Filter: Bypassed for forced reprocessing")
+            else:
+                should_process, filter_reason = smart_filter.should_process_with_ai(
+                    title=article_data.get('title') or '',
+                    content=article_content,
+                    url=article_url,
+                    source_type=source_type
+                )
             
             # If content is too short but we have external URL, try to extract full content
             if not should_process and "Content too short" in filter_reason and source_type == 'telegram':
@@ -531,15 +557,15 @@ class NewsOrchestrator:
                         # Try AI-enhanced extraction with metadata first
                         extracted_content = None
                         try:
-                            extraction_result = await content_extractor.extract_article_content_with_metadata(article_url)
+                            extraction_result = await content_extractor.extract_article_content_with_metadata(article_url, retry_count=4)
                             extracted_content = extraction_result.get('content')
                         except Exception as e:
-                            print(f"  ⚠️ AI-enhanced extraction failed, trying standard extraction: {e}")
+                            print(f"  ⚠️ AI-enhanced extraction failed after retries, trying standard extraction: {e}")
                             # Fallback to standard content extraction
                             try:
-                                extracted_content = await content_extractor.extract_article_content(article_url)
+                                extracted_content = await content_extractor.extract_article_content(article_url, retry_count=3)
                             except Exception as e2:
-                                print(f"  ❌ Standard extraction also failed: {e2}")
+                                print(f"  ❌ Standard extraction also failed after retries: {e2}")
                                 extracted_content = None
                         
                         # Check if extracted content is meaningful
@@ -672,7 +698,7 @@ class NewsOrchestrator:
             print(f"  💾 Ad detection fallback saved to database")
         # ============================================================================
         
-        return {}  # No need to return results since we save immediately
+        return {'success': True, 'content_length': len(article_data.get('content', ''))}  # Success with content length
     
     async def _process_article_ai_queued(self, article_data: Dict[str, Any], stats: Dict[str, Any]) -> Dict[str, Any]:
         """Process article with AI, using optimized combined analysis when possible."""
@@ -744,8 +770,7 @@ class NewsOrchestrator:
                     category = 'Other'  # Fallback category
                 print(f"  ✅ Category assigned: {category}")
                 
-                # Add to field updates
-                field_updates['category'] = category
+                # Add to field updates  
                 field_updates['category_processed'] = True
                 stats['api_calls_made'] += 1
                 print(f"  🔄 Category queued for write")
@@ -753,7 +778,6 @@ class NewsOrchestrator:
             except Exception as e:
                 print(f"  ❌ Categorization failed: {e}")
                 # Set default category and mark as processed
-                field_updates['category'] = 'Other'
                 field_updates['category_processed'] = True
         
         # Process ad detection if needed
@@ -1294,17 +1318,21 @@ class NewsOrchestrator:
             from .models import DailySummary
             from sqlalchemy import select
             
-            # Get today's articles by published date (excluding advertisements)
+            # Get today's articles by published date (excluding advertisements) with categories loaded
+            from sqlalchemy.orm import joinedload
+            from .models import ArticleCategory
             today = datetime.utcnow().date()
             articles_result = await db.execute(
-                select(Article).where(
+                select(Article)
+                .options(joinedload(Article.article_categories).joinedload(ArticleCategory.category))
+                .where(
                     func.date(Article.published_at) == today,
                     Article.is_advertisement != True  # Exclude advertisements from digest
                 )
                 .order_by(Article.published_at.desc())
                 # No limit - process all new articles for today
             )
-            articles = articles_result.scalars().all()
+            articles = articles_result.scalars().unique().all()
             
             if not articles:
                 print("  ℹ️ No articles found for today")
@@ -1771,7 +1799,7 @@ class NewsOrchestrator:
                 
                 try:
                     # Try to extract fresh content
-                    extraction_result = await extractor.extract_article_content_with_metadata(article.url)
+                    extraction_result = await extractor.extract_article_content_with_metadata(article.url, retry_count=3)
                     new_content = extraction_result.get('content') if extraction_result else None
                     
                     if new_content and len(new_content) > len(article.content or ''):
@@ -1794,12 +1822,18 @@ class NewsOrchestrator:
                 except Exception as e:
                     print(f"   ❌ Content extraction failed: {e}")
                     # Continue with existing content
-                    
+                
                 # Step 2: Process with AI if content is now long enough
                 print(f"   🔄 Step 2: Processing with AI (content: {len(article_data.get('content', '') or '')} chars)...")
                 
                 processing_stats = {'api_calls_made': 0, 'errors': []}  # Initialize stats properly
-                result = await self._process_article_ai_combined(article_data, processing_stats)
+                
+                try:
+                    result = await self._process_article_ai_combined(article_data, processing_stats, force_processing=True)
+                    print(f"   🔍 _process_article_ai_combined returned successfully: success={result.get('success') if result else 'None'}")
+                except Exception as process_e:
+                    print(f"   ❌ Exception in _process_article_ai_combined: {process_e}")
+                    result = None
                 
                 if result and result.get('success'):
                     stats['processed'] += 1

@@ -140,16 +140,20 @@ class ContentExtractor:
             await self.browser.close()
             self.browser = None
     
-    async def extract_article_content_with_metadata(self, url: str) -> Dict[str, Optional[str]]:
+    async def extract_article_content_with_metadata(self, url: str, retry_count: int = 3) -> Dict[str, Optional[str]]:
         """
-        Extract article content with metadata using AI-enhanced extraction.
+        Extract article content with metadata using AI-enhanced extraction with retry mechanism.
         
         Args:
             url: Article URL
+            retry_count: Number of retries if extraction fails (default: 3)
             
         Returns:
             Dictionary with 'content', 'publication_date', and 'full_article_url' keys
         """
+        import asyncio
+        import random
+        
         result = {
             'content': None,
             'publication_date': None,
@@ -163,13 +167,75 @@ class ContentExtractor:
         url = self._clean_url(url)
         domain = self._extract_domain(url)
         
-        print(f"🧠 AI-enhanced extraction with metadata for {domain}")
+        print(f"🧠 AI-enhanced extraction with metadata for {domain} (max {retry_count} attempts)")
+        
+        last_exception = None
+        
+        for attempt in range(retry_count):
+            try:
+                if attempt > 0:
+                    # Exponential backoff with jitter: 1s, 2s, 4s...
+                    wait_time = (2 ** (attempt - 1)) + random.uniform(0.1, 0.5)
+                    print(f"  🔄 Retry attempt {attempt + 1}/{retry_count} after {wait_time:.1f}s delay...")
+                    await asyncio.sleep(wait_time)
+                
+                # Main extraction logic
+                result = await self._attempt_extraction_with_metadata(url, domain, attempt + 1)
+                
+                # Check if extraction was successful
+                if result.get('content') and len(result['content'].strip()) > 50:
+                    if attempt > 0:
+                        print(f"  ✅ Extraction succeeded on attempt {attempt + 1}/{retry_count}")
+                    return result
+                else:
+                    if attempt == 0:
+                        print(f"  ⚠️ Initial extraction failed or insufficient content (got {len(result.get('content', '') or '')} chars)")
+                    else:
+                        print(f"  ⚠️ Retry {attempt + 1} failed or insufficient content (got {len(result.get('content', '') or '')} chars)")
+                    
+                    if attempt < retry_count - 1:
+                        print(f"  🔄 Will retry with different strategy...")
+                    
+            except Exception as e:
+                last_exception = e
+                if attempt == 0:
+                    print(f"  ❌ Initial extraction attempt failed: {e}")
+                else:
+                    print(f"  ❌ Retry attempt {attempt + 1} failed: {e}")
+                
+                if attempt < retry_count - 1:
+                    print(f"  🔄 Will retry after delay...")
+        
+        # All attempts failed
+        print(f"  ❌ All {retry_count} extraction attempts failed for {domain}")
+        if last_exception:
+            print(f"  ❌ Final error: {last_exception}")
+        
+        return result
+    
+    async def _attempt_extraction_with_metadata(self, url: str, domain: str, attempt_num: int) -> Dict[str, Optional[str]]:
+        """
+        Single attempt at extraction with metadata.
+        
+        Args:
+            url: Article URL  
+            domain: Domain name
+            attempt_num: Current attempt number (1-based)
+            
+        Returns:
+            Dictionary with extraction results
+        """
+        result = {
+            'content': None,
+            'publication_date': None, 
+            'full_article_url': None
+        }
         
         try:
             # First, try to get the page HTML for analysis
             html_content = await self._fetch_html_content(url)
             if not html_content:
-                print(f"  ⚠️ Failed to fetch HTML, trying direct content extraction strategies...")
+                print(f"  ⚠️ Failed to fetch HTML on attempt {attempt_num}, trying direct content extraction strategies...")
                 # Skip HTML analysis and go directly to content extraction strategies
                 content = await self.extract_article_content(url)
                 if content:
@@ -182,7 +248,7 @@ class ContentExtractor:
                 alt_links = self._find_alt_article_links(soup_for_links, url)
                 for alt_url in alt_links:
                     if alt_url and alt_url != url:
-                        print(f"  🔗 Found alternative article link: {alt_url}")
+                        print(f"  🔗 Found alternative article link: {alt_url} (attempt {attempt_num})")
                         alt_html = await self._fetch_html_content(alt_url)
                         alt_content = await self._extract_from_html(alt_html)
                         if self._is_good_content(alt_content):
@@ -190,7 +256,7 @@ class ContentExtractor:
                             result['content'] = alt_content
                             return result
             except Exception as e:
-                print(f"  ⚠️ Canonical/AMP link follow failed: {e}")
+                print(f"  ⚠️ Canonical/AMP link follow failed on attempt {attempt_num}: {e}")
             
             # Import AI client dynamically
             from .ai_client import get_ai_client
@@ -209,9 +275,9 @@ class ContentExtractor:
                             custom_date = custom_result.get('publication_date')
                             if custom_date:
                                 result['publication_date'] = self._normalize_date(custom_date)
-                                print(f"  📅 Custom parser publication date found: {custom_date}")
+                                print(f"  📅 Custom parser publication date found: {custom_date} (attempt {attempt_num})")
                         except Exception as e:
-                            print(f"  ⚠️ Custom parser date extraction failed: {e}")
+                            print(f"  ⚠️ Custom parser date extraction failed on attempt {attempt_num}: {e}")
             except Exception:
                 pass
             
@@ -221,32 +287,32 @@ class ContentExtractor:
                     pub_date = await ai_client.extract_publication_date(html_content, url)
                     if pub_date:
                         result['publication_date'] = self._normalize_date(pub_date)
-                        print(f"  📅 AI Publication date found: {pub_date}")
+                        print(f"  📅 AI Publication date found: {pub_date} (attempt {attempt_num})")
                     else:
                         # Fallback to CSS selector-based extraction
                         soup = BeautifulSoup(html_content, 'html.parser')
                         css_date = self._extract_publication_date(soup)
                         if css_date:
                             result['publication_date'] = self._normalize_date(css_date)
-                            print(f"  📅 CSS Publication date found: {css_date}")
+                            print(f"  📅 CSS Publication date found: {css_date} (attempt {attempt_num})")
                 except Exception as e:
-                    print(f"  ⚠️ Error extracting publication date with AI, trying CSS: {e}")
+                    print(f"  ⚠️ Error extracting publication date with AI on attempt {attempt_num}, trying CSS: {e}")
                     # Fallback to CSS selector-based extraction
                     try:
                         soup = BeautifulSoup(html_content, 'html.parser')
                         css_date = self._extract_publication_date(soup)
                         if css_date:
                             result['publication_date'] = self._normalize_date(css_date)
-                            print(f"  📅 CSS Publication date found: {css_date}")
+                            print(f"  📅 CSS Publication date found: {css_date} (attempt {attempt_num})")
                     except Exception as e2:
-                        print(f"  ⚠️ Error extracting publication date with CSS: {e2}")
+                        print(f"  ⚠️ Error extracting publication date with CSS on attempt {attempt_num}: {e2}")
             
             # Phase 2: Check if we need to follow a link for full content
             try:
                 full_article_url = await ai_client.extract_full_article_link(html_content, url)
                 if full_article_url and full_article_url != url:
                     result['full_article_url'] = full_article_url
-                    print(f"  🔗 Full article link found: {full_article_url}")
+                    print(f"  🔗 Full article link found: {full_article_url} (attempt {attempt_num})")
                     
                     # Extract content from the full article page
                     content = await self.extract_article_content(full_article_url)
@@ -254,7 +320,7 @@ class ContentExtractor:
                         result['content'] = content
                         return result
             except Exception as e:
-                print(f"  ⚠️ Error extracting full article link: {e}")
+                print(f"  ⚠️ Error extracting full article link on attempt {attempt_num}: {e}")
             
             # Phase 3: Extract content from current page using already fetched HTML first
             content = await self._extract_from_html(html_content)
@@ -266,46 +332,108 @@ class ContentExtractor:
             return result
             
         except Exception as e:
-            print(f"  ❌ Error in enhanced extraction for {url}: {e}")
-            return result
+            print(f"  ❌ Error in enhanced extraction for {url} on attempt {attempt_num}: {e}")
+            # Re-raise exception so retry logic can handle it
+            raise
     
-    async def extract_article_content(self, url: str) -> Optional[str]:
+    async def extract_article_content(self, url: str, retry_count: int = 2) -> Optional[str]:
         """
-        Extract main article content using AI-optimized strategies.
+        Extract main article content using AI-optimized strategies with retry mechanism.
         
         Args:
             url: Article URL
+            retry_count: Number of retries if extraction fails (default: 2)
             
         Returns:
             Clean article text or None if failed
         """
+        import asyncio
+        import random
+        
         if not url:
             return None
         
         # Clean URL from invisible/problematic characters
         url = self._clean_url(url)
         domain = self._extract_domain(url)
-        start_time = time.time()
         
-        print(f"🧠 AI-optimized extraction for {domain}")
+        print(f"🧠 AI-optimized extraction for {domain} (max {retry_count} attempts)")
+        
+        last_exception = None
+        
+        for attempt in range(retry_count):
+            try:
+                if attempt > 0:
+                    # Shorter wait time for content extraction retry: 0.5s, 1s...
+                    wait_time = (0.5 * (attempt)) + random.uniform(0.1, 0.3)
+                    print(f"  🔄 Content extraction retry {attempt + 1}/{retry_count} after {wait_time:.1f}s delay...")
+                    await asyncio.sleep(wait_time)
+                
+                # Main extraction logic
+                content = await self._attempt_content_extraction(url, domain, attempt + 1)
+                
+                # Check if extraction was successful
+                if content and len(content.strip()) > 50:
+                    if attempt > 0:
+                        print(f"  ✅ Content extraction succeeded on attempt {attempt + 1}/{retry_count}")
+                    return content
+                else:
+                    if attempt == 0:
+                        print(f"  ⚠️ Initial content extraction failed or insufficient content (got {len(content or '')} chars)")
+                    else:
+                        print(f"  ⚠️ Content extraction retry {attempt + 1} failed or insufficient content (got {len(content or '')} chars)")
+                    
+                    if attempt < retry_count - 1:
+                        print(f"  🔄 Will retry content extraction...")
+                    
+            except Exception as e:
+                last_exception = e
+                if attempt == 0:
+                    print(f"  ❌ Initial content extraction attempt failed: {e}")
+                else:
+                    print(f"  ❌ Content extraction retry {attempt + 1} failed: {e}")
+                
+                if attempt < retry_count - 1:
+                    print(f"  🔄 Will retry content extraction after delay...")
+        
+        # All attempts failed
+        print(f"  ❌ All {retry_count} content extraction attempts failed for {domain}")
+        if last_exception:
+            print(f"  ❌ Final error: {last_exception}")
+        
+        return None
+    
+    async def _attempt_content_extraction(self, url: str, domain: str, attempt_num: int) -> Optional[str]:
+        """
+        Single attempt at content extraction.
+        
+        Args:
+            url: Article URL  
+            domain: Domain name
+            attempt_num: Current attempt number (1-based)
+            
+        Returns:
+            Extracted content or None
+        """
+        start_time = time.time()
 
         # Check if this is a Telegram domain and handle specially
         if domain in ("t.me", "telegram.me", "www.t.me", "www.telegram.me"):
-            print("  📱 Telegram domain detected - attempting enhanced extraction")
+            print(f"  📱 Telegram domain detected - attempting enhanced extraction (attempt {attempt_num})")
             
             # For reprocessing, we should try to extract content from Telegram messages
             # that might contain external links
             try:
                 telegram_content = await self._extract_from_telegram_with_links(url)
                 if telegram_content and len(telegram_content) > 200:
-                    print(f"  ✅ Extracted enhanced Telegram content: {len(telegram_content)} chars")
+                    print(f"  ✅ Extracted enhanced Telegram content: {len(telegram_content)} chars (attempt {attempt_num})")
                     return self._finalize_content(telegram_content)
                 else:
-                    print(f"  ⚠️ Telegram content not sufficient for reprocessing: {len(telegram_content or '')} chars")
+                    print(f"  ⚠️ Telegram content not sufficient for reprocessing: {len(telegram_content or '')} chars (attempt {attempt_num})")
                     return None
                     
             except Exception as e:
-                print(f"  ❌ Telegram enhanced extraction failed: {e}")
+                print(f"  ❌ Telegram enhanced extraction failed on attempt {attempt_num}: {e}")
                 return None
         
         try:

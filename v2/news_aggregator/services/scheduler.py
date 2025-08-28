@@ -184,6 +184,10 @@ class TaskScheduler:
                 await self._run_daily_summaries(task_config)
             elif task_name == "backup":
                 await self._run_backup_task(task_config)
+            elif task_name == "reprocess_failed":
+                await self._run_reprocess_failed(task_config)
+            elif task_name == "news_digest":
+                await self._run_news_digest_cycle(task_config)
             else:
                 print(f"⚠️ Unknown task type: {task_name}")
                 logger.warning(f"Unknown task type: {task_name}")
@@ -414,6 +418,46 @@ class TaskScheduler:
                     
         except Exception as e:
             logger.error(f"Error cleaning up old backups: {e}", exc_info=True)
+    
+    async def _run_reprocess_failed(self, config: Dict[str, Any]):
+        """Run reprocess failed extractions task."""
+        try:
+            print(f"🔄 Starting failed extraction reprocessing task...")
+            logger.info("Starting failed extraction reprocessing task")
+            
+            # Get configuration
+            limit = config.get('limit', 20)  # Process max 20 articles per run by default
+            dry_run = config.get('dry_run', False)
+            
+            print(f"  📊 Reprocessing up to {limit} failed extractions (dry_run={dry_run})")
+            
+            # Run the reprocessing
+            results = await self.orchestrator.reprocess_failed_extractions(limit=limit, dry_run=dry_run)
+            
+            # Log results
+            candidates_count = results.get('total_candidates', 0)
+            processed_count = results.get('processed', 0)
+            improved_count = results.get('improved', 0)
+            failed_count = results.get('failed', 0)
+            
+            if dry_run:
+                print(f"  📋 Dry run completed: {candidates_count} articles would be reprocessed")
+                logger.info(f"Reprocess dry run: {candidates_count} candidates found")
+            else:
+                print(f"  ✅ Reprocessing completed: {processed_count} processed, {improved_count} improved, {failed_count} failed")
+                logger.info(f"Reprocessing completed: processed={processed_count}, improved={improved_count}, failed={failed_count}")
+                
+                # Log any errors
+                errors = results.get('errors', [])
+                if errors:
+                    print(f"  ⚠️ {len(errors)} errors during reprocessing")
+                    for error in errors:
+                        logger.warning(f"Reprocessing error: {error}")
+                        
+        except Exception as e:
+            print(f"❌ Error in failed extraction reprocessing task: {e}")
+            logger.error(f"Error in failed extraction reprocessing task: {e}", exc_info=True)
+            raise
             
     async def get_status(self) -> Dict[str, Any]:
         """Get scheduler status."""

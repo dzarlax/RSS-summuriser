@@ -26,7 +26,7 @@ class TelegraphService:
     
     async def create_news_page(self, articles_by_category: Dict[str, List]) -> Optional[str]:
         """
-        Create Telegraph page with full news content (like old version).
+        Create Telegraph page with news content, automatically limiting size to fit Telegraph limits.
         
         Args:
             articles_by_category: Dictionary with categories and their articles (like old version format)
@@ -60,40 +60,58 @@ class TelegraphService:
             content_html = self._create_table_of_contents(valid_categories, category_stats)
             content_html += "<hr>\n\n"  # Separator line
             
-            # Step 3: Create category content with anchors
+            # Step 3: Create category content with size limits
             categories_processed = 0
+            max_content_size = 50000  # Conservative limit for Telegraph (~50KB)
+            current_size = len(content_html)
             
             for category in valid_categories:
                 articles = articles_by_category[category]
                 
                 try:
-                    # Category header (Telegraph doesn't support id attributes)
-                    content_html += f'<h3>{category}</h3>\n'
+                    # Check if we're approaching the size limit
+                    if current_size > max_content_size:
+                        logging.info(f"Telegraph content size limit reached, truncating at {categories_processed} categories")
+                        remaining_categories = len(valid_categories) - categories_processed
+                        if remaining_categories > 0:
+                            content_html += f"\n<p><em>... и ещё {remaining_categories} категорий с новостями. Полная сводка в Telegram.</em></p>\n"
+                        break
                     
-                    # Add articles from this category
+                    # Category header (Telegraph doesn't support id attributes)
+                    category_header = f'<h3>{category}</h3>\n'
+                    
+                    # Estimate content for this category
+                    category_content = category_header
+                    articles_added = 0
+                    
+                    # Add articles from this category with size checking
                     for article in articles:
-                        # Use headline/description like old version
+                        # Estimate article content size
                         headline = article.get('headline', '')
                         description = article.get('description', '')
                         links = article.get('links', [])
                         image_url = article.get('image_url', '')
                         
+                        # Build article HTML
+                        article_html = ""
                         if headline:
-                            content_html += f"<h4>{self._escape_html(headline)}</h4>\n"
+                            article_html += f"<h4>{self._escape_html(headline)}</h4>\n"
                         
                         # Add image if available
                         if image_url and self._is_valid_image_url(image_url):
-                            content_html += f'<img src="{image_url}" alt="{self._escape_html(headline[:100])}">\n'
+                            article_html += f'<img src="{image_url}" alt="{self._escape_html(headline[:100])}">\n'
                         
                         if description:
-                            # Clean and format description
+                            # Clean and format description, but limit length for Telegraph
                             cleaned_description = self._clean_summary_for_telegraph(description)
-                            content_html += f"<p>{cleaned_description}</p>\n"
+                            if len(cleaned_description) > 300:  # Limit description length
+                                cleaned_description = cleaned_description[:300] + "..."
+                            article_html += f"<p>{cleaned_description}</p>\n"
                         
                         # Add links like old version
                         if links:
                             links_html = []
-                            for link in links[:3]:  # Max 3 links
+                            for link in links[:2]:  # Reduced to 2 links to save space
                                 if link and link.startswith(('http://', 'https://')):
                                     try:
                                         domain = self._extract_domain(link)
@@ -102,9 +120,24 @@ class TelegraphService:
                                     except Exception:
                                         continue
                             if links_html:
-                                content_html += f"<p>Источники: {' | '.join(links_html)}</p>\n"
+                                article_html += f"<p>Источники: {' | '.join(links_html)}</p>\n"
                         
-                        content_html += "<br>\n"
+                        article_html += "<br>\n"
+                        
+                        # Check if adding this article would exceed the limit
+                        if current_size + len(article_html) > max_content_size:
+                            remaining_articles = len(articles) - articles_added
+                            if remaining_articles > 0:
+                                category_content += f"<p><em>... и ещё {remaining_articles} новостей в этой категории</em></p>\n"
+                            break
+                        
+                        # Add article to category content
+                        category_content += article_html
+                        articles_added += 1
+                    
+                    # Add the complete category to main content
+                    content_html += category_content
+                    current_size = len(content_html)
                     
                     categories_processed += 1
                     
@@ -112,7 +145,7 @@ class TelegraphService:
                     logging.warning(f"Error processing category {category}: {e}")
                     continue
             
-            logging.info(f"Processed {categories_processed} categories for Telegraph page with table of contents")
+            logging.info(f"Processed {categories_processed} categories for Telegraph page with table of contents (content size: {current_size} chars)")
             
             # Sanitize HTML content
             content_html = self._sanitize_html_for_telegraph(content_html)
