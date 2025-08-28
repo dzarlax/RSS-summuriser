@@ -82,24 +82,57 @@ class NewsOrchestrator:
                 from sqlalchemy import select, or_, and_
                 from sqlalchemy.orm import selectinload
                 from .models import ArticleCategory, Category
-                unprocessed_result = await db.execute(
+                # First, get articles with poor summaries (high priority)
+                poor_summaries_result = await db.execute(
                     select(Article).options(
                         selectinload(Article.source),
                         selectinload(Article.article_categories).selectinload(ArticleCategory.category)
                     ).where(
-                        or_(
-                            (Article.summary.is_(None)) | (Article.summary == ''),  # No summary
-                            (Article.category_processed.is_(False)),  # Need categorization
-                            (Article.ad_processed.is_(False))  # Need advertising detection for ALL sources
-                        )
-                    ).limit(200)  # Process max 200 at once
+                        (Article.summary.is_not(None)) & (func.length(Article.summary) < 200)  # Poor summary quality
+                    ).limit(50)  # Process up to 50 poor summaries first
                 )
-                unprocessed_articles = list(unprocessed_result.scalars().all())
+                poor_summaries = list(poor_summaries_result.scalars().all())
                 
-                # Combine new and unprocessed articles (removing duplicates) - work with IDs only
-                all_article_ids = [article.id for article in all_articles]
+                # Then get other unprocessed articles
+                remaining_limit = 200 - len(poor_summaries)
+                if remaining_limit > 0:
+                    other_unprocessed_result = await db.execute(
+                        select(Article).options(
+                            selectinload(Article.source),
+                            selectinload(Article.article_categories).selectinload(ArticleCategory.category)
+                        ).where(
+                            or_(
+                                (Article.summary_processed.is_(False)),  # Need summary processing
+                                (Article.category_processed.is_(False)),  # Need categorization
+                                (Article.ad_processed.is_(False)),  # Need advertising detection for ALL sources
+                                (Article.content.is_(None)) | (Article.content == '') | (func.length(Article.content) < 500),  # Need content extraction retry (increased threshold for RSS)
+                            )
+                        ).limit(remaining_limit)
+                    )
+                    other_unprocessed = list(other_unprocessed_result.scalars().all())
+                else:
+                    other_unprocessed = []
+                
+                # Combine: poor summaries first, then others
+                unprocessed_articles = poor_summaries + other_unprocessed
+                
+                # Prioritize unprocessed articles over new ones - work with IDs only
                 unprocessed_article_ids = [article.id for article in unprocessed_articles]
-                article_ids_to_process = list(set(all_article_ids + unprocessed_article_ids))
+                all_article_ids = [article.id for article in all_articles]
+                
+                # Remove duplicates while preserving priority (unprocessed first)
+                seen = set()
+                article_ids_to_process = []
+                # First add unprocessed articles
+                for article_id in unprocessed_article_ids:
+                    if article_id not in seen:
+                        article_ids_to_process.append(article_id)
+                        seen.add(article_id)
+                # Then add new articles if there's room
+                for article_id in all_article_ids:
+                    if article_id not in seen:
+                        article_ids_to_process.append(article_id)
+                        seen.add(article_id)
             
             if not article_ids_to_process:
                 print("ℹ️ No articles to process")
@@ -297,50 +330,56 @@ class NewsOrchestrator:
                     source_type=source_type
                 )
             
-            # If content is too short but we have external URL, try to extract full content
-            if not should_process and "Content too short" in filter_reason and source_type == 'telegram':
-                if article_url and not any(domain in article_url.lower() for domain in ['t.me', 'telegram.me']):
-                    try:
-                        print(f"  🔍 Content too short, trying to extract from external URL using full parsing pipeline: {article_url}")
-                        
-                        # Use full content extraction pipeline with all parsing schemas
-                        from .services import get_content_extractor
-                        content_extractor = await get_content_extractor()
-                        
-                        # Try AI-enhanced extraction with metadata first
-                        extracted_content = None
+            # If content is too short or empty, try to extract full content from URL
+            # For RSS sources, extract if content < 500 chars regardless of Smart Filter decision
+            content_too_short = (len(article_content.strip()) < 500 and source_type == 'rss') or len(article_content.strip()) < 50
+            
+            if not should_process and ("Content too short" in filter_reason) or content_too_short:
+                if article_url and article_url.startswith(('http://', 'https://')):
+                    # Skip URLs that are known to not have extractable content
+                    skip_domains = ['t.me', 'telegram.me', 'twitter.com', 'x.com', 'instagram.com']
+                    if not any(domain in article_url.lower() for domain in skip_domains):
                         try:
-                            extraction_result = await content_extractor.extract_article_content_with_metadata(article_url, retry_count=4)
-                            extracted_content = extraction_result.get('content')
-                        except Exception as e:
-                            print(f"  ⚠️ AI-enhanced extraction failed after retries, trying standard extraction: {e}")
-                            # Fallback to standard content extraction
+                            print(f"  🔍 Content empty/short ({len(article_content)} chars), trying content extraction: {article_url}")
+                            
+                            # Use full content extraction pipeline with all parsing schemas
+                            from .services import get_content_extractor
+                            content_extractor = await get_content_extractor()
+                            
+                            # Try AI-enhanced extraction with metadata first
+                            extracted_content = None
                             try:
-                                extracted_content = await content_extractor.extract_article_content(article_url, retry_count=3)
-                            except Exception as e2:
-                                print(f"  ❌ Standard extraction also failed after retries: {e2}")
-                                extracted_content = None
-                        
-                        # Check if extracted content is meaningful
-                        if extracted_content and len(extracted_content.strip()) > len(article_content):
-                            print(f"  ✅ Extracted {len(extracted_content)} chars from external URL using parsing schemas")
+                                extraction_result = await content_extractor.extract_article_content_with_metadata(article_url, retry_count=4)
+                                extracted_content = extraction_result.get('content')
+                            except Exception as e:
+                                print(f"  ⚠️ AI-enhanced extraction failed after retries, trying standard extraction: {e}")
+                                # Fallback to standard content extraction
+                                try:
+                                    extracted_content = await content_extractor.extract_article_content(article_url, retry_count=3)
+                                except Exception as e2:
+                                    print(f"  ❌ Standard extraction also failed after retries: {e2}")
+                                    extracted_content = None
                             
-                            # Update article with extracted content
-                            article_data['content'] = extracted_content
-                            update_fields = {'content': extracted_content}
-                            await self._save_article_fields(article_id, update_fields)
-                            
-                            # Re-check smart filter with new content
-                            should_process, filter_reason = smart_filter.should_process_with_ai(
-                                title=article_data.get('title') or '',
-                                content=extracted_content,
-                                url=article_url,
-                                source_type=source_type
-                            )
-                        else:
-                            print(f"  ⚠️ Could not extract meaningful content from external URL")
-                    except Exception as e:
-                        print(f"  ❌ Failed to extract content from external URL: {e}")
+                            # Check if extracted content is meaningful
+                            if extracted_content and len(extracted_content.strip()) > len(article_content):
+                                print(f"  ✅ Extracted {len(extracted_content)} chars from external URL using parsing schemas")
+                                
+                                # Update article with extracted content
+                                article_data['content'] = extracted_content
+                                update_fields = {'content': extracted_content}
+                                await self._save_article_fields(article_id, update_fields)
+                                
+                                # Re-check smart filter with new content
+                                should_process, filter_reason = smart_filter.should_process_with_ai(
+                                    title=article_data.get('title') or '',
+                                    content=extracted_content,
+                                    url=article_url,
+                                    source_type=source_type
+                                )
+                            else:
+                                print(f"  ⚠️ Could not extract meaningful content from external URL")
+                        except Exception as e:
+                            print(f"  ❌ Failed to extract content from external URL: {e}")
             
             if not should_process:
                 print(f"  🚫 Smart Filter: Skipping AI processing - {filter_reason}")
@@ -416,6 +455,9 @@ class NewsOrchestrator:
                     elif not isinstance(categories_result, list):
                         categories_result = ['Other']  # Fallback for invalid format
                     
+                    # Extract original AI categories (before mapping)
+                    original_categories = ai_result.get('original_categories', categories_result)
+                    
                     # Extract category confidences (new format: array matching categories)
                     confidences_result = ai_result.get('category_confidences', ai_result.get('category_confidence', [1.0]))
                     if isinstance(confidences_result, (int, float)):
@@ -428,9 +470,6 @@ class NewsOrchestrator:
                         confidences_result.append(0.8)  # Default confidence for extra categories
                     confidences_result = confidences_result[:len(categories_result)]  # Trim if too long
                     
-                    # Mark category processing as complete (no legacy field needed)
-                    update_fields['category_processed'] = True
-                    
                     # Handle multiple categories with confidences
                     try:
                         from .services.category_service import get_category_service
@@ -441,10 +480,12 @@ class NewsOrchestrator:
                             categories_with_confidence = []
                             for i, category_name in enumerate(categories_result):
                                 confidence = confidences_result[i] if i < len(confidences_result) else 0.8
+                                # Use original AI category from original_categories array
+                                ai_category = original_categories[i] if i < len(original_categories) else category_name
                                 categories_with_confidence.append({
                                     'name': category_name,
                                     'confidence': max(0.0, min(1.0, float(confidence))),  # Clamp to 0-1 range
-                                    'ai_category': category_name  # Store original AI category
+                                    'ai_category': ai_category  # Store ACTUAL original AI category
                                 })
                             
                             assigned_categories = await category_service.assign_categories_with_confidences(
@@ -452,11 +493,15 @@ class NewsOrchestrator:
                                 categories_with_confidence=categories_with_confidence
                             )
                             
+                            # Mark category processing as complete ONLY after successful assignment
+                            update_fields['category_processed'] = True
+                            
                             # Log assigned categories with confidences
                             categories_info = [f"{c['display_name']} ({c['confidence']:.2f})" for c in assigned_categories]
                             print(f"  🏷️ Multiple categories assigned: {', '.join(categories_info)}")
                     except Exception as e:
                         print(f"  ⚠️ Multiple categories assignment failed: {e}")
+                        # DO NOT set category_processed = True here - let it retry
                     
                 if needs_ad_detection:
                     update_fields['is_advertisement'] = ai_result.get('is_advertisement', False)
@@ -543,50 +588,6 @@ class NewsOrchestrator:
                     url=article_url,
                     source_type=source_type
                 )
-            
-            # If content is too short but we have external URL, try to extract full content
-            if not should_process and "Content too short" in filter_reason and source_type == 'telegram':
-                if article_url and not any(domain in article_url.lower() for domain in ['t.me', 'telegram.me']):
-                    try:
-                        print(f"  🔍 Content too short, trying to extract from external URL using full parsing pipeline: {article_url}")
-                        
-                        # Use full content extraction pipeline with all parsing schemas
-                        from .services import get_content_extractor
-                        content_extractor = await get_content_extractor()
-                        
-                        # Try AI-enhanced extraction with metadata first
-                        extracted_content = None
-                        try:
-                            extraction_result = await content_extractor.extract_article_content_with_metadata(article_url, retry_count=4)
-                            extracted_content = extraction_result.get('content')
-                        except Exception as e:
-                            print(f"  ⚠️ AI-enhanced extraction failed after retries, trying standard extraction: {e}")
-                            # Fallback to standard content extraction
-                            try:
-                                extracted_content = await content_extractor.extract_article_content(article_url, retry_count=3)
-                            except Exception as e2:
-                                print(f"  ❌ Standard extraction also failed after retries: {e2}")
-                                extracted_content = None
-                        
-                        # Check if extracted content is meaningful
-                        if extracted_content and len(extracted_content.strip()) > len(article_content):
-                            print(f"  ✅ Extracted {len(extracted_content)} chars from external URL using parsing schemas")
-                            
-                            # Update article with extracted content
-                            article_data['content'] = extracted_content
-                            await self._save_article_fields(article_id, {'content': extracted_content})
-                            
-                            # Re-check smart filter with new content
-                            should_process, filter_reason = smart_filter.should_process_with_ai(
-                                title=article_data.get('title') or '',
-                                content=extracted_content,
-                                url=article_url,
-                                source_type=source_type
-                            )
-                        else:
-                            print(f"  ⚠️ Could not extract meaningful content from external URL")
-                    except Exception as e:
-                        print(f"  ❌ Failed to extract content from external URL: {e}")
             
             if not should_process:
                 print(f"  🚫 Smart Filter: Skipping AI processing - {filter_reason}")
@@ -777,8 +778,8 @@ class NewsOrchestrator:
                 
             except Exception as e:
                 print(f"  ❌ Categorization failed: {e}")
-                # Set default category and mark as processed
-                field_updates['category_processed'] = True
+                # DO NOT mark as processed - let it retry
+                logging.error(f"Categorization failed for article {article_id}: {e}")
         
         # Process ad detection if needed
         if needs_ad_detection:
@@ -1232,24 +1233,28 @@ class NewsOrchestrator:
             
             if analysis_result and 'categories' in analysis_result:
                 categories = analysis_result['categories']
+                original_categories = analysis_result.get('original_categories', [])
                 stats['api_calls_made'] += 1
                 
                 # Ensure each category dict has ai_category field for original AI category tracking
                 processed_categories = []
-                for cat in categories:
+                for i, cat in enumerate(categories):
+                    # Get corresponding original category
+                    original_cat = original_categories[i] if i < len(original_categories) else None
+                    
                     if isinstance(cat, str):
                         # If category is just a string, convert to dict format
                         processed_categories.append({
                             'name': cat,
                             'confidence': 1.0,
-                            'ai_category': cat  # Store original AI category
+                            'ai_category': original_cat or cat  # Use original AI category if available
                         })
                     elif isinstance(cat, dict):
                         # If already a dict, ensure ai_category field exists
                         processed_categories.append({
                             'name': cat.get('name', cat.get('category', 'Other')),
                             'confidence': cat.get('confidence', 1.0),
-                            'ai_category': cat.get('ai_category', cat.get('name', cat.get('category', 'Other')))
+                            'ai_category': original_cat or cat.get('ai_category', cat.get('name', cat.get('category', 'Other')))
                         })
                 
                 return processed_categories

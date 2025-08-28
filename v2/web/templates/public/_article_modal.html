@@ -1,0 +1,1043 @@
+<!-- Article Modal -->
+<div id="articleModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <div class="modal-header-info">
+                <div id="modalCategory" class="modal-category category-tech">Загрузка...</div>
+                <div id="modalAdBadge" class="modal-ad-badge" style="display: none;">🚨 РЕКЛАМА</div>
+                <div id="modalFinalCategories" class="modal-final-categories" style="display: none;"></div>
+            </div>
+            <button class="modal-close" onclick="closeArticleModal()">&times;</button>
+        </div>
+        
+        <!-- Media Gallery -->
+        <div id="modalGallery" class="modal-gallery" style="display: none;">
+            <div class="gallery-container">
+                <div class="gallery-images" id="galleryImages"></div>
+                <div class="gallery-thumbnails" id="galleryThumbnails"></div>
+                <button class="gallery-fullscreen" onclick="toggleFullscreen()" title="Полноэкранный режим">⛶</button>
+            </div>
+        </div>
+        
+        <!-- Single Image -->
+        <div id="modalImage" class="modal-image" style="display: none;">
+            <img id="modalImageSrc" src="" alt="">
+        </div>
+        
+        <div class="modal-body">
+            <h1 id="modalTitle" class="modal-title">Загрузка...</h1>
+            
+            <div class="modal-meta">
+                <span id="modalSource" class="modal-source">Загрузка...</span>
+                <span id="modalDate" class="modal-date">Загрузка...</span>
+            </div>
+            
+            <div id="modalSummary" class="modal-summary">
+                <div class="loading-spinner"></div>
+                <p>Загрузка содержимого...</p>
+            </div>
+            
+            <!-- Full Content Spoiler -->
+            <div id="modalContentSpoiler" class="modal-content-spoiler" style="display: none;">
+                <button class="spoiler-toggle" onclick="toggleContentSpoiler()">
+                    <span class="spoiler-icon">▶</span>
+                    <span class="spoiler-text">Показать полный текст статьи</span>
+                </button>
+                <div id="modalContent" class="modal-content-text spoiler-content" style="display: none;"></div>
+            </div>
+            
+            <!-- Original AI Categories (before mapping) -->
+            <div id="modalOriginalCategories" class="modal-original-categories" style="display: none;">
+                <h4 class="categories-title">🤖 Оригинальные AI категории</h4>
+                <p class="categories-description">Первичная классификация ИИ до маппинга в систему:</p>
+                <div id="originalCategoriesList" class="categories-list"></div>
+            </div>
+            
+            <div class="modal-actions">
+                <button id="modalOriginalBtn" class="btn btn-primary" onclick="window.open('', '_blank')" style="display: none;">
+                    🔗 Читать оригинал
+                </button>
+                <button class="btn btn-secondary" onclick="closeArticleModal()">
+                    Закрыть
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Modal Styles */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(5px);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    opacity: 1;
+}
+
+.modal-content {
+    background: white;
+    border-radius: 12px;
+    max-width: 800px;
+    max-height: 90vh;
+    width: 100%;
+    overflow-y: auto;
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+    position: relative;
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 20px 20px 0 20px;
+    border-bottom: 1px solid #eee;
+    margin-bottom: 20px;
+}
+
+.modal-header-info {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 1;
+    align-items: flex-start; /* Prevent category from stretching */
+}
+
+.modal-category {
+    display: inline-block;
+    padding: 6px 14px;
+    border-radius: 18px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    transition: all 0.2s ease;
+}
+
+.modal-category:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Dynamic category colors will be applied via JavaScript */
+
+.modal-ad-badge {
+    background: linear-gradient(45deg, #ff4444, #ff6666);
+    color: white;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.7rem;
+    font-weight: bold;
+    text-transform: uppercase;
+    display: inline-block;
+    align-self: flex-start;
+}
+
+.modal-final-categories {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+}
+
+.modal-final-category {
+    /* Background and colors set dynamically via JavaScript */
+    border: 1px solid;
+    padding: 6px 10px;
+    border-radius: 14px;
+    font-size: 0.8rem;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    transition: all 0.2s ease;
+    font-weight: 500;
+}
+
+.modal-final-category:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+.modal-final-category .confidence {
+    font-weight: bold;
+    padding: 2px 6px;
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 8px;
+    font-size: 0.75rem;
+}
+
+/* Original Categories */
+.modal-original-categories {
+    margin-top: 25px;
+    padding-top: 20px;
+    border-top: 1px solid #eee;
+}
+
+.categories-title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 8px 0;
+    color: #2c3e50;
+}
+
+.categories-description {
+    font-size: 0.85rem;
+    color: #6c757d;
+    margin: 0 0 15px 0;
+    font-style: italic;
+}
+
+.categories-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.category-item {
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border: 1px solid #dee2e6;
+    border-radius: 12px;
+    padding: 6px 12px;
+    font-size: 0.8rem;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s;
+}
+
+.category-item:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.category-item .category-name {
+    font-weight: 600;
+    color: #495057;
+}
+
+.category-item .confidence-score {
+    background: #4a90e2;
+    color: white;
+    padding: 2px 6px;
+    border-radius: 8px;
+    font-size: 0.7rem;
+    font-weight: bold;
+}
+
+.category-item.high-confidence .confidence-score {
+    background: #28a745;
+}
+
+.category-item.medium-confidence .confidence-score {
+    background: #ffc107;
+    color: #212529;
+}
+
+.category-item.low-confidence .confidence-score {
+    background: #6c757d;
+}
+
+.modal-close {
+    background: none;
+    border: none;
+    font-size: 24px;
+    cursor: pointer;
+    color: #666;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: all 0.2s;
+}
+
+.modal-close:hover {
+    background: #f0f0f0;
+    color: #333;
+}
+
+/* Gallery Styles */
+.modal-gallery {
+    position: relative;
+    margin-bottom: 20px;
+}
+
+.gallery-container {
+    position: relative;
+    background: transparent;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.gallery-images {
+    position: relative;
+    height: 400px;
+    overflow: hidden;
+}
+
+.gallery-image {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    transition: opacity 0.3s;
+    cursor: pointer;
+}
+
+.gallery-image.active {
+    opacity: 1;
+}
+
+.gallery-image:not(.active) {
+    opacity: 0;
+}
+
+/* Navigation removed - using thumbnails only */
+
+.gallery-thumbnails {
+    display: flex;
+    gap: 8px;
+    padding: 15px;
+    overflow-x: auto;
+    background: white;
+}
+
+.gallery-thumbnail {
+    width: 60px;
+    height: 60px;
+    object-fit: cover;
+    border-radius: 4px;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.gallery-thumbnail.active {
+    border-color: #4a90e2;
+    transform: scale(1.05);
+}
+
+.gallery-thumbnail:hover {
+    border-color: #6ba3e5;
+}
+
+.gallery-fullscreen {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    background: rgba(0, 0, 0, 0.7);
+    color: white;
+    border: none;
+    width: 32px;
+    height: 32px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: all 0.2s;
+}
+
+.gallery-fullscreen:hover {
+    background: rgba(0, 0, 0, 0.9);
+}
+
+/* Single Image */
+.modal-image {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.modal-image img {
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* Content */
+.modal-body {
+    padding: 0 20px 20px 20px;
+}
+
+.modal-title {
+    font-size: 1.5rem;
+    font-weight: bold;
+    margin: 0 0 15px 0;
+    line-height: 1.3;
+    color: #333;
+}
+
+.modal-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid #eee;
+    font-size: 0.9rem;
+    color: #666;
+}
+
+.modal-source {
+    font-weight: 600;
+    color: #4a90e2;
+}
+
+.modal-summary {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    border-left: 4px solid #4a90e2;
+}
+
+/* Content Spoiler */
+.modal-content-spoiler {
+    margin-bottom: 20px;
+}
+
+.spoiler-toggle {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 12px 16px;
+    cursor: pointer;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    transition: all 0.3s ease;
+    margin-bottom: 10px;
+}
+
+.spoiler-toggle:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.spoiler-icon {
+    font-size: 0.8rem;
+    transition: transform 0.3s ease;
+}
+
+.spoiler-toggle.expanded .spoiler-icon {
+    transform: rotate(90deg);
+}
+
+.spoiler-content {
+    overflow: hidden;
+    transition: all 0.4s ease;
+    max-height: 0;
+    opacity: 0;
+}
+
+.spoiler-content.expanded {
+    max-height: none;
+    opacity: 1;
+    animation: spoilerExpand 0.4s ease-out;
+}
+
+@keyframes spoilerExpand {
+    0% {
+        max-height: 0;
+        opacity: 0;
+    }
+    100% {
+        max-height: 1000px;
+        opacity: 1;
+    }
+}
+
+.modal-content-text {
+    line-height: 1.6;
+    color: #333;
+}
+
+.modal-content-text h1,
+.modal-content-text h2,
+.modal-content-text h3 {
+    margin-top: 25px;
+    margin-bottom: 15px;
+    color: #2c3e50;
+}
+
+.modal-content-text p {
+    margin-bottom: 15px;
+}
+
+.modal-content-text img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 8px;
+    margin: 15px 0;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.modal-content-text blockquote {
+    border-left: 4px solid #4a90e2;
+    padding-left: 20px;
+    margin: 20px 0;
+    font-style: italic;
+    color: #555;
+}
+
+.modal-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 25px;
+    padding-top: 20px;
+    border-top: 1px solid #eee;
+}
+
+.btn {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: 600;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s;
+}
+
+.btn-primary {
+    background: #4a90e2;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #357abd;
+    transform: translateY(-1px);
+}
+
+.btn-secondary {
+    background: #6c757d;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background: #5a6268;
+}
+
+/* Loading */
+.loading-spinner {
+    border: 3px solid #f3f3f3;
+    border-top: 3px solid #4a90e2;
+    border-radius: 50%;
+    width: 30px;
+    height: 30px;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 15px;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .modal-overlay {
+        padding: 10px;
+    }
+    
+    .modal-content {
+        max-height: 95vh;
+    }
+    
+    .modal-header {
+        padding: 15px 15px 0 15px;
+    }
+    
+    .modal-body {
+        padding: 0 15px 15px 15px;
+    }
+    
+    .modal-title {
+        font-size: 1.3rem;
+    }
+    
+    .gallery-images {
+        height: 250px;
+    }
+    
+    .modal-actions {
+        flex-direction: column;
+    }
+    
+    .btn {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
+/* Fullscreen Gallery */
+.modal-overlay.fullscreen {
+    padding: 0;
+}
+
+.modal-overlay.fullscreen .modal-content {
+    max-width: 100%;
+    max-height: 100%;
+    border-radius: 0;
+    height: 100vh;
+    width: 100vw;
+}
+
+.modal-overlay.fullscreen .gallery-images {
+    height: calc(100vh - 120px);
+}
+</style>
+
+<script>
+// Gallery state
+let currentGalleryIndex = 0;
+let galleryImages = [];
+let isFullscreen = false;
+
+// Article modal functions
+window.openArticleModal = async function(articleId) {
+    const modal = document.getElementById('articleModal');
+    if (!modal) return;
+    
+    console.log('Opening modal for article ID:', articleId);
+    
+    // Show modal with loading state
+    modal.style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+    
+    // Reset content
+    document.getElementById('modalTitle').textContent = 'Загрузка...';
+    document.getElementById('modalSource').textContent = 'Загрузка...';
+    document.getElementById('modalDate').textContent = 'Загрузка...';
+    document.getElementById('modalSummary').innerHTML = '<div class="loading-spinner"></div><p>Загрузка содержимого...</p>';
+    document.getElementById('modalContentSpoiler').style.display = 'none';
+    document.getElementById('modalContent').style.display = 'none';
+    document.getElementById('modalImage').style.display = 'none';
+    document.getElementById('modalGallery').style.display = 'none';
+    document.getElementById('modalAdBadge').style.display = 'none';
+    document.getElementById('modalFinalCategories').style.display = 'none';
+    document.getElementById('modalOriginalCategories').style.display = 'none';
+    document.getElementById('modalOriginalBtn').style.display = 'none';
+    
+    // Reset spoiler state
+    const spoilerToggle = document.querySelector('.spoiler-toggle');
+    const spoilerContent = document.getElementById('modalContent');
+    if (spoilerToggle) {
+        spoilerToggle.classList.remove('expanded');
+        spoilerToggle.querySelector('.spoiler-text').textContent = 'Показать полный текст статьи';
+    }
+    if (spoilerContent) {
+        spoilerContent.classList.remove('expanded');
+    }
+    
+    try {
+        console.log('Fetching article data...');
+        const response = await fetch(`/api/public/article/${articleId}`);
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('API Error:', response.status, errorText);
+            throw new Error(`Server returned ${response.status}: ${errorText}`);
+        }
+        
+        const article = await response.json();
+        console.log('Article data received:', article);
+        
+        // Update modal content
+        document.getElementById('modalTitle').textContent = article.title || 'Без заголовка';
+        document.getElementById('modalSource').textContent = article.source_name || 'Неизвестный источник';
+        document.getElementById('modalDate').textContent = formatModalDate(article.published_at);
+        
+        // Set category with dynamic color
+        const categoryEl = document.getElementById('modalCategory');
+        categoryEl.className = 'modal-category';
+        
+        // Use data from categories instead of legacy category field
+        if (article.categories && article.categories.length > 0) {
+            const primaryCategory = article.categories[0];
+            categoryEl.textContent = primaryCategory.display_name || primaryCategory.name;
+            const color = primaryCategory.color || '#6c757d';
+            // Calculate text color based on background brightness
+            const textColor = isLightColor(color) ? '#000000' : '#ffffff';
+            categoryEl.style.background = color;
+            categoryEl.style.color = textColor;
+        } else {
+            // Fallback
+            categoryEl.textContent = 'Другое';
+            categoryEl.style.background = '#6c757d';
+            categoryEl.style.color = '#ffffff';
+        }
+        
+        // Show ad badge if needed
+        if (article.is_advertisement) {
+            document.getElementById('modalAdBadge').style.display = 'block';
+        }
+        
+        // Show final categories (after mapping) at the top
+        if (article.categories && article.categories.length > 0) {
+            showFinalCategories(article.categories);
+        } else {
+            // Hide final categories section if not available
+            document.getElementById('modalFinalCategories').style.display = 'none';
+        }
+        
+        // Show original AI categories (before mapping) at the bottom
+        if (article.ai_categories && article.ai_categories.length > 0) {
+            showOriginalAiCategories(article.ai_categories);
+        } else {
+            // Hide AI categories section if not available
+            document.getElementById('modalOriginalCategories').style.display = 'none';
+        }
+        
+        // Handle media files
+        if (article.media_files && article.media_files.length > 0) {
+            showGallery(article.media_files);
+        } else if (article.image_url || article.primary_image) {
+            showSingleImage(article.image_url || article.primary_image);
+        }
+        
+        // Show summary and content
+        if (article.summary) {
+            document.getElementById('modalSummary').innerHTML = `<p>${escapeHtml(article.summary)}</p>`;
+        } else {
+            document.getElementById('modalSummary').style.display = 'none';
+        }
+        
+        if (article.content) {
+            const contentEl = document.getElementById('modalContent');
+            const spoilerEl = document.getElementById('modalContentSpoiler');
+            contentEl.innerHTML = article.content;
+            spoilerEl.style.display = 'block';
+        }
+        
+        // Setup original link button
+        if (article.url) {
+            const originalBtn = document.getElementById('modalOriginalBtn');
+            originalBtn.onclick = () => window.open(article.url, '_blank');
+            originalBtn.style.display = 'inline-flex';
+        }
+        
+    } catch (error) {
+        console.error('Произошла ошибка при загрузке статьи:', error);
+        document.getElementById('modalSummary').innerHTML = `
+            <div style="color: #d32f2f; text-align: center;">
+                <p><strong>❌ Ошибка загрузки статьи:</strong></p>
+                <p style="font-size: 0.9rem; margin-top: 10px;">${escapeHtml(error.message)}</p>
+            </div>
+        `;
+    }
+};
+
+window.closeArticleModal = function() {
+    const modal = document.getElementById('articleModal');
+    if (modal) {
+        modal.style.display = 'none';
+        document.body.style.overflow = '';
+        
+        // Reset fullscreen if active
+        if (isFullscreen) {
+            toggleFullscreen();
+        }
+        
+        // Reset gallery state
+        currentGalleryIndex = 0;
+        galleryImages = [];
+    }
+};
+
+// Content spoiler toggle function
+window.toggleContentSpoiler = function() {
+    const spoilerToggle = document.querySelector('.spoiler-toggle');
+    const spoilerContent = document.getElementById('modalContent');
+    const spoilerText = spoilerToggle.querySelector('.spoiler-text');
+    
+    if (!spoilerContent || !spoilerToggle) return;
+    
+    const isExpanded = spoilerToggle.classList.contains('expanded');
+    
+    if (isExpanded) {
+        // Collapse
+        spoilerToggle.classList.remove('expanded');
+        spoilerContent.classList.remove('expanded');
+        spoilerText.textContent = 'Показать полный текст статьи';
+        spoilerContent.style.display = 'none';
+    } else {
+        // Expand
+        spoilerToggle.classList.add('expanded');
+        spoilerContent.classList.add('expanded');
+        spoilerText.textContent = 'Скрыть полный текст';
+        spoilerContent.style.display = 'block';
+    }
+};
+
+// Gallery functions
+function showGallery(mediaFiles) {
+    galleryImages = mediaFiles;
+    currentGalleryIndex = 0;
+    
+    const galleryEl = document.getElementById('modalGallery');
+    const imagesEl = document.getElementById('galleryImages');
+    const thumbnailsEl = document.getElementById('galleryThumbnails');
+    
+    // Create gallery images
+    imagesEl.innerHTML = '';
+    mediaFiles.forEach((media, index) => {
+        const img = document.createElement('img');
+        img.src = media.url;
+        img.alt = media.filename || `Image ${index + 1}`;
+        img.className = `gallery-image ${index === 0 ? 'active' : ''}`;
+        img.onclick = () => toggleFullscreen();
+        imagesEl.appendChild(img);
+    });
+    
+    // Create thumbnails
+    thumbnailsEl.innerHTML = '';
+    mediaFiles.forEach((media, index) => {
+        const thumb = document.createElement('img');
+        thumb.src = media.thumbnail_url || media.url;
+        thumb.alt = `Thumbnail ${index + 1}`;
+        thumb.className = `gallery-thumbnail ${index === 0 ? 'active' : ''}`;
+        thumb.onclick = () => navigateToImage(index);
+        thumbnailsEl.appendChild(thumb);
+    });
+    
+    galleryEl.style.display = 'block';
+    updateGalleryNavigation();
+}
+
+function showSingleImage(imageUrl) {
+    if (!imageUrl) return;
+    
+    const imageEl = document.getElementById('modalImage');
+    const imgEl = document.getElementById('modalImageSrc');
+    
+    imgEl.src = imageUrl;
+    imgEl.alt = 'Article image';
+    imageEl.style.display = 'block';
+}
+
+function showFinalCategories(categories) {
+    const containerEl = document.getElementById('modalFinalCategories');
+    
+    if (!categories || categories.length === 0) {
+        containerEl.style.display = 'none';
+        return;
+    }
+    
+    containerEl.innerHTML = categories.map(cat => {
+        const color = cat.color || '#6c757d';
+        const textColor = isLightColor(color) ? '#000000' : '#ffffff';
+        return `
+            <div class="modal-final-category" style="background: ${color}; color: ${textColor}; border-color: ${color};">
+                ${escapeHtml(cat.display_name || cat.name)}
+                <span class="confidence">${Math.round(cat.confidence * 100)}%</span>
+            </div>
+        `;
+    }).join('');
+    
+    containerEl.style.display = 'flex';
+}
+
+function showOriginalAiCategories(aiCategories) {
+    const containerEl = document.getElementById('modalOriginalCategories');
+    const listEl = document.getElementById('originalCategoriesList');
+    
+    if (!aiCategories || aiCategories.length === 0) {
+        containerEl.style.display = 'none';
+        return;
+    }
+    
+    listEl.innerHTML = aiCategories.map(cat => {
+        const confidencePercent = Math.round((cat.confidence || 0) * 100);
+        let confidenceClass = 'low-confidence';
+        
+        if (confidencePercent >= 80) {
+            confidenceClass = 'high-confidence';
+        } else if (confidencePercent >= 60) {
+            confidenceClass = 'medium-confidence';
+        }
+        
+        return `
+            <div class="category-item ${confidenceClass}">
+                <span class="category-name">
+                    🤖 ${escapeHtml(cat.category)}
+                    ${cat.mapped_to ? ` → ${escapeHtml(cat.mapped_to)}` : ''}
+                </span>
+                <span class="confidence-score">${confidencePercent}%</span>
+            </div>
+        `;
+    }).join('');
+    
+    containerEl.style.display = 'block';
+}
+
+window.navigateGallery = function(direction) {
+    if (galleryImages.length === 0) return;
+    
+    currentGalleryIndex += direction;
+    
+    if (currentGalleryIndex < 0) {
+        currentGalleryIndex = galleryImages.length - 1;
+    } else if (currentGalleryIndex >= galleryImages.length) {
+        currentGalleryIndex = 0;
+    }
+    
+    navigateToImage(currentGalleryIndex);
+};
+
+function navigateToImage(index) {
+    currentGalleryIndex = index;
+    
+    // Update active image
+    const images = document.querySelectorAll('.gallery-image');
+    images.forEach((img, i) => {
+        img.classList.toggle('active', i === index);
+    });
+    
+    // Update active thumbnail
+    const thumbnails = document.querySelectorAll('.gallery-thumbnail');
+    thumbnails.forEach((thumb, i) => {
+        thumb.classList.toggle('active', i === index);
+    });
+    
+    updateGalleryNavigation();
+}
+
+function updateGalleryNavigation() {
+    const prevBtn = document.querySelector('.gallery-prev');
+    const nextBtn = document.querySelector('.gallery-next');
+    
+    if (prevBtn && nextBtn) {
+        prevBtn.style.display = galleryImages.length > 1 ? 'flex' : 'none';
+        nextBtn.style.display = galleryImages.length > 1 ? 'flex' : 'none';
+    }
+}
+
+window.toggleFullscreen = function() {
+    const modal = document.getElementById('articleModal');
+    if (!modal) return;
+    
+    isFullscreen = !isFullscreen;
+    modal.classList.toggle('fullscreen', isFullscreen);
+    
+    const fullscreenBtn = document.querySelector('.gallery-fullscreen');
+    if (fullscreenBtn) {
+        fullscreenBtn.innerHTML = isFullscreen ? '⊡' : '⛶';
+        fullscreenBtn.title = isFullscreen ? 'Выйти из полноэкранного режима' : 'Полноэкранный режим';
+    }
+};
+
+// Helper functions
+function formatModalDate(dateString) {
+    if (!dateString) return 'Дата неизвестна';
+    
+    try {
+        const date = new Date(dateString);
+        return date.toLocaleDateString('ru-RU', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    } catch (e) {
+        return 'Дата неизвестна';
+    }
+}
+
+function getCategoryName(category) {
+    const categoryNames = {
+        'tech': '⚙️ Технологии',
+        'politics': '🏛️ Политика',
+        'economics': '💼 Экономика',
+        'science': '🔬 Наука',
+        'sports': '⚽ Спорт',
+        'culture': '🎭 Культура',
+        'health': '🏥 Здоровье',
+        'society': '👥 Общество',
+        'world': '🌍 Мир',
+        'other': '📰 Другое'
+    };
+    
+    return categoryNames[category] || '📰 Другое';
+}
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function isLightColor(hexColor) {
+    // Convert hex to RGB
+    const hex = hexColor.replace('#', '');
+    const r = parseInt(hex.substr(0, 2), 16);
+    const g = parseInt(hex.substr(2, 2), 16);
+    const b = parseInt(hex.substr(4, 2), 16);
+    
+    // Calculate relative luminance using WCAG formula
+    const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+    
+    // Return true if light (luminance > 0.5)
+    return luminance > 0.5;
+}
+
+// Keyboard navigation
+document.addEventListener('keydown', function(e) {
+    const modal = document.getElementById('articleModal');
+    if (!modal || modal.style.display === 'none') return;
+    
+    switch(e.key) {
+        case 'Escape':
+            closeArticleModal();
+            break;
+        case 'ArrowLeft':
+            if (galleryImages.length > 1) {
+                navigateGallery(-1);
+                e.preventDefault();
+            }
+            break;
+        case 'ArrowRight':
+            if (galleryImages.length > 1) {
+                navigateGallery(1);
+                e.preventDefault();
+            }
+            break;
+        case 'f':
+        case 'F':
+            if (galleryImages.length > 0) {
+                toggleFullscreen();
+                e.preventDefault();
+            }
+            break;
+    }
+});
+
+// Close modal on overlay click
+document.addEventListener('click', function(e) {
+    const modal = document.getElementById('articleModal');
+    if (e.target === modal) {
+        closeArticleModal();
+    }
+});
+</script>

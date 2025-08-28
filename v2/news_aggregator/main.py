@@ -11,9 +11,7 @@ from fastapi.responses import HTMLResponse
 from .config import settings
 from .database import init_db, AsyncSessionLocal
 from .migrations.universal_migration_manager import create_migration_manager
-from .migrations.multiple_categories_migration import MultipleCategoriesMigration
 from .migrations.media_files_migration import MediaFilesMigration
-from .migrations.remove_legacy_category_migration import RemoveLegacyCategoryMigration
 from .migrations.fixed_categories_migration import FixedCategoriesMigration
 from .migrations.category_mapping_migration import CategoryMappingMigration
 
@@ -26,14 +24,8 @@ logger = logging.getLogger(__name__)
 migration_manager = create_migration_manager(AsyncSessionLocal, "RSS Summarizer v2")
 
 # Register migrations
-multiple_categories_migration = MultipleCategoriesMigration()
-migration_manager.register_migration(multiple_categories_migration)
-
 media_files_migration = MediaFilesMigration()
 migration_manager.register_migration(media_files_migration)
-
-remove_legacy_category_migration = RemoveLegacyCategoryMigration()
-migration_manager.register_migration(remove_legacy_category_migration)
 
 fixed_categories_migration = FixedCategoriesMigration()
 migration_manager.register_migration(fixed_categories_migration)
@@ -93,11 +85,35 @@ async def lifespan(app: FastAPI):
         traceback.print_exc()
         # Don't prevent app startup on scheduler errors
     
+    # Start process monitor for hanging Playwright processes
+    from .services.process_monitor import start_process_monitor
+    try:
+        print("🔍 Starting process monitor...")
+        await start_process_monitor()
+        print("✅ Process monitor started successfully")
+    except Exception as e:
+        print(f"❌ Process monitor startup error: {e}")
+        import traceback
+        traceback.print_exc()
+        # Don't prevent app startup on monitor errors
+    
     yield
     
     # Shutdown
     from .services.scheduler import stop_scheduler
     await stop_scheduler()
+    
+    # Stop process monitor
+    from .services.process_monitor import stop_process_monitor
+    await stop_process_monitor()
+    
+    # Force cleanup ContentExtractor on shutdown
+    from .services.content_extractor import cleanup_content_extractor
+    try:
+        await cleanup_content_extractor()
+        print("✅ ContentExtractor cleanup completed")
+    except Exception as e:
+        print(f"⚠️ ContentExtractor cleanup error: {e}")
     
     # Stop database queue system
     await db_queue.stop()

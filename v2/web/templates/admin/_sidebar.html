@@ -1,0 +1,27 @@
+<div class="admin-sidebar">
+    <h3>Администрирование</h3>
+    <nav class="admin-nav">
+        <a href="/admin" class="nav-item {% if active_menu == 'dashboard' %}active{% endif %}">
+            <span class="icon">📊</span> Дашборд
+        </a>
+        <a href="/admin/sources" class="nav-item {% if active_menu == 'sources' %}active{% endif %}">
+            <span class="icon">📰</span> Источники
+        </a>
+        <a href="/admin/summaries" class="nav-item {% if active_menu == 'summaries' %}active{% endif %}">
+            <span class="icon">📄</span> Дневные сводки
+        </a>
+        <a href="/admin/schedule" class="nav-item {% if active_menu == 'schedule' %}active{% endif %}">
+            <span class="icon">⏰</span> Расписание
+        </a>
+        <a href="/admin/stats" class="nav-item {% if active_menu == 'stats' %}active{% endif %}">
+            <span class="icon">📈</span> Статистика
+        </a>
+        <a href="/admin/categories" class="nav-item {% if active_menu == 'categories' %}active{% endif %}">
+            <span class="icon">🏷️</span> Категории
+        </a>
+        <a href="/admin/backup" class="nav-item {% if active_menu == 'backup' %}active{% endif %}">
+            <span class="icon">💾</span> Резервные копии
+        </a>
+    </nav>
+</div>
+

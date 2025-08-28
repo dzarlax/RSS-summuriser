@@ -136,9 +136,17 @@ class ContentExtractor:
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit."""
+        await self.close_browser()
+    
+    async def close_browser(self):
+        """Force close the browser and cleanup."""
         if self.browser:
-            await self.browser.close()
-            self.browser = None
+            try:
+                await self.browser.close()
+            except Exception as e:
+                print(f"Warning: Error closing browser: {e}")
+            finally:
+                self.browser = None
     
     async def extract_article_content_with_metadata(self, url: str, retry_count: int = 3) -> Dict[str, Optional[str]]:
         """
@@ -186,6 +194,8 @@ class ContentExtractor:
                 if result.get('content') and len(result['content'].strip()) > 50:
                     if attempt > 0:
                         print(f"  ✅ Extraction succeeded on attempt {attempt + 1}/{retry_count}")
+                    # Force close browser to prevent memory leaks after successful extraction
+                    await self.close_browser()
                     return result
                 else:
                     if attempt == 0:
@@ -210,6 +220,9 @@ class ContentExtractor:
         print(f"  ❌ All {retry_count} extraction attempts failed for {domain}")
         if last_exception:
             print(f"  ❌ Final error: {last_exception}")
+        
+        # Force close browser to prevent memory leaks
+        await self.close_browser()
         
         return result
     
@@ -2239,8 +2252,17 @@ class ContentExtractor:
 _extractor_instance = None
 
 async def get_content_extractor() -> ContentExtractor:
-    """Get or create enhanced content extractor instance."""
+    """Get or create enhanced content extractor instance with proper cleanup."""
     global _extractor_instance
     if _extractor_instance is None:
         _extractor_instance = ContentExtractor()
     return _extractor_instance
+
+async def cleanup_content_extractor():
+    """Cleanup global content extractor instance and close browsers."""
+    global _extractor_instance
+    if _extractor_instance is not None:
+        if _extractor_instance.browser:
+            await _extractor_instance.browser.close()
+            _extractor_instance.browser = None
+        _extractor_instance = None

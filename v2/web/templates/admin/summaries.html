@@ -4,29 +4,7 @@
 
 {% block content %}
 <div class="admin-container">
-    <div class="admin-sidebar">
-        <h3>Администрирование</h3>
-        <nav class="admin-nav">
-            <a href="/admin" class="nav-item">
-                <span class="icon">📊</span> Дашборд
-            </a>
-            <a href="/admin/sources" class="nav-item">
-                <span class="icon">📰</span> Источники
-            </a>
-            <a href="/admin/summaries" class="nav-item active">
-                <span class="icon">📄</span> Дневные сводки
-            </a>
-            <a href="/admin/schedule" class="nav-item">
-                <span class="icon">⏰</span> Расписание
-            </a>
-            <a href="/admin/stats" class="nav-item">
-                <span class="icon">📈</span> Статистика
-            </a>
-            <a href="/admin/backup" class="nav-item">
-                <span class="icon">💾</span> Резервные копии
-            </a>
-        </nav>
-    </div>
+    {% include "admin/_sidebar.html" %}
 
     <div class="admin-main">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">

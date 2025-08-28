@@ -3,40 +3,65 @@
 {% block title %}{{ title }}{% endblock %}
 
 {% block content %}
+<style>
+.modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal-content {
+    background: var(--surface, #ffffff);
+    border-radius: 8px;
+    padding: 0;
+    width: 90%;
+    max-width: 500px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    border-bottom: 1px solid var(--border, #e0e0e0);
+}
+
+.modal-content form {
+    padding: 1rem;
+}
+
+.modal-actions {
+    border-top: 1px solid var(--border, #e0e0e0);
+    padding: 1rem;
+    margin: 0 !important;
+}
+</style>
+
 <div class="admin-container">
-    <div class="admin-sidebar">
-        <h3>Администрирование</h3>
-        <nav class="admin-nav">
-            <a href="/admin" class="nav-item">
-                <span class="icon">📊</span> Дашборд
-            </a>
-            <a href="/admin/sources" class="nav-item">
-                <span class="icon">📰</span> Источники
-            </a>
-            <a href="/admin/summaries" class="nav-item">
-                <span class="icon">📄</span> Дневные сводки
-            </a>
-            <a href="/admin/schedule" class="nav-item">
-                <span class="icon">⏰</span> Расписание
-            </a>
-            <a href="/admin/stats" class="nav-item">
-                <span class="icon">📈</span> Статистика
-            </a>
-            <a href="/admin/categories" class="nav-item active">
-                <span class="icon">🏷️</span> Маппинг категорий
-            </a>
-            <a href="/admin/backup" class="nav-item">
-                <span class="icon">💾</span> Резервные копии
-            </a>
-        </nav>
-    </div>
+    {% include "admin/_sidebar.html" %}
 
     <div class="admin-main">
-        <h1>{{ title }}</h1>
-        <p style="color: var(--text-muted); margin-bottom: 2rem;">Управление маппингом AI категорий в фиксированные категории</p>
+        <h1>Категории и маппинги</h1>
+        <p style="color: var(--text-muted); margin-bottom: 1rem;">Создание основных категорий и управление маппингом AI категорий</p>
 
-        <!-- Statistics -->
-        <div class="stats-grid">
+        <!-- Tabs -->
+        <div class="tabs" style="display:flex; gap:.5rem; margin-bottom:1rem;">
+            <button id="tab-btn-categories" class="btn btn-ghost" onclick="switchTab('categories')">Основные категории</button>
+            <button id="tab-btn-mappings" class="btn btn-ghost" onclick="switchTab('mappings')">Маппинги</button>
+        </div>
+
+        <!-- Statistics (Mappings tab) -->
+        <div class="stats-grid" id="stats-section">
             <div class="stat-card">
                 <div class="stat-icon">📊</div>
                 <div class="stat-content">
@@ -65,8 +90,8 @@
                 <div class="stat-icon">🏷️</div>
                 <div class="stat-content">
                     <h3>Категорий</h3>
-                    <div class="stat-number" id="fixed-categories">7</div>
-                    <div class="stat-label">фиксированных</div>
+                    <div class="stat-number" id="fixed-categories">-</div>
+                    <div class="stat-label">в базе</div>
                 </div>
             </div>
         </div>
@@ -74,53 +99,142 @@
         <!-- Alert container -->
         <div id="alert-container" style="margin-bottom: 1rem;"></div>
 
-        <!-- Unmapped Categories Section ---->
-        <div class="dashboard-section" id="unmapped-section" style="display: none;">
+        
+
+        <!-- Main Categories Admin (Categories tab) -->
+        <div class="dashboard-section" id="categories-admin-section">
             <div class="section-header">
-                <h2>🔍 Несопоставленные AI Категории</h2>
-                <button class="btn btn-secondary" onclick="toggleUnmappedSection()">
-                    Скрыть
-                </button>
+                <h2>🏷️ Основные Категории</h2>
             </div>
-            
-            <div class="table-container">
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>AI Категория</th>
-                            <th>Использований</th>
-                            <th>Предложенное соответствие</th>
-                            <th>Действие</th>
-                        </tr>
-                    </thead>
-                    <tbody id="unmapped-tbody">
-                        <tr>
-                            <td colspan="4" style="text-align: center; padding: 2rem; color: var(--text-muted);">
-                                <div class="loading-state">
-                                    <div class="spinner"></div>
-                                    <p>Загрузка несопоставленных категорий...</p>
-                                </div>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
+
+            <div class="cards-grid" style="grid-template-columns: 1fr 2fr;">
+                <div class="card" style="padding: 1rem;">
+                    <h3 style="margin-top: 0;">Добавить категорию</h3>
+                    <form id="category-form">
+                        <div class="form-group">
+                            <label class="form-label" for="cat-name">Системное имя (EN)</label>
+                            <input type="text" id="cat-name" name="name" required placeholder="Например: Business" class="form-input">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="cat-display">Отображаемое имя</label>
+                            <input type="text" id="cat-display" name="display_name" required placeholder="Например: Бизнес" class="form-input">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="cat-color">Цвет</label>
+                            <input type="color" id="cat-color" name="color" value="#6c757d" class="form-input" style="height: 40px; padding: 0;">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label" for="cat-desc">Описание (опционально)</label>
+                            <textarea id="cat-desc" name="description" class="form-input" style="height: 60px; resize: vertical;" placeholder="Описание категории"></textarea>
+                        </div>
+                        <div style="display: flex; gap: 0.5rem; justify-content: flex-end;">
+                            <button type="submit" class="btn btn-primary">Добавить</button>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="card" style="padding: 1rem;">
+                    <h3 style="margin-top: 0;">Список категорий</h3>
+                    <div class="table-container">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Имя</th>
+                                    <th>Отображаемое</th>
+                                    <th>Цвет</th>
+                                    <th>Статей</th>
+                                    <th>Действия</th>
+                                </tr>
+                            </thead>
+                            <tbody id="categories-tbody">
+                                <tr>
+                                    <td colspan="5" style="text-align: center; padding: 1rem; color: var(--text-muted);">Загрузка категорий...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </div>
 
-        <!-- Mappings Table -->
-        <div class="dashboard-section">
+        <!-- Edit Category Modal -->
+        <div id="edit-category-modal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3 style="margin: 0;">Редактировать категорию</h3>
+                    <button class="btn btn-ghost" onclick="closeEditModal()" style="padding: 0.5rem;">✕</button>
+                </div>
+                <form id="edit-category-form">
+                    <input type="hidden" id="edit-cat-id" name="category_id">
+                    <div class="form-group">
+                        <label class="form-label" for="edit-cat-name">Системное имя (EN)</label>
+                        <input type="text" id="edit-cat-name" name="name" required class="form-input" readonly style="background: var(--surface-hover); color: var(--text-muted);">
+                        <small style="color: var(--text-muted);">Системное имя нельзя изменить</small>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="edit-cat-display">Отображаемое имя</label>
+                        <input type="text" id="edit-cat-display" name="display_name" required class="form-input">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="edit-cat-color">Цвет</label>
+                        <input type="color" id="edit-cat-color" name="color" class="form-input" style="height: 40px; padding: 0;">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="edit-cat-desc">Описание</label>
+                        <textarea id="edit-cat-desc" name="description" class="form-input" style="height: 60px; resize: vertical;"></textarea>
+                    </div>
+                    <div class="modal-actions" style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem;">
+                        <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Отмена</button>
+                        <button type="submit" class="btn btn-primary">Сохранить</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Mappings Table (Mappings tab) -->
+        <div class="dashboard-section" id="mappings-section">
             <div class="section-header">
                 <h2>🏷️ Маппинг Категорий</h2>
-                <div style="display: flex; gap: 0.5rem;">
-                    <button class="btn btn-info" onclick="toggleUnmappedSection()">
-                        🔍 Показать несопоставленные
-                    </button>
-                    <button class="btn btn-success" onclick="openCreateModal()">
-                        + Добавить Маппинг
-                    </button>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <input type="text" id="mapping-search" class="form-input" placeholder="Поиск по AI категории" style="width:220px;" oninput="renderMappings()">
+                    <label class="form-label" style="display:flex; align-items:center; gap:.25rem;">
+                        <input type="checkbox" id="mapping-active-only" checked onchange="renderMappings()"> Только активные
+                    </label>
+                    <button id="unmapped-toggle-btn" class="btn btn-info" onclick="toggleUnmappedSection()">🔍 Показать несопоставленные</button>
+                    <button class="btn btn-success" onclick="openCreateModal()">+ Добавить Маппинг</button>
                 </div>
             </div>
             
+            <!-- Collapsible Unmapped section appears directly under the toggle button -->
+            <div class="dashboard-section" id="unmapped-section" style="display: none;">
+                <div class="section-header">
+                    <h2>🔍 Несопоставленные AI Категории</h2>
+                    <button class="btn btn-secondary" onclick="toggleUnmappedSection()">Скрыть</button>
+                </div>
+                <div class="table-container">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>AI Категория</th>
+                                <th>Использований</th>
+                                <th>Предложенное соответствие</th>
+                                <th>Действие</th>
+                            </tr>
+                        </thead>
+                        <tbody id="unmapped-tbody">
+                            <tr>
+                                <td colspan="4" style="text-align: center; padding: 2rem; color: var(--text-muted);">
+                                    <div class="loading-state">
+                                        <div class="spinner"></div>
+                                        <p>Загрузка несопоставленных категорий...</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
             <div class="table-container">
                 <table class="table">
                     <thead>
@@ -200,12 +314,18 @@ let mappings = [];
 let fixedCategories = [];
 let unmappedCategories = [];
 let editingId = null;
+let currentTab = 'mappings';
 
 // Load data on page load
 document.addEventListener('DOMContentLoaded', function() {
+    const saved = localStorage.getItem('categories_tab');
+    currentTab = saved === 'categories' ? 'categories' : 'mappings';
+    switchTab(currentTab);
+
     loadFixedCategories();
     loadMappings();
     loadUnmappedCategories();
+    loadCategoriesList();
 });
 
 function getCategoryBadgeClass(category) {
@@ -300,8 +420,43 @@ async function loadFixedCategories() {
             option.textContent = cat.display_name;
             select.appendChild(option);
         });
+
+        const fixedCount = document.getElementById('fixed-categories');
+        if (fixedCount) fixedCount.textContent = fixedCategories.length;
     } catch (error) {
         console.error('Failed to load fixed categories:', error);
+    }
+}
+
+async function loadCategoriesList() {
+    try {
+        const response = await fetch('/api/v1/categories');
+        const data = await response.json();
+        const tbody = document.getElementById('categories-tbody');
+
+        if (!data.categories || data.categories.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color: var(--text-muted);">Категорий нет</td></tr>';
+            return;
+        }
+
+        tbody.innerHTML = data.categories.map(c => `
+            <tr>
+                <td><code>${c.category}</code></td>
+                <td>${c.display_name || ''}</td>
+                <td>
+                    <span style="display:inline-block; width:16px; height:16px; border-radius:3px; background:${c.color || '#6c757d'}; vertical-align:middle; margin-right:6px;"></span>
+                    <span style="color: var(--text-muted);">${c.color || ''}</span>
+                </td>
+                <td><span class="badge badge-info" style="background: var(--surface-hover); color: var(--text-muted);">${c.count}</span></td>
+                <td>
+                    <button class="btn btn-sm btn-secondary" onclick="openEditModal('${c.category}', '${(c.display_name || '').replace(/'/g, '&#39;').replace(/"/g, '&quot;')}', '${c.color || '#6c757d'}', '${(c.description || '').replace(/'/g, '&#39;').replace(/"/g, '&quot;')}', ${c.id})" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">
+                        ✏️ Изменить
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+    } catch (error) {
+        console.error('Failed to load categories list:', error);
     }
 }
 
@@ -326,7 +481,7 @@ async function loadUnmappedCategories() {
         unmappedCategories = data.unmapped_categories || [];
         
         // Update button text with count
-        const button = document.querySelector('button[onclick="toggleUnmappedSection()"]');
+        const button = document.getElementById('unmapped-toggle-btn');
         if (button && button.textContent.includes('Показать')) {
             button.textContent = `🔍 Показать несопоставленные (${unmappedCategories.length})`;
         }
@@ -338,8 +493,18 @@ async function loadUnmappedCategories() {
 
 function renderMappings() {
     const tbody = document.getElementById('mappings-tbody');
-    
-    if (mappings.length === 0) {
+    if (!tbody) return;
+
+    const q = (document.getElementById('mapping-search')?.value || '').toLowerCase();
+    const activeOnly = document.getElementById('mapping-active-only')?.checked;
+
+    const filtered = mappings.filter(m => {
+        const matches = !q || m.ai_category.toLowerCase().includes(q);
+        const activeOk = !activeOnly || m.is_active;
+        return matches && activeOk;
+    });
+
+    if (filtered.length === 0) {
         tbody.innerHTML = `
             <tr>
                 <td colspan="6" style="text-align: center; padding: 2rem; color: var(--text-muted);">
@@ -353,7 +518,7 @@ function renderMappings() {
         return;
     }
     
-    tbody.innerHTML = mappings.map(mapping => `
+    tbody.innerHTML = filtered.map(mapping => `
         <tr style="${!mapping.is_active ? 'opacity: 0.6; background: var(--surface-hover);' : ''}">
             <td><strong style="color: var(--text-color);">${mapping.ai_category}</strong></td>
             <td>
@@ -393,6 +558,32 @@ function updateStats() {
     document.getElementById('total-mappings').textContent = mappings.length;
     document.getElementById('active-mappings').textContent = mappings.filter(m => m.is_active).length;
     document.getElementById('total-usage').textContent = mappings.reduce((sum, m) => sum + m.usage_count, 0);
+}
+
+function switchTab(tab) {
+    currentTab = tab;
+    localStorage.setItem('categories_tab', tab);
+    const stats = document.getElementById('stats-section');
+    const unmapped = document.getElementById('unmapped-section');
+    const mappingsSec = document.getElementById('mappings-section');
+    const categoriesSec = document.getElementById('categories-admin-section');
+    const btnC = document.getElementById('tab-btn-categories');
+    const btnM = document.getElementById('tab-btn-mappings');
+
+    if (tab === 'categories') {
+        if (stats) stats.style.display = 'none';
+        if (unmapped) unmapped.style.display = 'none';
+        if (mappingsSec) mappingsSec.style.display = 'none';
+        if (categoriesSec) categoriesSec.style.display = 'block';
+        if (btnC) btnC.classList.add('active');
+        if (btnM) btnM.classList.remove('active');
+    } else {
+        if (stats) stats.style.display = 'grid';
+        if (mappingsSec) mappingsSec.style.display = 'block';
+        if (categoriesSec) categoriesSec.style.display = 'none';
+        if (btnC) btnC.classList.remove('active');
+        if (btnM) btnM.classList.add('active');
+    }
 }
 
 function openCreateModal() {
@@ -507,12 +698,16 @@ async function deleteMapping(id) {
 
 function toggleUnmappedSection() {
     const section = document.getElementById('unmapped-section');
-    const button = document.querySelector('button[onclick="toggleUnmappedSection()"]');
-    
-    if (section.style.display === 'none' || !section.style.display) {
+    const button = document.getElementById('unmapped-toggle-btn');
+    if (!section || !button) return;
+
+    const hidden = (section.style.display === 'none' || !section.style.display);
+    if (hidden) {
         section.style.display = 'block';
         button.textContent = 'Скрыть несопоставленные';
         renderUnmappedCategories();
+        // Scroll so the opened section is visible right after toggle button
+        section.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } else {
         section.style.display = 'none';
         button.textContent = `🔍 Показать несопоставленные (${unmappedCategories.length})`;
@@ -573,6 +768,87 @@ function createMappingFromSuggestion(aiCategory, suggestedMapping) {
 document.getElementById('mapping-modal').addEventListener('click', function(event) {
     if (event.target === this) {
         closeModal();
+    }
+});
+
+// Handle main category creation
+const categoryForm = document.getElementById('category-form');
+categoryForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const payload = {
+        name: document.getElementById('cat-name').value.trim(),
+        display_name: document.getElementById('cat-display').value.trim(),
+        color: document.getElementById('cat-color').value,
+        description: document.getElementById('cat-desc').value.trim() || null,
+    };
+
+    try {
+        const resp = await fetch('/api/v1/categories', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!resp.ok) {
+            const err = await resp.json();
+            throw new Error(err.detail || 'Ошибка создания категории');
+        }
+        await resp.json();
+        showAlert('Категория создана');
+        // Reset form
+        categoryForm.reset();
+        document.getElementById('cat-color').value = '#6c757d';
+        // Refresh data
+        await loadFixedCategories();
+        await loadCategoriesList();
+    } catch (error) {
+        showAlert(error.message, 'error');
+    }
+});
+
+// Edit Category Modal Functions
+function openEditModal(name, displayName, color, description, id) {
+    document.getElementById('edit-cat-id').value = id;
+    document.getElementById('edit-cat-name').value = name;
+    document.getElementById('edit-cat-display').value = displayName;
+    document.getElementById('edit-cat-color').value = color;
+    document.getElementById('edit-cat-desc').value = description;
+    document.getElementById('edit-category-modal').style.display = 'flex';
+}
+
+function closeEditModal() {
+    document.getElementById('edit-category-modal').style.display = 'none';
+}
+
+// Edit Category Form Handler
+document.getElementById('edit-category-form').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(e.target);
+    const categoryId = formData.get('category_id');
+    const payload = {
+        display_name: formData.get('display_name'),
+        color: formData.get('color'),
+        description: formData.get('description') || null
+    };
+
+    try {
+        const resp = await fetch(`/api/v1/categories/${categoryId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!resp.ok) {
+            const err = await resp.json();
+            throw new Error(err.detail || 'Ошибка обновления категории');
+        }
+        await resp.json();
+        showAlert('Категория обновлена');
+        closeEditModal();
+        // Refresh data
+        await loadFixedCategories();
+        await loadCategoriesList();
+    } catch (error) {
+        showAlert(error.message, 'error');
     }
 });
 </script>

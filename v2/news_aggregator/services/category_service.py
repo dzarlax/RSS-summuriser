@@ -309,20 +309,18 @@ class CategoryService:
             print(f"❌ Category not found: {old_fixed_category} or {new_fixed_category}")
             return 0
         
-        # Find articles that were categorized with the old mapping
-        # We need to identify which articles had this AI category originally
+        # Find articles that were categorized with this specific AI category
+        # Now we can be precise - update only articles that originally had this AI category
         from sqlalchemy import text
         
-        # Update all articles that are in the old category and could have been from this AI category
-        # This is approximate - we update articles in old category that don't have strong confidence in other categories
+        # Update articles that have the specific AI category, regardless of current category
         result = await self.db.execute(text('''
             UPDATE article_categories 
             SET category_id = :new_category_id
-            WHERE category_id = :old_category_id 
-            AND confidence <= 0.8
+            WHERE ai_category = :ai_category
             RETURNING article_id
         '''), {
-            'old_category_id': old_category.id,
+            'ai_category': ai_category,
             'new_category_id': new_category.id
         })
         
@@ -331,6 +329,45 @@ class CategoryService:
         
         count = len(updated_articles)
         print(f"✅ Updated {count} articles from {old_fixed_category} to {new_fixed_category}")
+        
+        return count
+    
+    async def apply_new_mapping_to_existing_articles(self, ai_category: str, fixed_category: str) -> int:
+        """
+        Apply new category mapping to all existing articles that have this AI category.
+        
+        Args:
+            ai_category: The AI category to look for
+            fixed_category: The fixed category to map to
+            
+        Returns:
+            Number of articles updated
+        """
+        print(f"🔄 Applying new mapping to existing articles: {ai_category} → {fixed_category}")
+        
+        # Get the fixed category ID
+        new_category = await self.get_category_by_name(fixed_category)
+        if not new_category:
+            print(f"❌ Fixed category not found: {fixed_category}")
+            return 0
+        
+        # Find all articles that have this AI category and update their category_id
+        from sqlalchemy import text
+        result = await self.db.execute(text('''
+            UPDATE article_categories 
+            SET category_id = :new_category_id
+            WHERE ai_category = :ai_category
+            RETURNING article_id
+        '''), {
+            'ai_category': ai_category,
+            'new_category_id': new_category.id
+        })
+        
+        updated_articles = result.fetchall()
+        await self.db.commit()
+        
+        count = len(updated_articles)
+        print(f"✅ Applied new mapping to {count} articles: {ai_category} → {fixed_category}")
         
         return count
     

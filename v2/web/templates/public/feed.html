@@ -12,64 +12,13 @@
     </div>
 
     <div class="container">
-        <!-- Settings Toggle Button -->
-        <div class="settings-toggle">
-            <button class="settings-btn" onclick="toggleSettings()">
-                <span class="settings-icon">⚙️</span>
-                <span>Настройки</span>
-                <span class="toggle-arrow" id="settings-arrow">▼</span>
-            </button>
-        </div>
+        <div class="news-layout">
+            <!-- Categories Sidebar -->
+            {% include 'public/_categories_sidebar.html' %}
 
-        <!-- Settings Panel (hidden by default) -->
-        <div class="settings-panel" id="settings-panel" style="display: none;">
-            <!-- View Toggle -->
-            <div class="view-toggle">
-                <div class="toggle-header">
-                    <h3>🎛️ Режим просмотра</h3>
-                    <div class="view-buttons">
-                        <a href="/cards" class="view-btn active">
-                            <span class="view-icon">⊞</span>
-                            <span>Карточки</span>
-                        </a>
-                        <a href="/" class="view-btn">
-                            <span class="view-icon">≡</span>
-                            <span>Лента</span>
-                        </a>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Filters -->
-            <div class="news-filters">
-            <div class="filters-header">
-                <h3>📋 Категории</h3>
-                <div style="display:flex; align-items:center; gap:16px; flex-wrap: wrap; justify-content: flex-end;">
-                    <label style="display:flex; align-items:center; gap:8px; font-size:0.9rem; color:#495057; cursor:pointer;">
-                        <input type="checkbox" id="toggle-hide-ads" checked style="transform:scale(1.1);" onchange="toggleHideAds(this.checked)">
-                        <span>Скрывать рекламу</span>
-                    </label>
-                    <label style="display:flex; align-items:center; gap:8px; font-size:0.9rem; color:#495057; cursor:pointer;">
-                        <input type="checkbox" id="toggle-wide" style="transform:scale(1.1);" onchange="toggleWide(this.checked)">
-                        <span>Широкая лента</span>
-                    </label>
-                    <label style="display:flex; align-items:center; gap:8px; font-size:0.9rem; color:#495057; cursor:pointer;">
-                        <input type="checkbox" id="toggle-compact" style="transform:scale(1.1);" onchange="toggleCompact(this.checked)">
-                        <span>Компактно</span>
-                    </label>
-                    <div class="filter-count" id="filter-count">Всего: 0</div>
-                </div>
-            </div>
-            <div class="filter-buttons" id="filter-buttons">
-                <button class="filter-btn active" data-category="all">
-                    <span class="filter-icon">🔍</span>
-                    <span>Все</span>
-                    <span class="count" id="count-all">0</span>
-                </button>
-                <!-- Category buttons will be added dynamically -->
-            </div>
-        </div>
-        </div>
+            <section class="news-main">
+        <!-- Sticky Filters Bar (always visible) -->
+        {% include "public/_filters_toolbar.html" %}
 
         <!-- News Feed -->
         <div class="news-feed" id="news-feed">
@@ -85,8 +34,15 @@
                 Загрузить еще
             </button>
         </div>
+            </section>
+        </div>
+
+
     </div>
 </div>
+
+<!-- Include Article Modal -->
+{% include 'public/_article_modal.html' %}
 
 <style>
 /* Modern News Page Design */
@@ -94,6 +50,37 @@
     min-height: 100vh;
     background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
 }
+
+/* Two-column layout (desktop) */
+.news-layout { display: grid; grid-template-columns: 280px 1fr; gap: 1.5rem; }
+.categories-sidebar { position: sticky; top: calc(var(--navbar-height,56px) + 10px); height: calc(100vh - var(--navbar-height,56px) - 20px); overflow: auto; background: #fff; border:1px solid #e9ecef; border-radius: 12px; padding: 12px; }
+.sidebar-header { display:flex; flex-direction: column; gap:8px; margin-bottom: 8px; }
+.sidebar-list { display:flex; flex-direction: column; gap:6px; }
+.sidebar-item { display:flex; align-items:center; justify-content: space-between; padding: 8px; border-radius: 8px; border:1px solid #f1f3f5; cursor:pointer; }
+.sidebar-item:hover { background:#f8f9fa; }
+.sidebar-item.active { background: #eef2ff; border-color: #dbe4ff; }
+.sidebar-count { font-size: 0.8rem; color:#6c757d; }
+.sidebar-item-all { font-weight: 600; }
+.news-main { min-width: 0; }
+
+@media (max-width: 992px) {
+  .news-layout { display:block; }
+  .categories-sidebar { display:none; }
+}
+
+/* Hide categories button on desktop when sidebar is visible */
+@media (min-width: 993px) {
+  .qt-categories-mobile-only { display:none !important; }
+}
+
+/* Bottom sheet (mobile) */
+.cat-sheet { position: fixed; left:0; right:0; bottom:0; top:0; background: rgba(0,0,0,0.35); display:none; z-index: 1000; }
+.cat-sheet[aria-hidden="false"] { display:block; }
+.cat-sheet-content { position:absolute; left:0; right:0; bottom:0; background:#fff; border-radius: 16px 16px 0 0; max-height: 85vh; display:flex; flex-direction: column; padding: 12px; }
+.cat-sheet-header { display:flex; justify-content: space-between; align-items:center; margin-bottom: 8px; }
+.cat-sheet-list { overflow:auto; padding: 4px 0; }
+.cat-sheet-item { display:flex; align-items:center; justify-content: space-between; padding: 12px; border-bottom: 1px solid #f1f3f5; cursor: pointer; }
+.cat-sheet-item.active { background:#f8f9ff; }
 
 .news-header {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -209,6 +196,64 @@
     border: 1px solid rgba(255,255,255,0.2);
 }
 
+/* Sticky filters bar */
+.filters-sticky {
+    position: sticky;
+    top: var(--navbar-height, 56px);
+    z-index: 20;
+    background: #ffffffcc;
+    backdrop-filter: saturate(150%) blur(8px);
+    border-bottom: 1px solid #e9ecef;
+    box-shadow: 0 3px 12px rgba(0,0,0,0.06);
+    border-radius: 12px;
+}
+.filters-inline { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 0; }
+.toolbar-group { display:flex; align-items:center; gap:10px; background:#f8faff; border:none; padding:6px; border-radius: 999px; }
+.since-controls { display:inline-flex; border:none; border-radius:999px; overflow:hidden; }
+.since-btn { padding:6px 12px; border:0; background:#fff; font-size:12px; cursor:pointer; color:#334155; }
+.since-btn + .since-btn { border-left:none; }
+.since-btn[aria-pressed="true"] { background: linear-gradient(135deg, #6776f0, #6a5ae0); color:#fff; }
+.filters-sticky .filter-buttons { display:flex; gap:8px; overflow-x:auto; flex-wrap:nowrap; padding-right:6px; }
+.filters-sticky .filter-btn { white-space: nowrap; }
+
+.quick-toggles { display:flex; gap:8px; align-items:center; }
+.qt-btn { display:inline-flex; align-items:center; gap:6px; height:36px; padding:0 10px; border:none; background:#fff; border-radius:10px; cursor:pointer; color:#334155; box-shadow:0 1px 2px rgba(0,0,0,0.03); }
+.qt-btn:hover { background:#f7f9ff; }
+.qt-btn .qt-ico { font-size:16px; line-height:1; }
+.qt-btn .btn-label { display:none; font-size:12px; }
+.qt-btn[aria-pressed="true"], .qt-btn.active { background: linear-gradient(135deg, #6776f0, #6a5ae0); color:#fff; }
+
+/* Hide duplicated settings panel on mobile */
+@media (max-width: 768px) {
+  .settings-toggle, #settings-panel { display: none !important; }
+}
+
+.filters-sticky.hide { transform: translateY(-110%); }
+
+/* Mobile optimizations for sticky toolbar */
+@media (max-width: 768px) {
+  .filters-sticky { padding: 4px 10px; }
+  .filters-inline { gap: 6px; }
+  .filters-sticky .filter-buttons { gap: 6px; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+  .filters-sticky .filter-btn { padding: 8px 12px; font-size: 13px; scroll-snap-align: start; }
+  /* Hide text and counts on mobile */
+  .filters-sticky .filter-btn span:last-child { display: none; }
+  .since-controls { gap: 6px; }
+  .since-btn { padding: 4px 8px; font-size: 11px; }
+  .quick-toggles { gap: 6px; }
+  .qt-btn { padding: 4px 6px; font-size: 14px; }
+}
+
+@media (min-width: 1100px) {
+  .qt-btn .btn-label { display: inline; }
+}
+
+
+
+/* Hide horizontal scrollbar visuals across browsers */
+.filters-sticky .filter-buttons { scrollbar-width: none; }
+.filters-sticky .filter-buttons::-webkit-scrollbar { display: none; }
+
 .filters-header {
     display: flex;
     justify-content: space-between;
@@ -269,9 +314,7 @@
     box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
 }
 
-.filter-btn .filter-icon {
-    font-size: 16px;
-}
+
 
 .filter-btn .count {
     background: rgba(255,255,255,0.2);
@@ -640,8 +683,7 @@
     align-items: center;
     justify-content: center;
     padding: 20px;
-    opacity: 0;
-    animation: modalFadeIn 0.3s ease-out forwards;
+    opacity: 1;
 }
 
 .modal-content {
@@ -1005,815 +1047,6 @@
 }
 </style>
 
-<script>
-let currentPage = 0;
-let isLoading = false;
-let currentCategory = 'all';
-let categoryCounts = {};
-let allCategories = {};
-let hideAds = true;
-let isWide = false;
-let isCompact = false;
-
-// Category mappings - both hardcoded and dynamic
-const baseCategoryConfig = {
-    'all': { icon: '🔍', name: 'Все' },
-    'business': { icon: '💼', name: 'Бизнес' },
-    'tech': { icon: '💻', name: 'Технологии' },
-    'science': { icon: '🔬', name: 'Наука' },
-    'nature': { icon: '🌿', name: 'Природа' },
-    'serbia': { icon: '🇷🇸', name: 'Сербия' },
-    'marketing': { icon: '📈', name: 'Маркетинг' },
-    'other': { icon: '📰', name: 'Разное' },
-    // Additional categories from database
-    'politics': { icon: '🏛️', name: 'Политика' },
-    'news': { icon: '📰', name: 'Новости' },
-    'entertainment': { icon: '🎬', name: 'Развлечения' },
-    'legal': { icon: '⚖️', name: 'Право' },
-    'government': { icon: '🏢', name: 'Правительство' },
-    'european union': { icon: '🇪🇺', name: 'ЕС' },
-    'international relations': { icon: '🌍', name: 'Международные отношения' },
-    'events': { icon: '📅', name: 'События' },
-    'lifestyle': { icon: '✨', name: 'Стиль жизни' },
-    'culture': { icon: '🎭', name: 'Культура' },
-    'human rights': { icon: '✊', name: 'Права человека' },
-    'security': { icon: '🔒', name: 'Безопасность' },
-    'society': { icon: '👥', name: 'Общество' },
-    'europe': { icon: '🌍', name: 'Европа' }
-};
-
-// Dynamic category config that gets updated with database categories
-let categoryConfig = { ...baseCategoryConfig };
-
-document.addEventListener('DOMContentLoaded', function() {
-    loadCategories();
-    loadNews(true);
-    // restore view settings
-    try {
-        const savedWide = localStorage.getItem('feed_wide');
-        const savedCompact = localStorage.getItem('feed_compact');
-        if (savedWide !== null) {
-            isWide = savedWide === '1';
-            const el = document.getElementById('toggle-wide');
-            if (el) el.checked = isWide;
-            applyWideClass();
-        }
-        if (savedCompact !== null) {
-            isCompact = savedCompact === '1';
-            const el = document.getElementById('toggle-compact');
-            if (el) el.checked = isCompact;
-            applyCompactClass();
-        }
-    } catch {}
-    
-    // Handle window resize for responsive text (only for significant changes)
-    let resizeTimeout;
-    let lastWidth = window.innerWidth;
-    window.addEventListener('resize', function() {
-        clearTimeout(resizeTimeout);
-        resizeTimeout = setTimeout(function() {
-            const currentWidth = window.innerWidth;
-            const widthDiff = Math.abs(currentWidth - lastWidth);
-            
-            // Only reload if width changed significantly (more than 100px)
-            // This prevents constant reloading on mobile Safari
-            if (widthDiff > 100) {
-                lastWidth = currentWidth;
-                loadNews(true);
-            }
-        }, 500); // Увеличили таймаут для стабильности
-    });
-});
-
-async function loadCategories() {
-    try {
-        // Load category statistics from dedicated endpoint
-        const response = await fetch('/api/public/categories');
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        const data = await response.json();
-        allCategories = data.categories || { all: 0 };
-        
-        // Update filter buttons with all available categories
-        updateAllCategoryFilters();
-        
-    } catch (error) {
-        console.error('Error loading categories:', error);
-        // Set default values if loading fails
-        allCategories = { all: 0 };
-        updateAllCategoryFilters();
-    }
-}
-
-async function loadNews(reset = false) {
-    if (isLoading) return;
-    
-    isLoading = true;
-    
-    if (reset) {
-        currentPage = 0;
-        document.getElementById('news-feed').innerHTML = `
-            <div class="loading-state">
-                <div class="loading-spinner"></div>
-                <p>Загрузка новостей...</p>
-            </div>
-        `;
-    }
-    
-    try {
-        const limit = 20;
-        const offset = currentPage * limit;
-        
-        let url = `/api/public/feed?limit=${limit}&offset=${offset}&hide_ads=${hideAds ? 'true' : 'false'}`;
-        if (currentCategory !== 'all') {
-            url += `&category=${currentCategory}`;
-        }
-        
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        const data = await response.json();
-        
-        if (reset) {
-            renderNews(data.articles || [], true);
-            updateCurrentCategoryCounts(data.articles || []);
-        } else {
-            renderNews(data.articles || [], false);
-        }
-        
-        // Show/hide load more button
-        const loadMoreContainer = document.getElementById('load-more-container');
-        if (data.articles && data.articles.length === limit) {
-            loadMoreContainer.style.display = 'block';
-        } else {
-            loadMoreContainer.style.display = 'none';
-        }
-        
-        currentPage++;
-        
-    } catch (error) {
-        console.error('Error loading news:', error);
-        showError('Ошибка загрузки новостей. Попробуйте обновить страницу.');
-    } finally {
-        isLoading = false;
-    }
-}
-
-function renderNews(articles, reset = false) {
-    const container = document.getElementById('news-feed');
-    
-    if (!articles || articles.length === 0) {
-        if (reset) {
-            container.innerHTML = `
-                <div class="empty-state">
-                    <div class="icon">📰</div>
-                    <h3>Новостей не найдено</h3>
-                    <p>Попробуйте изменить фильтры или обновить страницу</p>
-                </div>
-            `;
-        }
-        return;
-    }
-    
-    // Store articles data for modal
-    articles.forEach(article => {
-        articlesData[article.id] = article;
-    });
-    
-    const newsHtml = articles.map(article => createNewsItem(article)).join('');
-    
-    if (reset) {
-        container.innerHTML = newsHtml;
-        articlesData = {}; // Reset data when resetting view
-        articles.forEach(article => {
-            articlesData[article.id] = article;
-        });
-    } else {
-        container.insertAdjacentHTML('beforeend', newsHtml);
-    }
-}
-
-function createNewsItem(article) {
-    // Handle multiple categories - use first category for primary display
-    const categories = article.categories || [];
-    const primaryCategory = categories.length > 0 ? categories[0] : null;
-    const legacyCategory = (article.category || 'Other').toLowerCase();
-    
-    // Use primary category from new system, fallback to legacy
-    const category = primaryCategory ? primaryCategory.name.toLowerCase() : legacyCategory;
-    const categoryInfo = categoryConfig[category] || categoryConfig['other'];
-    
-    // Extract image from content or summary
-    const imageUrl = extractImageFromContent(article.image_url || article.summary || article.content || '');
-    
-    // Clean summary for display
-    const cleanSummary = cleanHtmlSummary(article.summary || '');
-    
-    // Create category badges for multiple categories
-    let categoryBadges = '';
-    if (categories.length > 0) {
-        // Adaptive display: fewer categories on smaller screens
-        const isMobile = window.innerWidth <= 768;
-        const maxCategories = isMobile ? 1 : 2;
-        const displayCategories = categories.slice(0, maxCategories);
-        
-        categoryBadges = displayCategories.map(cat => {
-            const catKey = cat.name.toLowerCase();
-            const catInfo = categoryConfig[catKey] || categoryConfig['other'];
-            return `<div class="category-badge category-${catKey}" style="background-color: ${cat.color}" title="Уверенность: ${Math.round(cat.confidence * 100)}%">
-                ${catInfo.icon} ${cat.display_name}
-            </div>`;
-        }).join('');
-        
-        // Add "+" indicator if there are more categories
-        if (categories.length > maxCategories) {
-            categoryBadges += `<div class="category-badge category-more" title="Ещё ${categories.length - maxCategories} категорий">+${categories.length - maxCategories}</div>`;
-        }
-    } else {
-        // Fallback to legacy category
-        categoryBadges = `<div class="category-badge category-${category}">
-            ${categoryInfo.icon} ${categoryInfo.name}
-        </div>`;
-    }
-    
-    return `
-        <article class="news-item" data-category="${category}" data-categories="${categories.map(c => c.name.toLowerCase()).join(',')}" onclick="showArticleModal('${article.id}')">
-            <div class="news-image">
-                ${imageUrl ? 
-                    `<img src="${imageUrl}" alt="${escapeHtml(article.title)}" loading="lazy" onerror="this.parentElement.innerHTML='&lt;div class=&quot;image-placeholder&quot;&gt;📰&lt;/div&gt;'">` :
-                    `<div class="image-placeholder">📰</div>`
-                }
-                ${article.is_advertisement ? `
-                    <div class="ad-badge" title="Рекламный контент (Уверенность: ${Math.round((article.ad_confidence || 0) * 100)}%)">
-                        🚨 РЕКЛАМА
-                    </div>
-                ` : ''}
-            </div>
-            <div class="news-content">
-                <div class="news-feed-badges">
-                    ${categoryBadges}
-                </div>
-                <h2 class="news-title">
-                    ${escapeHtml(article.title)}
-                </h2>
-                ${cleanSummary ? `
-                    <p class="news-summary">${cleanSummary}</p>
-                ` : ''}
-                <div class="news-meta">
-                    <span class="news-source">${article.source_name || 'Неизвестный источник'}</span>
-                    <span class="news-date">${formatDate(article.published_at)}</span>
-                </div>
-            </div>
-            <div class="news-actions">
-                <button class="btn-read-more" onclick="event.stopPropagation(); showArticleModal('${article.id}')">
-                    📖 Подробнее
-                </button>
-                <a href="${article.url}" target="_blank" rel="noopener noreferrer" class="btn-original" onclick="event.stopPropagation()">
-                    🔗 Оригинал
-                </a>
-            </div>
-        </article>
-    `;
-}
-
-function updateAllCategoryFilters() {
-    // Update filter buttons with all available categories from database
-    const filterButtons = document.getElementById('filter-buttons');
-    let buttonsHtml = `
-        <button class="filter-btn ${currentCategory === 'all' ? 'active' : ''}" data-category="all" onclick="filterByCategory('all')">
-            <span class="filter-icon">🔍</span>
-            <span>Все</span>
-            <span class="count">${allCategories.all || 0}</span>
-        </button>
-    `;
-    
-    // Add buttons for all categories that exist in database
-    Object.keys(allCategories).forEach(category => {
-        if (category !== 'all' && allCategories[category] > 0) {
-            // Get config for this category, or create a default one
-            let config = categoryConfig[category];
-            if (!config) {
-                // Auto-generate config for unknown categories
-                const displayName = category.charAt(0).toUpperCase() + category.slice(1);
-                config = { icon: '📄', name: displayName };
-                categoryConfig[category] = config;
-            }
-            
-            buttonsHtml += `
-                <button class="filter-btn ${currentCategory === category ? 'active' : ''}" data-category="${category}" onclick="filterByCategory('${category}')">
-                    <span class="filter-icon">${config.icon}</span>
-                    <span>${config.name}</span>
-                    <span class="count">${allCategories[category]}</span>
-                </button>
-            `;
-        }
-    });
-    
-    filterButtons.innerHTML = buttonsHtml;
-    
-    // Update filter count
-    document.getElementById('filter-count').textContent = `Всего: ${allCategories.all || 0}`;
-}
-
-function updateCurrentCategoryCounts(articles) {
-    // Count articles for each category (articles can be in multiple categories)
-    categoryCounts = { all: articles.length };
-    
-    articles.forEach(article => {
-        // Count for legacy category
-        const legacyCategory = (article.category || 'Other').toLowerCase();
-        categoryCounts[legacyCategory] = (categoryCounts[legacyCategory] || 0) + 1;
-        
-        // Count for new multiple categories
-        if (article.categories && article.categories.length > 0) {
-            article.categories.forEach(cat => {
-                const categoryKey = cat.name.toLowerCase();
-                categoryCounts[categoryKey] = (categoryCounts[categoryKey] || 0) + 1;
-            });
-        }
-    });
-}
-
-function filterByCategory(category) {
-    if (currentCategory === category) return;
-    
-    currentCategory = category;
-    
-    // Update active button
-    document.querySelectorAll('.filter-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.category === category);
-    });
-    
-    // Reset and load news with new filter
-    loadNews(true);
-}
-
-function toggleHideAds(value) {
-    hideAds = !!value;
-    loadNews(true);
-}
-
-function toggleWide(value) {
-    isWide = !!value;
-    localStorage.setItem('feed_wide', isWide ? '1' : '0');
-    applyWideClass();
-}
-
-function applyWideClass() {
-    const root = document.querySelector('.news-page');
-    if (!root) return;
-    root.classList.toggle('wide', isWide);
-}
-
-function toggleCompact(value) {
-    isCompact = !!value;
-    localStorage.setItem('feed_compact', isCompact ? '1' : '0');
-    applyCompactClass();
-}
-
-function applyCompactClass() {
-    const root = document.querySelector('.news-page');
-    if (!root) return;
-    root.classList.toggle('compact', isCompact);
-}
-
-function toggleSettings() {
-    const panel = document.getElementById('settings-panel');
-    const arrow = document.getElementById('settings-arrow');
-    
-    if (panel.style.display === 'none' || !panel.style.display) {
-        panel.style.display = 'block';
-        arrow.textContent = '▲';
-    } else {
-        panel.style.display = 'none';
-        arrow.textContent = '▼';
-    }
-}
-
-function loadMoreNews() {
-    loadNews(false);
-}
-
-function escapeHtml(text) {
-    if (!text) return '';
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-function formatDate(dateString) {
-    if (!dateString) return 'Неизвестно';
-    
-    try {
-        const date = new Date(dateString);
-        const now = new Date();
-        const diffHours = Math.floor((now - date) / (1000 * 60 * 60));
-        
-        if (diffHours < 1) return 'Только что';
-        if (diffHours < 24) return `${diffHours} ч. назад`;
-        
-        const diffDays = Math.floor(diffHours / 24);
-        if (diffDays < 7) return `${diffDays} дн. назад`;
-        
-        return date.toLocaleDateString('ru-RU');
-    } catch {
-        return 'Неизвестно';
-    }
-}
-
-
-function extractImageFromContent(content) {
-    if (!content) return null;
-    
-    // If content is already a direct URL, return it
-    if (typeof content === 'string' && (content.startsWith('http://') || content.startsWith('https://'))) {
-        // Check if it looks like an image URL
-        const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg'];
-        const imagePatterns = ['telegram.space/file/', 'cdn.telegram', 'imgur.com/', 'images.', 'img.', 'static.', 'media.', 'photo'];
-        
-        const lowerContent = content.toLowerCase();
-        if (imageExtensions.some(ext => lowerContent.includes(ext)) || 
-            imagePatterns.some(pattern => lowerContent.includes(pattern))) {
-            return content;
-        }
-    }
-    
-    // Extract image URL from HTML content
-    const imgRegex = /<img[^>]+src=['"]([^'"]+)['"][^>]*>/i;
-    const match = content.match(imgRegex);
-    
-    if (match && match[1]) {
-        // Clean up the URL
-        let imageUrl = match[1];
-        // Remove HTML entities
-        imageUrl = imageUrl.replace(/&amp;/g, '&').replace(/&#038;/g, '&');
-        return imageUrl;
-    }
-    
-    return null;
-}
-
-function cleanHtmlSummary(html) {
-    if (!html) return '';
-    
-    // Remove HTML tags but keep basic formatting
-    let clean = html;
-    
-    // Remove common AI service phrases at the beginning
-    const servicePatterns = [
-        /^Краткое содержание статьи на русском языке с основными тезисами:\s*/i,
-        /^Краткое содержание статьи на русском языке:\s*/i,
-        /^Краткое содержание:\s*/i,
-        /^Основные тезисы статьи:\s*/i,
-        /^Основные тезисы:\s*/i,
-        /^Суммаризация статьи:\s*/i,
-        /^Пересказ статьи:\s*/i,
-        /^Содержание статьи:\s*/i,
-        /^Вот краткое содержание:\s*/i,
-        /^Вот основные тезисы:\s*/i,
-        /^Статья содержит следующие основные моменты:\s*/i,
-        /^Статья рассказывает о следующем:\s*/i,
-        /^ПЕРЕСКАЗ:\s*/i
-    ];
-    
-    // Remove service phrases
-    servicePatterns.forEach(pattern => {
-        clean = clean.replace(pattern, '');
-    });
-    
-    // Remove figure tags and their contents
-    clean = clean.replace(/<figure[^>]*>[\s\S]*?<\/figure>/gi, '');
-    
-    // Remove img tags
-    clean = clean.replace(/<img[^>]*>/gi, '');
-    
-    // Remove script tags
-    clean = clean.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
-    
-    // Convert paragraphs to line breaks
-    clean = clean.replace(/<\/p>\s*<p[^>]*>/gi, '\n\n');
-    clean = clean.replace(/<p[^>]*>/gi, '');
-    clean = clean.replace(/<\/p>/gi, '');
-    
-    // Remove other HTML tags
-    clean = clean.replace(/<[^>]*>/g, '');
-    
-    // Decode HTML entities (order matters: &amp; first to avoid double decoding)
-    clean = clean.replace(/&amp;/g, '&')
-                 .replace(/&#038;/g, '&')
-                 .replace(/&quot;/g, '"')
-                 .replace(/&apos;/g, "'")
-                 .replace(/&lt;/g, '<')
-                 .replace(/&gt;/g, '>');
-    
-    // Clean up any remaining problematic sequences
-    clean = clean.replace(/["']>/g, ' '); // Remove sequences like "> or '>
-    clean = clean.replace(/[<>]/g, ''); // Remove any remaining < or > characters
-    clean = clean.replace(/"">/g, ' '); // Remove exact ""&gt; sequence
-    clean = clean.replace(/\u201D\u201D>/g, ' '); // Remove Unicode quotes
-    clean = clean.replace(/&#8221;&#8221;>/g, ' '); // Remove encoded quotes
-    
-    // Clean up whitespace
-    clean = clean.replace(/\s+/g, ' ').trim();
-    
-    // Dynamic length limit based on screen width
-    let maxLength = getResponsiveTextLength();
-    if (clean.length > maxLength) {
-        clean = clean.substring(0, maxLength) + '...';
-    }
-    
-    return clean;
-}
-
-function getResponsiveTextLength() {
-    const width = window.innerWidth;
-    
-    if (width >= 1400) {
-        return 350; // Large screens - more text
-    } else if (width >= 1200) {
-        return 280; // Desktop - normal text
-    } else if (width >= 768) {
-        return 220; // Tablet - medium text
-    } else if (width >= 480) {
-        return 160; // Mobile - less text
-    } else {
-        return 120; // Small mobile - minimal text
-    }
-}
-
-let articlesData = {}; // Store articles data for modal
-
-function showArticleModal(articleId) {
-    const article = articlesData[articleId];
-    if (!article) return;
-    
-    // Handle multiple categories
-    const categories = article.categories || [];
-    
-    // Debug: log categories to see what we're getting
-    console.log('Article ID:', articleId, 'Categories:', categories);
-    const primaryCategory = categories.length > 0 ? categories[0] : null;
-    const legacyCategory = (article.category || 'Other').toLowerCase();
-    
-    // Use primary category from new system, fallback to legacy
-    const category = primaryCategory ? primaryCategory.name.toLowerCase() : legacyCategory;
-    const categoryInfo = categoryConfig[category] || categoryConfig['other'];
-    const imageUrl = extractImageFromContent(article.image_url || article.summary || article.content || '');
-    
-    // Create category badges for modal
-    let modalCategoryBadges = '';
-    if (categories.length > 0) {
-        modalCategoryBadges = categories.map(cat => {
-            const catKey = cat.name.toLowerCase();
-            const catInfo = categoryConfig[catKey] || categoryConfig['other'];
-            return `<div class="modal-category category-${catKey}" style="background-color: ${cat.color}" title="Уверенность: ${Math.round(cat.confidence * 100)}%">
-                ${catInfo.icon} ${cat.display_name}
-            </div>`;
-        }).join('');
-    } else {
-        // Fallback to legacy category
-        modalCategoryBadges = `<div class="modal-category category-${category}">
-            ${categoryInfo.icon} ${categoryInfo.name}
-        </div>`;
-    }
-    
-    // Create modal HTML
-    const modalHtml = `
-        <div class="modal-overlay" onclick="closeArticleModal()">
-            <div class="modal-content" onclick="event.stopPropagation()">
-                <div class="modal-header">
-                    <div class="modal-categories-container">
-                        ${modalCategoryBadges}
-                    </div>
-                    ${article.is_advertisement ? `
-                        <div class="modal-ad-badge" title="Рекламный контент (Уверенность: ${Math.round((article.ad_confidence || 0) * 100)}%)">
-                            🚨 РЕКЛАМА
-                        </div>
-                    ` : ''}
-                    <button class="modal-close" onclick="closeArticleModal()">×</button>
-                </div>
-                
-                ${imageUrl ? `
-                    <div class="modal-image">
-                        <img src="${imageUrl}" alt="${escapeHtml(article.title)}" onerror="this.parentElement.style.display='none'">
-                    </div>
-                ` : ''}
-                
-                <div class="modal-body">
-                    <h1 class="modal-title">${escapeHtml(article.title)}</h1>
-                    
-                    <div class="modal-meta">
-                        <span class="modal-source">📰 ${article.source_name || 'Неизвестный источник'}</span>
-                        <span class="modal-date">📅 ${formatDate(article.published_at)}</span>
-                    </div>
-                    ${article.is_advertisement && (article.ad_reasoning || (article.ad_markers && article.ad_markers.length)) ? `
-                        <div style="margin:-8px 0 12px 0; font-size:0.85rem; color:#6c757d;">
-                            <span style="cursor:help;" title="Причины метки рекламы">
-                                ℹ️ Обоснование: ${escapeHtml((article.ad_reasoning || '').substring(0, 200))}
-                            </span>
-                            ${article.ad_markers && article.ad_markers.length ? `
-                                <div style=\"margin-top:6px; display:flex; flex-wrap:wrap; gap:6px;\">
-                                    ${article.ad_markers.slice(0,8).map(m => `<span style=\"background:#f1f3f5; border:1px solid #e9ecef; border-radius:12px; padding:2px 8px;\">${escapeHtml(m)}</span>`).join('')}
-                                </div>
-                            ` : ''}
-                        </div>
-                    ` : ''}
-                    
-                    <div class="modal-summary">
-                        ${formatHtmlContent(article.summary || article.content || 'Содержимое недоступно')}
-                    </div>
-                    
-                    ${categories.length > 0 ? `
-                        <div class="modal-ai-categories">
-                            <div style="font-size: 0.85rem; color: #6c757d; margin-bottom: 8px; font-weight: 500;">
-                                🤖 Исходные AI категории:
-                            </div>
-                            <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-                                ${categories.map(cat => `
-                                    <span class="ai-category-badge" title="Исходная категория от AI: ${cat.ai_category || 'null'} → Маппинг: ${escapeHtml(cat.display_name)}">
-                                        ${cat.ai_category || 'empty'}
-                                    </span>
-                                `).join('')}
-                            </div>
-                        </div>
-                    ` : ''}
-                    
-                    <div class="modal-actions">
-                        <a href="${article.url}" target="_blank" rel="noopener noreferrer" class="btn btn-primary">
-                            🔗 Читать оригинал
-                        </a>
-                        <button class="btn btn-secondary" onclick="closeArticleModal()">
-                            Закрыть
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-    
-    // Add modal to page
-    document.body.insertAdjacentHTML('beforeend', modalHtml);
-    document.body.style.overflow = 'hidden';
-}
-
-function closeArticleModal() {
-    const modal = document.querySelector('.modal-overlay');
-    if (modal) {
-        modal.remove();
-        document.body.style.overflow = '';
-    }
-}
-
-function formatHtmlContent(html) {
-    if (!html) return 'Содержимое недоступно';
-    
-    let formatted = html;
-    
-    // Clean HTML entities first (same logic as cleanHtmlSummary)
-    formatted = formatted.replace(/&amp;/g, '&')
-                       .replace(/&#038;/g, '&')
-                       .replace(/&quot;/g, '"')
-                       .replace(/&apos;/g, "'")
-                       .replace(/&lt;/g, '<')
-                       .replace(/&gt;/g, '>');
-    
-    // Clean up any remaining problematic sequences
-    formatted = formatted.replace(/["']>/g, ' '); // Remove sequences like "> or '>
-    formatted = formatted.replace(/"">/g, ' '); // Remove exact ""&gt; sequence
-    formatted = formatted.replace(/\u201D\u201D>/g, ' '); // Remove Unicode quotes
-    formatted = formatted.replace(/&#8221;&#8221;>/g, ' '); // Remove encoded quotes
-    // For safety, remove isolated < and > characters (simplified approach)
-    formatted = formatted.replace(/</g, '').replace(/>/g, '');
-    
-    // Convert markdown bold syntax **text** to HTML <strong>text</strong>
-    formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    
-    // Convert markdown italic syntax *text* to HTML <em>text</em> (process after bold to avoid conflicts)
-    formatted = formatted.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
-    
-    // Remove figure tags and their contents (already handled images separately)
-    formatted = formatted.replace(/<figure[^>]*>[\s\S]*?<\/figure>/gi, '');
-    
-    // Remove script tags
-    formatted = formatted.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
-    
-    // Remove img tags (already handled separately)
-    formatted = formatted.replace(/<img[^>]*>/gi, '');
-    
-    // Convert specific tags to readable format
-    formatted = formatted.replace(/<h[1-6][^>]*>(.*?)<\/h[1-6]>/gi, '<h3>$1</h3>');
-    formatted = formatted.replace(/<strong[^>]*>(.*?)<\/strong>/gi, '<strong>$1</strong>');
-    formatted = formatted.replace(/<em[^>]*>(.*?)<\/em>/gi, '<em>$1</em>');
-    formatted = formatted.replace(/<a[^>]+href=['"]([^'"]+)['"][^>]*>(.*?)<\/a>/gi, '<a href="$1" target="_blank" rel="noopener noreferrer">$2</a>');
-    
-    // Handle line breaks and paragraph formatting
-    // First, normalize line breaks
-    formatted = formatted.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-    
-    // Special handling for Telegram-style content with excessive line breaks
-    // Collapse multiple consecutive line breaks into double breaks
-    formatted = formatted.replace(/\n{3,}/g, '\n\n');
-    
-    // Join lines that appear to be parts of the same sentence/paragraph
-    // (lines that don't end with sentence-ending punctuation)
-    formatted = formatted.replace(/([^.!?:]\s*)\n(?=[а-яё])/gi, '$1 ');
-    formatted = formatted.replace(/([^.!?:]\s*)\n(?=[a-z])/g, '$1 ');
-    
-    // Convert double line breaks to paragraph breaks
-    formatted = formatted.replace(/\n\s*\n/g, '</p><p>');
-    
-    // Convert remaining single line breaks to <br> (for intentional breaks)
-    formatted = formatted.replace(/\n/g, '<br>');
-    
-    // Clean up any trailing whitespace
-    formatted = formatted.replace(/\s+$/g, '');
-    
-    // Convert numbered lists to proper HTML lists (simplified approach)
-    // Find sequences of numbered items and convert them
-    formatted = formatted.replace(/(?:^|<br>)((?:\d+\.\s+[^<]*?(?:<br>|$))+)/g, function(match, listContent) {
-        // Split by <br> and process each numbered item
-        const items = listContent.split('<br>').filter(item => item.trim() && /^\d+\./.test(item.trim()));
-        if (items.length > 1) {
-            const listItems = items.map(item => {
-                const cleaned = item.replace(/^\d+\.\s*/, '').trim();
-                return cleaned ? `<li>${cleaned}</li>` : '';
-            }).filter(item => item).join('');
-            return `<ol>${listItems}</ol>`;
-        }
-        return match;
-    });
-    
-    // Handle existing paragraphs
-    formatted = formatted.replace(/<p[^>]*>(.*?)<\/p>/gi, '<p>$1</p>');
-    
-    // If no paragraphs exist, wrap content in paragraphs
-    if (!formatted.includes('<p>')) {
-        // Split by sentence endings followed by space or line break
-        const sentences = formatted.split(/([.!?]+(?:\s|<br>|$))/);
-        let paragraphs = [];
-        let currentParagraph = '';
-        
-        for (let i = 0; i < sentences.length; i += 2) {
-            const sentence = sentences[i] || '';
-            const punctuation = sentences[i + 1] || '';
-            
-            if (sentence.trim()) {
-                currentParagraph += sentence + punctuation;
-                
-                // Start new paragraph every 2-3 sentences or if content is long
-                if ((i >= 4 && Math.random() > 0.7) || currentParagraph.length > 300) {
-                    paragraphs.push('<p>' + currentParagraph.trim() + '</p>');
-                    currentParagraph = '';
-                }
-            }
-        }
-        
-        // Add remaining content
-        if (currentParagraph.trim()) {
-            paragraphs.push('<p>' + currentParagraph.trim() + '</p>');
-        }
-        
-        formatted = paragraphs.join('');
-    }
-    
-    // Remove remaining unwanted tags but keep basic formatting including lists
-    formatted = formatted.replace(/<(?!\/?(p|br|strong|em|a|h3|ul|ol|li|blockquote)\b)[^>]*>/gi, '');
-    
-    // Clean up extra whitespace but preserve paragraph structure
-    formatted = formatted.replace(/\s*<\/p>\s*<p>\s*/g, '</p><p>');
-    formatted = formatted.replace(/\s*<br>\s*/g, '<br>');
-    formatted = formatted.replace(/\s+/g, ' ');
-    formatted = formatted.replace(/<p>\s+/g, '<p>');
-    formatted = formatted.replace(/\s+<\/p>/g, '</p>');
-    
-    // Ensure content starts and ends with paragraph tags
-    if (!formatted.startsWith('<p>')) {
-        formatted = '<p>' + formatted;
-    }
-    if (!formatted.endsWith('</p>')) {
-        formatted = formatted + '</p>';
-    }
-    
-    // Fix double paragraphs
-    formatted = formatted.replace(/<p><p>/g, '<p>');
-    formatted = formatted.replace(/<\/p><\/p>/g, '</p>');
-    
-    return formatted;
-}
-
-function showError(message) {
-    const container = document.getElementById('news-feed');
-    container.innerHTML = `
-        <div class="empty-state">
-            <div class="icon">⚠️</div>
-            <h3>Ошибка</h3>
-            <p>${message}</p>
-        </div>
-    `;
-}
-</script>
+<script>window.FEED_VIEW = 'cards';</script>
+{% include "public/_feed_core.html" %}
 {% endblock %}

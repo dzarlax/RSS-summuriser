@@ -20,13 +20,15 @@ class NewsPrompts:
         """Get unified summarization rules used across different prompts."""
         return f"""
 SUMMARIZATION REQUIREMENTS:
-- Create {sentence_count} informative sentences in Russian
+- Create DETAILED {sentence_count} informative sentences in Russian (minimum 200 characters)
 - Start directly with main content (no introductory phrases like "статья рассказывает о...")
 - Structure: ЧТО произошло → ГДЕ → КОГДА → КТО участвовал → ПОЧЕМУ важно → РЕЗУЛЬТАТ/ПОСЛЕДСТВИЯ
-- Preserve key facts, numbers, names, dates
-- Each sentence should carry new information
+- Preserve ALL key facts, numbers, names, dates, statistics, research findings
+- Each sentence should carry substantial new information and context
+- Include specific details, not just general statements
 - Logical connections between sentences
-- Concise and informative, avoid filler words"""
+- For scientific/medical articles: include methodology, results, implications
+- Avoid repeating the title - add new information not in the headline"""
     
     @staticmethod
     def _get_professional_editor_system() -> str:
@@ -48,8 +50,8 @@ SUMMARIZATION REQUIREMENTS:
         Handles: categorization, summarization, ad detection, date extraction.
         Used by: AIClient.analyze_article_complete()
         """
-        # Limit content size for cost optimization
-        content_preview = content[:2000] + ("..." if len(content) > 2000 else "")
+        # Limit content size for cost optimization (increased for better summaries)
+        content_preview = content[:3500] + ("..." if len(content) > 3500 else "")
         
         return f"""Analyze this article and provide complete analysis in JSON format.
 
@@ -62,7 +64,7 @@ Content: {content_preview}
 ANALYSIS TASKS:
 1. TITLE OPTIMIZATION: Create clear, informative headline (max 120 characters for Telegram)
 2. CATEGORIZATION: Choose one or more relevant categories (if content spans multiple domains)
-3. SUMMARIZATION: Create 5-6 sentence summary in Russian with structured approach
+3. SUMMARIZATION: Create DETAILED 5-6 sentence summary in Russian (minimum 200 characters) with key facts and context
 4. ADVERTISEMENT DETECTION: Determine if content is promotional
 5. DATE EXTRACTION: Find publication date if mentioned
 
@@ -72,11 +74,12 @@ GUIDELINES:
 - News sources have lower advertisement probability
 - Prices/statistics alone don't indicate advertisements
 
-CATEGORIES:
-Choose from: Business, Tech, Science, Nature, Serbia, Marketing, Other
-- Choose 1-2 most relevant categories
-- Use multiple categories when content clearly relates to different domains
-- Examples: Serbian bank news → "Serbia", "Business"; Russian tech startup → "Tech", "Business"
+CATEGORIZATION:
+1. FIRST - Describe the content with 1-2 specific descriptive categories (your own words)
+2. THEN - Map to final categories: Business, Tech, Science, Nature, Serbia, Marketing, Other
+- Use descriptive categories like: "financial_news", "technology_innovation", "political_analysis", "traffic_accident", "economy", "international_relations", etc.
+- Then map to our system: financial_news → Business, technology_innovation → Tech, political_analysis → Politics, etc.
+- Examples: "banking_regulations" → Business, "AI_development" → Tech, "environmental_policy" → Science
 
 TITLE OPTIMIZATION RULES:
 - ALWAYS provide optimized_title field (even if keeping original)
@@ -99,6 +102,7 @@ Look for publication dates in content, ignore article dates.
 OUTPUT FORMAT (JSON):
 {{
     "optimized_title": "Краткий информативный заголовок новости",
+    "original_categories": ["financial_news", "banking_sector"],
     "categories": ["Business"],
     "category_confidences": [0.95],
     "summary": "Краткий пересказ 5-6 предложений...",

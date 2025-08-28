@@ -16,7 +16,8 @@ async def admin_dashboard(request: Request, admin_user: str = Depends(get_curren
     return templates.TemplateResponse("admin/dashboard.html", {
         "request": request,
         "title": "RSS Summarizer v2 - Admin",
-        "admin_user": admin_user
+        "admin_user": admin_user,
+        "active_menu": "dashboard"
     })
 
 
@@ -26,7 +27,8 @@ async def admin_sources(request: Request, admin_user: str = Depends(get_current_
     return templates.TemplateResponse("admin/sources.html", {
         "request": request,
         "title": "Управление Источниками",
-        "admin_user": admin_user
+        "admin_user": admin_user,
+        "active_menu": "sources"
     })
 
 
@@ -36,7 +38,8 @@ async def admin_summaries(request: Request, admin_user: str = Depends(get_curren
     return templates.TemplateResponse("admin/summaries.html", {
         "request": request,
         "title": "Дневные Сводки",
-        "admin_user": admin_user
+        "admin_user": admin_user,
+        "active_menu": "summaries"
     })
 
 
@@ -46,7 +49,8 @@ async def admin_schedule(request: Request, admin_user: str = Depends(get_current
     return templates.TemplateResponse("admin/schedule.html", {
         "request": request,
         "title": "Расписание Задач",
-        "admin_user": admin_user
+        "admin_user": admin_user,
+        "active_menu": "schedule"
     })
 
 
@@ -56,7 +60,8 @@ async def admin_stats(request: Request, admin_user: str = Depends(get_current_ad
     return templates.TemplateResponse("admin/stats.html", {
         "request": request,
         "title": "Статистика Системы",
-        "admin_user": admin_user
+        "admin_user": admin_user,
+        "active_menu": "stats"
     })
 
 
@@ -66,7 +71,8 @@ async def admin_backup(request: Request, admin_user: str = Depends(get_current_a
     return templates.TemplateResponse("admin/backup.html", {
         "request": request,
         "title": "Резервные Копии",
-        "admin_user": admin_user
+        "admin_user": admin_user,
+        "active_menu": "backup"
     })
 
 
@@ -76,5 +82,6 @@ async def admin_categories(request: Request, admin_user: str = Depends(get_curre
     return templates.TemplateResponse("admin/categories.html", {
         "request": request,
         "title": "Маппинг Категорий",
-        "admin_user": admin_user
+        "admin_user": admin_user,
+        "active_menu": "categories"
     })

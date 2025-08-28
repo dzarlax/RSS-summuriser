@@ -18,7 +18,7 @@ from sqlalchemy.orm import selectinload, joinedload
 
 from .database import get_db, engine, AsyncSessionLocal
 from .config import settings
-from .models import Article, Source, ProcessingStat, DailySummary, ScheduleSettings, CategoryMapping, ArticleCategory
+from .models import Article, Source, ProcessingStat, DailySummary, ScheduleSettings, CategoryMapping, ArticleCategory, Category
 from .services.source_manager import SourceManager
 from .main import migration_manager
 # from .security import require_api_read, require_api_write, require_admin, limiter
@@ -59,7 +59,11 @@ async def api_root():
             "process": "/api/v1/process - Trigger processing",
             "telegram": "/api/v1/telegram/send-digest - Send Telegram digest",
             "backup": "/api/v1/backup - Backup management",
-            "restore": "/api/v1/restore - Restore from backup"
+            "restore": "/api/v1/restore - Restore from backup",
+            "system": {
+                "process_monitor": "/api/v1/system/process-monitor - Process monitor status",
+                "cleanup": "/api/v1/system/process-monitor/cleanup - Manual process cleanup"
+            }
         },
         "documentation": "/docs",
         "timestamp": datetime.utcnow().isoformat()
@@ -232,6 +236,7 @@ async def get_categories(db: AsyncSession = Depends(get_db)):
     # Get categories from new table with article counts
     result = await db.execute(
         select(
+            Category.id,
             Category.name,
             Category.display_name,
             Category.description,
@@ -246,8 +251,9 @@ async def get_categories(db: AsyncSession = Depends(get_db)):
     categories = []
     total_count = 0
     
-    for name, display_name, description, color, count in result.all():
+    for id, name, display_name, description, color, count in result.all():
         categories.append({
+            "id": id,
             "category": name,
             "display_name": display_name,
             "description": description,
@@ -275,6 +281,127 @@ async def get_categories(db: AsyncSession = Depends(get_db)):
         "total_articles": total_count,
         "advertisements": ad_count
     }
+
+
+# Category CRUD (admin)
+class CategoryCreateRequest(BaseModel):
+    name: str
+    display_name: str
+    description: Optional[str] = None
+    color: Optional[str] = "#6c757d"
+
+class CategoryResponse(BaseModel):
+    id: int
+    name: str
+    display_name: str
+    description: Optional[str]
+    color: str
+    created_at: datetime
+
+@router.post("/categories", response_model=CategoryResponse)
+async def create_category(
+    payload: CategoryCreateRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """Create a main category (admin)."""
+    try:
+        # Normalize inputs
+        name = payload.name.strip()
+        display_name = payload.display_name.strip()
+
+        if not name or not display_name:
+            raise HTTPException(status_code=400, detail="'name' and 'display_name' are required")
+
+        # Enforce hex color format like #RRGGBB
+        color = (payload.color or "#6c757d").strip()
+        if not color.startswith("#") or len(color) not in (4, 7):
+            raise HTTPException(status_code=400, detail="Invalid color format. Use hex like #6c757d")
+
+        # Check uniqueness by name
+        existing = await db.execute(select(Category).where(Category.name == name))
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="Category with this name already exists")
+
+        category = Category(
+            name=name,
+            display_name=display_name,
+            description=payload.description,
+            color=color
+        )
+        db.add(category)
+        await db.commit()
+        await db.refresh(category)
+
+        return CategoryResponse(
+            id=category.id,
+            name=category.name,
+            display_name=category.display_name,
+            description=category.description,
+            color=category.color,
+            created_at=category.created_at,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to create category: {str(e)}")
+
+
+class CategoryUpdateRequest(BaseModel):
+    display_name: str
+    color: Optional[str] = None
+    description: Optional[str] = None
+
+
+@router.put("/categories/{category_id}", response_model=CategoryResponse)
+async def update_category(
+    category_id: int,
+    payload: CategoryUpdateRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """Update an existing category (admin)."""
+    try:
+        # Find the category
+        result = await db.execute(select(Category).where(Category.id == category_id))
+        category = result.scalar_one_or_none()
+        
+        if not category:
+            raise HTTPException(status_code=404, detail="Category not found")
+
+        # Normalize inputs
+        display_name = payload.display_name.strip()
+        if not display_name:
+            raise HTTPException(status_code=400, detail="'display_name' is required")
+
+        # Validate color format if provided
+        color = category.color  # Keep existing color by default
+        if payload.color:
+            color = payload.color.strip()
+            if not color.startswith("#") or len(color) not in (4, 7):
+                raise HTTPException(status_code=400, detail="Invalid color format. Use hex like #6c757d")
+
+        # Update category
+        category.display_name = display_name
+        category.color = color
+        if payload.description is not None:
+            category.description = payload.description.strip() if payload.description.strip() else None
+
+        await db.commit()
+        await db.refresh(category)
+
+        return CategoryResponse(
+            id=category.id,
+            name=category.name,
+            display_name=category.display_name,
+            description=category.description,
+            color=category.color,
+            created_at=category.created_at,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update category: {str(e)}")
 
 
 @router.get("/sources")
@@ -906,28 +1033,7 @@ async def generate_daily_summaries(
 async def get_migrations_status(db: AsyncSession = Depends(get_db)):
     """Get current migration status."""
     try:
-        # Check if multiple categories migration is needed
-        # Get migration info from universal manager
-        migration_info = migration_manager.get_migration_info('002_multiple_categories')
-        if migration_info:
-            # Check if migration is needed using the registered check function
-            migrations = migration_manager.migrations
-            if '002_multiple_categories' in migrations:
-                migration = migrations['002_multiple_categories']
-                if hasattr(migration, 'check_needed'):
-                    is_needed = await migration.check_needed(db)
-                else:
-                    is_needed = await migration['check_function'](db)
-            else:
-                is_needed = False
-        else:
-            is_needed = False
-        
-        # Get some basic stats
-        result = await db.execute(text("SELECT COUNT(*) FROM articles WHERE category IS NOT NULL"))
-        articles_with_categories = result.scalar() or 0
-        
-        # Check if new tables exist by trying to query them
+        # Check if new tables exist
         has_categories_table = False
         has_article_categories_table = False
         
@@ -943,21 +1049,40 @@ async def get_migrations_status(db: AsyncSession = Depends(get_db)):
         except:
             pass
         
-        # Get article_categories count if table exists
+        # Get statistics
+        total_articles = 0
         relationships_count = 0
+        categories_count = 0
+        
+        try:
+            result = await db.execute(text("SELECT COUNT(*) FROM articles"))
+            total_articles = result.scalar() or 0
+        except:
+            pass
+            
         if has_article_categories_table:
-            result = await db.execute(text("SELECT COUNT(*) FROM article_categories"))
-            relationships_count = result.scalar() or 0
+            try:
+                result = await db.execute(text("SELECT COUNT(*) FROM article_categories"))
+                relationships_count = result.scalar() or 0
+            except:
+                pass
+                
+        if has_categories_table:
+            try:
+                result = await db.execute(text("SELECT COUNT(*) FROM categories"))
+                categories_count = result.scalar() or 0
+            except:
+                pass
         
         return {
-            "migration_needed": is_needed,
             "tables_exist": {
                 "categories": has_categories_table,
                 "article_categories": has_article_categories_table
             },
             "statistics": {
-                "articles_with_categories": articles_with_categories,
-                "category_relationships": relationships_count
+                "total_articles": total_articles,
+                "category_relationships": relationships_count,
+                "categories_count": categories_count
             },
             "available_migrations": list(migration_manager.migrations.keys())
         }
@@ -965,7 +1090,7 @@ async def get_migrations_status(db: AsyncSession = Depends(get_db)):
     except Exception as e:
         return {
             "error": str(e),
-            "migration_needed": True  # Assume needed if we can't check
+            "available_migrations": []
         }
 
 
@@ -1929,15 +2054,10 @@ async def create_category_mapping(
 ):
     """Create new category mapping."""
     try:
-        from .services.category_service import CategoryService
-        service = CategoryService(db)
-        
-        # Validate that fixed_category is one of our allowed categories
-        if mapping_request.fixed_category not in service.ALLOWED_CATEGORIES:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Invalid fixed_category. Must be one of: {list(service.ALLOWED_CATEGORIES.keys())}"
-            )
+        # Validate that fixed_category exists in DB categories
+        fixed_cat = await db.execute(select(Category).where(Category.name == mapping_request.fixed_category))
+        if not fixed_cat.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="Invalid fixed_category. Create it first in Categories.")
         
         # Check if mapping already exists
         existing = await db.execute(
@@ -1958,6 +2078,16 @@ async def create_category_mapping(
         db.add(mapping)
         await db.commit()
         await db.refresh(mapping)
+        
+        # Apply new mapping to existing articles with matching ai_category
+        from .services.category_service import CategoryService
+        service = CategoryService(db)
+        updated_articles_count = await service.apply_new_mapping_to_existing_articles(
+            mapping_request.ai_category, mapping_request.fixed_category
+        )
+        
+        print(f"✅ New mapping created: {mapping_request.ai_category} → {mapping_request.fixed_category}")
+        print(f"📊 Applied to {updated_articles_count} existing articles")
         
         return CategoryMappingResponse(
             id=mapping.id,
@@ -1987,15 +2117,10 @@ async def update_category_mapping(
 ):
     """Update existing category mapping and apply changes to existing articles."""
     try:
-        from .services.category_service import CategoryService
-        service = CategoryService(db)
-        
-        # Validate that fixed_category is one of our allowed categories
-        if mapping_request.fixed_category not in service.ALLOWED_CATEGORIES:
-            raise HTTPException(
-                status_code=400, 
-                detail=f"Invalid fixed_category. Must be one of: {list(service.ALLOWED_CATEGORIES.keys())}"
-            )
+        # Validate that fixed_category exists in DB categories
+        fixed_cat = await db.execute(select(Category).where(Category.name == mapping_request.fixed_category))
+        if not fixed_cat.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="Invalid fixed_category. Create it first in Categories.")
         
         # Get existing mapping
         result = await db.execute(
@@ -2022,8 +2147,10 @@ async def update_category_mapping(
         # Apply changes to existing articles if fixed_category changed
         updated_articles_count = 0
         if old_fixed_category != mapping_request.fixed_category:
+            from .services.category_service import CategoryService
+            service = CategoryService(db)
             updated_articles_count = await service.apply_mapping_changes_to_existing_articles(
-                old_ai_category, old_fixed_category, mapping_request.fixed_category
+                mapping.ai_category, old_fixed_category, mapping_request.fixed_category
             )
         
         return CategoryMappingUpdateResponse(
@@ -2107,20 +2234,17 @@ async def toggle_category_mapping(
         raise HTTPException(status_code=500, detail=f"Failed to toggle category mapping: {str(e)}")
 
 @router.get("/category-mappings/fixed-categories")
-async def get_fixed_categories():
-    """Get list of available fixed categories."""
+async def get_fixed_categories(db: AsyncSession = Depends(get_db)):
+    """Get list of available main categories from database."""
     try:
-        from .services.category_service import CategoryService
-        # Create a temporary service instance just to access the allowed categories
-        service = CategoryService(None)
-        
+        result = await db.execute(select(Category).order_by(Category.name))
+        cats = result.scalars().all()
         return {
             "categories": [
-                {"key": key, "display_name": display_name}
-                for key, display_name in service.ALLOWED_CATEGORIES.items()
+                {"key": c.name, "display_name": c.display_name}
+                for c in cats
             ]
         }
-        
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get fixed categories: {str(e)}")
 
@@ -2135,31 +2259,19 @@ async def get_unmapped_ai_categories(db: AsyncSession = Depends(get_db)):
         )
         mapped_categories = {row[0].lower() for row in mapped_result.all()}
         
-        # Look for common AI category patterns in content
-        simple_query = text("""
-            SELECT DISTINCT 
-                'business' as ai_category, COUNT(*) as usage_count
-            FROM articles WHERE summary ILIKE '%business%' OR title ILIKE '%business%'
-            UNION ALL
-            SELECT DISTINCT 
-                'technology' as ai_category, COUNT(*) as usage_count  
-            FROM articles WHERE summary ILIKE '%technology%' OR title ILIKE '%tech%'
-            UNION ALL
-            SELECT DISTINCT 
-                'health' as ai_category, COUNT(*) as usage_count
-            FROM articles WHERE summary ILIKE '%health%' OR title ILIKE '%medical%'
-            UNION ALL
-            SELECT DISTINCT 
-                'environment' as ai_category, COUNT(*) as usage_count
-            FROM articles WHERE summary ILIKE '%environment%' OR title ILIKE '%climate%'
-            UNION ALL
-            SELECT DISTINCT 
-                'education' as ai_category, COUNT(*) as usage_count
-            FROM articles WHERE summary ILIKE '%education%' OR title ILIKE '%university%'
+        # Get actual AI categories from article_categories table
+        ai_categories_query = text("""
+            SELECT 
+                ac.ai_category,
+                COUNT(*) as usage_count
+            FROM article_categories ac
+            WHERE ac.ai_category IS NOT NULL 
+            AND ac.ai_category != ''
+            GROUP BY ac.ai_category
             ORDER BY usage_count DESC
         """)
         
-        result = await db.execute(simple_query)
+        result = await db.execute(ai_categories_query)
         ai_categories = result.all()
         
         # Filter out already mapped categories
@@ -2198,3 +2310,49 @@ def _suggest_fixed_category(ai_category: str) -> str:
         return 'International'
     else:
         return 'Other'
+
+
+@router.get("/system/process-monitor")
+async def get_process_monitor_status():
+    """Get current process monitor status and statistics."""
+    try:
+        from .services.process_monitor import get_process_monitor
+        monitor = get_process_monitor()
+        
+        # Get current Playwright processes
+        playwright_processes = monitor._find_playwright_processes()
+        hanging_processes = monitor._identify_hanging_processes(playwright_processes)
+        
+        return {
+            "monitor_running": monitor.is_running,
+            "check_interval_seconds": monitor.check_interval,
+            "current_playwright_processes": len(playwright_processes),
+            "hanging_processes_detected": len(hanging_processes),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logging.error(f"Failed to get process monitor status: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get process monitor status: {str(e)}")
+
+
+@router.post("/system/process-monitor/cleanup")
+async def manual_process_cleanup():
+    """Manually trigger process cleanup and return statistics."""
+    try:
+        from .services.process_monitor import get_process_monitor
+        monitor = get_process_monitor()
+        
+        cleanup_stats = await monitor.manual_cleanup()
+        
+        logging.info(f"Manual process cleanup completed: {cleanup_stats}")
+        
+        return {
+            "success": True,
+            "message": "Process cleanup completed",
+            **cleanup_stats
+        }
+        
+    except Exception as e:
+        logging.error(f"Manual process cleanup failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Process cleanup failed: {str(e)}")

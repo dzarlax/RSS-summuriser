@@ -67,6 +67,9 @@ telegraph>=2.2.0
 # PostgreSQL для backup
 psycopg2-binary>=2.9.7
 
+# Process monitoring
+psutil>=5.9.6                 # System and process monitoring
+
 # Content extraction improvements
 readability-lxml>=0.8.1       # Mozilla readability algorithm
 playwright>=1.40.0            # JavaScript rendering for SPA sites

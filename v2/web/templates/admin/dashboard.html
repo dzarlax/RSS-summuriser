@@ -4,37 +4,19 @@
 
 {% block content %}
 <div class="admin-container">
-    <div class="admin-sidebar">
-        <h3>Администрирование</h3>
-        <nav class="admin-nav">
-            <a href="/admin" class="nav-item active">
-                <span class="icon">📊</span> Дашборд
-            </a>
-            <a href="/admin/sources" class="nav-item">
-                <span class="icon">📰</span> Источники
-            </a>
-            <a href="/admin/summaries" class="nav-item">
-                <span class="icon">📄</span> Дневные сводки
-            </a>
-            <a href="/admin/schedule" class="nav-item">
-                <span class="icon">⏰</span> Расписание
-            </a>
-            <a href="/admin/stats" class="nav-item">
-                <span class="icon">📈</span> Статистика
-            </a>
-            <a href="/admin/categories" class="nav-item">
-                <span class="icon">🏷️</span> Маппинг категорий
-            </a>
-            <a href="/admin/backup" class="nav-item">
-                <span class="icon">💾</span> Резервные копии
-            </a>
-        </nav>
-    </div>
+    {% include "admin/_sidebar.html" %}
 
     <div class="admin-main">
         <h1>Дашборд</h1>
-        
-        <div class="stats-grid">
+
+        <!-- View toggles -->
+        <div style="display:flex; gap:1rem; align-items:center; margin: 0 0 0.5rem 0; color: var(--text-muted);">
+            <label class="form-label" style="display:flex; align-items:center; gap:.5rem;">
+                <input type="checkbox" id="toggle-compact" onchange="toggleCompactStats()"> Компактные карточки
+            </label>
+        </div>
+
+        <div class="stats-grid" id="stats-grid">
             <div class="stat-card sources-card" data-tooltip="Общее количество активных RSS источников">
                 <div class="stat-icon">📰</div>
                 <div class="stat-content">
@@ -108,7 +90,7 @@
         </div>
 
         <!-- Управление обработкой -->
-        <section class="dashboard-section control-panel">
+        <section class="dashboard-section control-panel" id="control-panel">
             <div class="dashboard-header">
                 <h2>🎛️ Управление системой</h2>
                 <div class="last-sync" id="last-sync-info">
@@ -177,14 +159,16 @@
         </section>
 
         <div class="dashboard-sections">
-            <section class="dashboard-section news-section">
+            <section class="dashboard-section news-section" id="news-section">
                 <div class="section-header">
                     <h2>📰 Последние новости</h2>
-                    <button class="btn btn-sm btn-outline" onclick="loadRecentNews()">
-                        🔄 Обновить
-                    </button>
+                    <div>
+                        <button class="btn btn-sm btn-outline" onclick="loadRecentNews()">🔄 Обновить</button>
+                        <button class="btn btn-sm btn-ghost" onclick="toggleSection('news-section')" title="Свернуть/развернуть">▾</button>
+                    </div>
                 </div>
-                <div id="recent-news" class="recent-news-container">
+                
+                <div id="recent-news" class="recent-news-container section-body">
                     <div class="loading-state">
                         <div class="spinner"></div>
                         <p>Загрузка последних новостей...</p>
@@ -195,13 +179,15 @@
                 </div>
             </section>
             
-            <section class="dashboard-section status-section">
+            <section class="dashboard-section status-section" id="status-section">
                 <div class="section-header">
                     <h2>⚡ Статус системы</h2>
-                    <div class="status-timestamp" id="status-timestamp">
-                        Проверено: Загрузка...
+                    <div style="display:flex; gap:.5rem; align-items:center;">
+                        <div class="status-timestamp" id="status-timestamp">Проверено: Загрузка...</div>
+                        <button class="btn btn-sm btn-ghost" onclick="toggleSection('status-section')" title="Свернуть/развернуть">▾</button>
                     </div>
                 </div>
+                <div class="section-body">
                 <div class="system-status">
                     <div class="status-item" id="db-status">
                         <div class="status-indicator-wrapper">
@@ -259,15 +245,18 @@
                         🔍 Проверить статус
                     </button>
                 </div>
+                </div>
             </section>
             
-            <section class="dashboard-section queue-section">
+            <section class="dashboard-section queue-section section-collapsed" id="queue-section">
                 <div class="section-header">
                     <h2>🚀 Статистика очередей БД</h2>
-                    <button class="btn btn-sm btn-outline" onclick="loadQueueStats()">
-                        🔄 Обновить
-                    </button>
+                    <div>
+                        <button class="btn btn-sm btn-outline" onclick="loadQueueStats()">🔄 Обновить</button>
+                        <button class="btn btn-sm btn-ghost" onclick="toggleSection('queue-section')" title="Свернуть/развернуть">▾</button>
+                    </div>
                 </div>
+                <div class="section-body">
                 <div class="queue-stats">
                     <div class="queue-stat-item" id="read-queue">
                         <div class="queue-indicator">
@@ -316,15 +305,19 @@
                         <span class="value" id="db-pool-status">-</span>
                     </div>
                 </div>
+                </div>
             </section>
 
             <!-- Extraction per-domain section -->
-            <section class="dashboard-section extractor-section">
+            <section class="dashboard-section extractor-section section-collapsed" id="extractor-section">
                 <div class="section-header">
                     <h2>🧠 Извлечение: домены с проблемами</h2>
-                    <button class="btn btn-sm btn-outline" onclick="loadExtractorStats()">🔄 Обновить</button>
+                    <div>
+                        <button class="btn btn-sm btn-outline" onclick="loadExtractorStats()">🔄 Обновить</button>
+                        <button class="btn btn-sm btn-ghost" onclick="toggleSection('extractor-section')" title="Свернуть/развернуть">▾</button>
+                    </div>
                 </div>
-                <div id="extractor-domains" class="recent-news-container">
+                <div id="extractor-domains" class="recent-news-container section-body">
                     <div class="loading-state">
                         <div class="spinner"></div>
                         <p>Загрузка статистики извлечения...</p>
@@ -361,6 +354,10 @@
     gap: 1.5rem;
     margin-bottom: 2rem;
 }
+
+/* Compact stats mode */
+#stats-grid.stats-compact .stat-card { padding: 1rem; }
+#stats-grid.stats-compact .stat-details { display: none; }
 
 .stat-card {
     background: var(--surface-color);
@@ -569,6 +566,9 @@
     padding-bottom: 1rem;
     border-bottom: 1px solid var(--border-color);
 }
+
+.section-body { margin-top: 0.5rem; }
+.section-collapsed .section-body { display: none; }
 
 .section-header h2 {
     margin: 0;
@@ -1145,6 +1145,48 @@ function showNotification(message, type = 'info') {
     console.log(`${type.toUpperCase()}: ${message}`);
     // For now, just log. Could be enhanced later.
 }
+
+// Compact stats toggle
+function toggleCompactStats() {
+    const grid = document.getElementById('stats-grid');
+    const cb = document.getElementById('toggle-compact');
+    if (!grid || !cb) return;
+    if (cb.checked) {
+        grid.classList.add('stats-compact');
+        localStorage.setItem('dash_stats_compact', '1');
+    } else {
+        grid.classList.remove('stats-compact');
+        localStorage.removeItem('dash_stats_compact');
+    }
+}
+
+// Section collapse/expand with persistence
+function toggleSection(sectionId) {
+    const sec = document.getElementById(sectionId);
+    if (!sec) return;
+    sec.classList.toggle('section-collapsed');
+    const collapsed = sec.classList.contains('section-collapsed');
+    localStorage.setItem('dash_collapse_' + sectionId, collapsed ? '1' : '0');
+}
+
+// Restore UI state
+document.addEventListener('DOMContentLoaded', () => {
+    const compact = localStorage.getItem('dash_stats_compact') === '1';
+    const cb = document.getElementById('toggle-compact');
+    if (cb) cb.checked = compact;
+    if (compact) {
+        const grid = document.getElementById('stats-grid');
+        if (grid) grid.classList.add('stats-compact');
+    }
+
+    ['news-section', 'status-section', 'queue-section', 'extractor-section'].forEach(id => {
+        const val = localStorage.getItem('dash_collapse_' + id);
+        const sec = document.getElementById(id);
+        if (sec && val === '1') {
+            sec.classList.add('section-collapsed');
+        }
+    });
+}, { once: true });
 
 document.addEventListener('DOMContentLoaded', function() {
     loadDashboardData();

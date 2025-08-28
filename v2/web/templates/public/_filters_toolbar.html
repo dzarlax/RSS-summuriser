@@ -1,0 +1,90 @@
+{# Shared sticky filters toolbar for list and cards views #}
+<div class="filters-sticky" id="filters-sticky" role="toolbar" aria-label="Фильтры новостей">
+  <div class="filters-inline">
+    <div class="filter-buttons" id="filter-buttons" aria-live="polite" style="display:none;"></div>
+
+    <div class="toolbar-group view-switch" aria-label="Вид">
+      <button class="qt-btn" id="view-toggle-btn" onclick="switchViewToggle()" title="Переключить вид">
+        <!-- filled by script based on current page -->
+      </button>
+    </div>
+
+    <div class="toolbar-group">
+      <div class="since-controls" aria-label="Период">
+        <button class="since-btn" data-since="24" onclick="setSinceHours(24)" aria-pressed="false" title="за 24 часа">24ч</button>
+        <button class="since-btn" data-since="48" onclick="setSinceHours(48)" aria-pressed="false" title="за 48 часов">48ч</button>
+        <button class="since-btn" data-since="168" onclick="setSinceHours(168)" aria-pressed="false" title="за 7 дней">7д</button>
+      </div>
+    </div>
+
+    <div class="toolbar-group quick-toggles" aria-label="Быстрые настройки">
+      <!-- Categories button: only show on mobile when sidebar is hidden -->
+      <button class="qt-btn qt-categories-mobile-only" id="qt-open-sheet" onclick="openCatSheet()" title="Выбрать категории">
+        <span class="qt-ico">📂</span><span class="btn-label">Категории</span>
+      </button>
+      <button class="qt-btn" id="qt-hide-ads" onclick="toggleHideAds(!window.hideAds)" aria-pressed="true" title="Скрывать рекламу">
+        <span class="qt-ico">🧹</span><span class="btn-label">Без рекламы</span>
+      </button>
+
+    </div>
+  </div>
+</div>
+
+<script>
+// One-time init for sticky toolbar: navbar offset and auto-hide on scroll
+(function(){
+  try {
+    const nav = document.querySelector('.navbar');
+    const applyHeight = () => {
+      const h = (nav && nav.offsetHeight) ? nav.offsetHeight : 56;
+      document.documentElement.style.setProperty('--navbar-height', h + 'px');
+    };
+    applyHeight();
+    window.addEventListener('resize', applyHeight);
+  } catch {}
+
+  try {
+    const sticky = document.getElementById('filters-sticky');
+    let lastY = window.scrollY;
+    window.addEventListener('scroll', () => {
+      const y = window.scrollY;
+      const down = y > lastY;
+      const threshold = 20;
+      if (Math.abs(y - lastY) > threshold) {
+        if (down && y > 80) sticky?.classList.add('hide');
+        else sticky?.classList.remove('hide');
+        lastY = y;
+      }
+    }, { passive: true });
+  } catch {}
+})();
+</script>
+
+<script>
+// Single toggle for view switch (list <-> cards)
+(function(){
+  try {
+    const btn = document.getElementById('view-toggle-btn');
+    const path = location.pathname;
+    const isCards = /\/(cards|feed)$/.test(path);
+    if (btn) {
+      if (isCards) {
+        btn.dataset.target = 'list';
+        btn.innerHTML = '<span class="qt-ico">≡</span><span class="btn-label">Лента</span>';
+        btn.title = 'Показать ленту';
+      } else {
+        btn.dataset.target = 'cards';
+        btn.innerHTML = '<span class="qt-ico">⊞</span><span class="btn-label">Карточки</span>';
+        btn.title = 'Показать карточки';
+      }
+    }
+  } catch {}
+})();
+
+function switchViewToggle(){
+  const btn = document.getElementById('view-toggle-btn');
+  const target = btn?.dataset.target;
+  if (target === 'cards') window.location.href = '/cards';
+  else window.location.href = '/';
+}
+</script>
