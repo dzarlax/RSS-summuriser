@@ -375,9 +375,12 @@ class TelegramSource(BaseSource):
             # Extract message text - try multiple selectors
             text_selectors = [
                 '.tgme_widget_message_text',
-                '.message-text',
+                '.message-text', 
                 '.text',
-                'div[dir="ltr"]'
+                'div[dir="ltr"]',
+                '.tgme_widget_message_text_wrapper',  # Additional selector
+                '.message_text',  # Alternative format
+                '.post-content',   # Alternative format
             ]
             
             content = ""
@@ -388,14 +391,19 @@ class TelegramSource(BaseSource):
                     content = text_element.get_text(separator='\n', strip=True)
                     break
             
-            # If no specific text element, try to get all text
+            # If no specific text element, try to get all text from message
             if not content:
+                # Try to extract from all message content, excluding navigation elements
+                for elem in message_div.select('.tgme_widget_message_footer, .tgme_widget_message_info, .tgme_widget_message_date'):
+                    elem.decompose()
                 content = message_div.get_text(separator='\n', strip=True)
             
-            # Fallback: try to extract from meta tags if content is too short
-            if len(content) < 100:
+            # Only use meta tags as fallback for very short content (likely empty messages)
+            # Don't auto-replace with meta content for messages with images/media
+            if len(content) < 20:  # Reduced threshold significantly 
                 meta_content = self._extract_from_meta_tags(message_div, base_url)
                 if meta_content and len(meta_content) > len(content):
+                    print(f"  📝 Using meta fallback for very short content: {len(content)} → {len(meta_content)}")
                     content = meta_content
             
             # Clean up content from HTML artifacts and weird characters
@@ -826,6 +834,8 @@ class TelegramSource(BaseSource):
         
         return content.strip()
 
+
+
     def _extract_from_meta_tags(self, message_div, base_url: str = None) -> Optional[str]:
         """Extract content from meta tags when message content is incomplete."""
         try:
@@ -849,6 +859,7 @@ class TelegramSource(BaseSource):
                 meta_tag = soup.select_one(selector)
                 if meta_tag and meta_tag.get('content'):
                     meta_content = meta_tag.get('content').strip()
+                    
                     # Clean emojis and format content
                     meta_content = re.sub(r'[💪📍🕗👥🟰💸💬⚡️🇷🇸]', '', meta_content)
                     meta_content = meta_content.replace(' — ', '\n')
@@ -1009,6 +1020,46 @@ class TelegramSource(BaseSource):
         # If no sentence boundary or too short, return full title
         # (most Telegram titles are single sentences anyway)
         return title
+    
+    async def extract_single_message_content(self, message_url: str) -> Optional[str]:
+        """Extract content from a specific Telegram message URL."""
+        try:
+            print(f"      🌐 Extracting content from: {message_url}")
+            
+            headers = random.choice(self.BROWSER_HEADERS)
+            
+            async with get_http_client() as client:
+                response = await client.get(message_url, headers=headers)
+                async with response:
+                    if response.status != 200:
+                        print(f"      ❌ HTTP error: {response.status}")
+                        return None
+                    
+                    html = await response.text()
+                    print(f"      📄 Received HTML: {len(html)} chars")
+            
+            # Parse HTML and extract content
+            soup = BeautifulSoup(html, 'html.parser')
+            self._current_soup = soup
+            
+            # Find the specific message
+            message_div = soup.select_one('div.tgme_widget_message')
+            if not message_div:
+                print(f"      ⚠️ No message container found")
+                return None
+            
+            # Use existing parsing logic
+            article = self._parse_message_element(message_div, message_url)
+            if article and article.content:
+                print(f"      ✅ Content extracted: {len(article.content)} chars")
+                return article.content
+            else:
+                print(f"      ⚠️ No content found in message")
+                return None
+                
+        except Exception as e:
+            print(f"      ❌ Telegram extraction error: {e}")
+            return None
     
     async def test_connection(self) -> bool:
         """Test Telegram channel connection."""

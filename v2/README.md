@@ -96,6 +96,7 @@ python -m news_aggregator
 #### Public API
 - **GET /api/public/feed** - Public news feed with category filtering
 - **GET /api/public/article/{article_id}** - Detailed article with media and AI categories
+- **GET /api/public/search** - Full-text search across articles (title, summary, content)
 - **GET /api/public/categories/config** - Dynamic category configuration for UI
 
 #### Admin API
@@ -234,6 +235,73 @@ cp docker-compose.override.yml.example docker-compose.override.yml
 - **Filter toolbar** - Category filtering with sticky toolbar
 - **Mobile responsive** - Optimized for mobile devices
 
+## 🔍 Search System
+
+### Full-Text Search API
+The system provides powerful search capabilities across all article content:
+
+#### **Search Endpoint**: `GET /api/public/search`
+
+**Parameters:**
+- `q` (required) - Search query (minimum 2 characters)
+- `limit` (optional) - Results per page (1-100, default: 20)
+- `offset` (optional) - Pagination offset (default: 0)
+- `category` (optional) - Filter by category name
+- `since_hours` (optional) - Filter articles from last N hours (1-8760)
+- `sort` (optional) - Sort order: `relevance`, `date`, `title` (default: relevance)
+- `hide_ads` (optional) - Hide advertisements (default: true)
+
+**Search Features:**
+- **Multi-field search** - Searches across title, summary, and content
+- **Word-based matching** - Splits query into words for better precision
+- **Relevance scoring** - Prioritizes title matches, then summary, then content
+- **Category filtering** - Filter by one or multiple categories
+- **Time filtering** - Search within specific time ranges
+- **Pagination** - Efficient pagination with total count
+- **Flexible sorting** - Sort by relevance, date, or alphabetically
+
+**Example Usage:**
+```bash
+# Basic search
+GET /api/public/search?q=технологии
+
+# Advanced search with filters
+GET /api/public/search?q=искусственный интеллект&category=tech&since_hours=168&sort=date
+
+# Search with pagination
+GET /api/public/search?q=бизнес&limit=10&offset=20
+```
+
+**Response Format:**
+```json
+{
+  "articles": [...],
+  "pagination": {
+    "total": 150,
+    "limit": 20,
+    "offset": 0,
+    "has_more": true
+  },
+  "query": "технологии",
+  "filters": {...},
+  "results_count": 20
+}
+```
+
+### Search Interface
+- **Dedicated search page**: `/search`
+- **Quick search button** in main toolbar
+- **Advanced filters** for category and time range
+- **Real-time results** with relevance scoring
+- **Mobile-responsive** design
+
+### Search Optimization
+The system includes specialized database indexes for fast search:
+- **Full-text indexes** using PostgreSQL's native capabilities
+- **Russian language support** with proper stemming
+- **Compound indexes** for multi-field searches
+- **Performance indexes** for filtered searches
+
 ## 🔍 Article Extraction Methods
 
 The system supports multiple source types and content extraction methods:
@@ -359,6 +427,7 @@ The system supports multiple source types and content extraction methods:
 ## 📈 New Features v2.0
 
 ### ✅ Recently Added
+- **🔍 Full-Text Search API** - Advanced search across article titles, summaries, and content
 - **🎨 Dynamic Category Management** - Color-coded categories with admin CRUD operations
 - **🤖 AI Category Mapping** - Intelligent mapping of AI categories to main categories
 - **📱 Rich Modal Interface** - Enhanced article modals with media galleries
@@ -368,6 +437,7 @@ The system supports multiple source types and content extraction methods:
 - **🔧 Auto-remapping** - Automatic application of category mappings to existing articles
 - **🌈 UI Color System** - Dynamic category colors with accessibility features
 - **📋 Unmapped Category Tracking** - Monitor and manage unmapped AI categories
+- **🎯 Search Interface** - Dedicated search page with filters and relevance scoring
 
 ### 🚧 Planned Features
 - **🧪 Testing System** - Complete pytest coverage (critical priority)

@@ -23,6 +23,8 @@ from .services.source_manager import SourceManager
 from .main import migration_manager
 # from .security import require_api_read, require_api_write, require_admin, limiter
 from .services.extraction_memory import get_extraction_memory
+from .orchestrator import NewsOrchestrator
+from .services.content_extractor import get_content_extractor
 
 
 class CreateSourceRequest(BaseModel):
@@ -2356,3 +2358,299 @@ async def manual_process_cleanup():
     except Exception as e:
         logging.error(f"Manual process cleanup failed: {e}")
         raise HTTPException(status_code=500, detail=f"Process cleanup failed: {str(e)}")
+
+
+# =============================================================================
+# ARTICLE MANAGEMENT HELPERS
+# =============================================================================
+
+
+
+async def refetch_article_content(article: Article) -> Optional[str]:
+    """Re-extract article content from source URL."""
+    print(f"  🔍 Starting content refetch for article {article.id}: {article.url}")
+    try:
+        if not article.url:
+            print(f"    ❌ No URL found")
+            return None
+            
+        # Get content extractor
+        extractor = await get_content_extractor()
+        print(f"    📡 Content extractor initialized")
+        
+        # For Telegram URLs, use special handling
+        if 't.me/' in article.url:
+            print(f"    📱 Detected Telegram URL: {article.url}")
+            
+            try:
+                # Import Telegram source for content extraction
+                from .sources.telegram_source import TelegramSource
+                from .sources.base import SourceInfo, SourceType
+                
+                # Create temporary source config
+                temp_source_info = SourceInfo(
+                    name='temp_telegram',
+                    source_type=SourceType.TELEGRAM,
+                    url=article.url,
+                    description='Temporary source for content refetch',
+                    config={}
+                )
+                
+                telegram_source = TelegramSource(temp_source_info)
+                
+                # Extract content using TelegramSource method
+                content = await telegram_source.extract_single_message_content(article.url)
+                if content:
+                    print(f"    ✅ Telegram content extracted! Length: {len(content)}")
+                    return content
+                else:
+                    print(f"    ⚠️ Telegram extraction returned empty content")
+            except Exception as e:
+                print(f"    ❌ Telegram extraction failed: {e}")
+                import traceback
+                print(f"    📋 Traceback: {traceback.format_exc()}")
+                
+        # For other URLs, use content extractor
+        else:
+            content = await extractor.extract_content(article.url)
+            if content and content.get('text'):
+                return content['text']
+                
+        return None
+        
+    except Exception as e:
+        print(f"Content refetch error: {e}")
+        return None
+
+
+# =============================================================================
+# ARTICLE MANAGEMENT
+# =============================================================================
+
+class ReprocessArticleRequest(BaseModel):
+    """Request to reprocess an article with AI."""
+    force: bool = True  # Force reprocessing even if already processed
+    skip_summary: bool = False  # Skip summary generation
+    skip_categories: bool = False  # Skip category classification
+    skip_ads: bool = False  # Skip advertisement detection
+    refetch_content: bool = False  # Re-extract content from source URL
+
+
+@router.post("/articles/{article_id}/reprocess")
+async def reprocess_article(
+    article_id: int,
+    request: ReprocessArticleRequest = ReprocessArticleRequest(),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Reprocess article with AI analysis.
+    
+    This endpoint allows reprocessing an existing article with updated AI logic.
+    Useful after fixing content extraction or improving AI prompts.
+    """
+    try:
+        # Load article with all relationships
+        result = await db.execute(
+            select(Article).options(
+                selectinload(Article.source),
+                selectinload(Article.article_categories).selectinload(ArticleCategory.category)
+            ).where(Article.id == article_id)
+        )
+        article = result.scalar_one_or_none()
+        
+        if not article:
+            raise HTTPException(status_code=404, detail=f"Article {article_id} not found")
+        
+        # Re-extract content from source if requested
+        print(f"🔧 DEBUG: refetch_content = {request.refetch_content}")
+        if request.refetch_content:
+            print(f"🔄 Re-extracting content from source: {article.url}")
+            try:
+                updated_content = await refetch_article_content(article)
+                if updated_content:
+                    print(f"  ✅ Content updated: {len(article.content)} → {len(updated_content)} chars")
+                    article.content = updated_content
+                    
+                    # Reset processing flags to force AI reprocessing with new content
+                    print(f"  🔄 Resetting processing flags to force AI reanalysis...")
+                    article.summary = None
+                    article.summary_processed = False
+                    article.category_processed = False
+                    article.ad_processed = False
+                    article.is_advertisement = None
+                    article.ad_confidence = None
+                    article.ad_type = None
+                    article.ad_reasoning = None
+                    article.processed = False
+                    
+                    await db.commit()
+                    print(f"  ✅ Content and flags updated - AI will reprocess with new content")
+                else:
+                    print(f"  ⚠️ Content extraction failed or returned empty")
+            except Exception as e:
+                print(f"  ❌ Content extraction error: {e}")
+                # Continue with existing content
+        else:
+            print(f"  ⏭️ Skipping content refetch")
+        
+        # Prepare article data for processing
+        article_data = {
+            'id': article.id,
+            'title': article.title,
+            'content': article.content,
+            'url': article.url,
+            'image_url': article.image_url,
+            'published_at': article.published_at,
+            'source_name': article.source.name if article.source else 'Unknown',
+            'source_type': article.source.source_type if article.source else 'unknown',
+            'summary': article.summary,
+            'summary_processed': not request.skip_summary and bool(article.summary) and not request.refetch_content,
+            'category_processed': not request.skip_categories and bool(article.primary_category) and not request.refetch_content,
+            'ad_processed': not request.skip_ads and article.is_advertisement is not None and not request.refetch_content,
+            'force_processing': request.force
+        }
+        
+        # Initialize orchestrator and process article
+        orchestrator = NewsOrchestrator()
+        stats = {'errors': [], 'api_calls_made': 0, 'tokens_used': 0}
+        
+        print(f"🔄 Reprocessing article {article_id}: {article.title[:60]}...")
+        
+        # Process with AI
+        processed_data = await orchestrator._process_article_ai_combined(
+            article_data, 
+            stats, 
+            force_processing=request.force
+        )
+        
+        # Update article in database
+        if processed_data.get('success'):
+            # Update basic fields
+            if 'optimized_title' in processed_data and processed_data['optimized_title']:
+                article.title = processed_data['optimized_title']
+            
+            if 'summary' in processed_data and processed_data['summary']:
+                article.summary = processed_data['summary']
+                
+            if 'category' in processed_data:
+                article.primary_category = processed_data['category']
+                
+            if 'is_advertisement' in processed_data:
+                article.is_advertisement = processed_data['is_advertisement']
+                article.ad_confidence = processed_data.get('ad_confidence', 0.0)
+                
+            # Update AI categories if present
+            if 'original_categories' in processed_data and processed_data['original_categories']:
+                # Remove existing AI categories and add new ones
+                await db.execute(
+                    text("DELETE FROM article_categories WHERE article_id = :article_id")
+                    .bindparam(article_id=article.id)
+                )
+                
+                # Add new categories
+                categories = processed_data.get('categories', [])
+                confidences = processed_data.get('category_confidences', [])
+                original_categories = processed_data.get('original_categories', [])
+                
+                for i, category_name in enumerate(categories):
+                    # Find or create category
+                    cat_result = await db.execute(
+                        select(Category).where(Category.name == category_name)
+                    )
+                    category = cat_result.scalar_one_or_none()
+                    
+                    if category:
+                        # Create article-category relationship
+                        article_category = ArticleCategory(
+                            article_id=article.id,
+                            category_id=category.id,
+                            confidence=confidences[i] if i < len(confidences) else 0.8,
+                            ai_category=original_categories[i] if i < len(original_categories) else category_name
+                        )
+                        db.add(article_category)
+            
+            await db.commit()
+            await db.refresh(article)
+            
+            return {
+                "success": True,
+                "message": f"Article {article_id} reprocessed successfully",
+                "article": {
+                    "id": article.id,
+                    "title": article.title,
+                    "summary": article.summary,
+                    "primary_category": article.primary_category,
+                    "is_advertisement": article.is_advertisement,
+                    "ad_confidence": article.ad_confidence
+                },
+                "processing_stats": {
+                    "ai_calls": stats.get('api_calls_made', 0),
+                    "tokens_used": stats.get('tokens_used', 0),
+                    "errors": stats.get('errors', [])
+                }
+            }
+        else:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"AI processing failed: {processed_data.get('error', 'Unknown error')}"
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Article reprocessing failed: {e}")
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Reprocessing failed: {str(e)}")
+
+
+@router.get("/articles/{article_id}")
+async def get_article(
+    article_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """Get article details with all relationships."""
+    try:
+        result = await db.execute(
+            select(Article).options(
+                selectinload(Article.source),
+                selectinload(Article.article_categories).selectinload(ArticleCategory.category)
+            ).where(Article.id == article_id)
+        )
+        article = result.scalar_one_or_none()
+        
+        if not article:
+            raise HTTPException(status_code=404, detail=f"Article {article_id} not found")
+        
+        return {
+            "id": article.id,
+            "title": article.title,
+            "summary": article.summary,
+            "content": article.content,
+            "url": article.url,
+            "image_url": article.image_url,
+            "published_at": article.published_at.isoformat() if article.published_at else None,
+            "fetched_at": article.fetched_at.isoformat() if article.fetched_at else None,
+            "source": {
+                "id": article.source.id,
+                "name": article.source.name,
+                "source_type": article.source.source_type
+            } if article.source else None,
+            "primary_category": article.primary_category,
+            "is_advertisement": article.is_advertisement,
+            "ad_confidence": article.ad_confidence,
+            "categories": [
+                {
+                    "name": ac.category.name,
+                    "display_name": ac.category.display_name,
+                    "confidence": ac.confidence,
+                    "ai_category": ac.ai_category
+                }
+                for ac in article.article_categories
+            ] if hasattr(article, 'article_categories') else []
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Get article failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get article: {str(e)}")

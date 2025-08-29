@@ -9,6 +9,38 @@
       </button>
     </div>
 
+    <div class="toolbar-group search-group" aria-label="Поиск">
+      <div class="search-container" id="search-container">
+        <!-- Collapsed state -->
+        <button class="qt-btn search-toggle" id="search-toggle" onclick="toggleSearch()" title="Поиск по новостям">
+          <span class="qt-ico">🔍</span><span class="btn-label">Поиск</span>
+        </button>
+        
+        <!-- Expanded state -->
+        <div class="search-expanded" id="search-expanded" style="display: none;">
+          <input type="text" 
+                 class="search-input" 
+                 id="search-input" 
+                 placeholder="Поиск по новостям..." 
+                 autocomplete="off"
+                 spellcheck="false">
+          <button class="search-btn search-submit" onclick="performSearch()" title="Найти">
+            <span class="qt-ico">🔍</span>
+          </button>
+          <button class="search-btn search-close" onclick="closeSearch()" title="Закрыть">
+            <span class="qt-ico">✕</span>
+          </button>
+        </div>
+        
+        <!-- Search results dropdown -->
+        <div class="search-results" id="search-results" style="display: none;">
+          <div class="search-results-content" id="search-results-content">
+            <!-- Results will be populated here -->
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="toolbar-group">
       <div class="since-controls" aria-label="Период">
         <button class="since-btn" data-since="24" onclick="setSinceHours(24)" aria-pressed="false" title="за 24 часа">24ч</button>
@@ -87,4 +119,428 @@ function switchViewToggle(){
   if (target === 'cards') window.location.href = '/cards';
   else window.location.href = '/';
 }
+
+// Search functionality
+let searchTimeout = null;
+let searchResults = [];
+
+function toggleSearch() {
+  const container = document.getElementById('search-container');
+  const toggle = document.getElementById('search-toggle');
+  const expanded = document.getElementById('search-expanded');
+  const input = document.getElementById('search-input');
+  
+  const isExpanded = !toggle.style.display || toggle.style.display === 'block';
+  
+  if (isExpanded) {
+    // Expand search
+    toggle.style.display = 'none';
+    expanded.style.display = 'flex';
+    container.classList.add('search-active');
+    
+    // Focus input after animation
+    setTimeout(() => {
+      input.focus();
+    }, 150);
+  } else {
+    closeSearch();
+  }
+}
+
+function closeSearch() {
+  const container = document.getElementById('search-container');
+  const toggle = document.getElementById('search-toggle');
+  const expanded = document.getElementById('search-expanded');
+  const results = document.getElementById('search-results');
+  const input = document.getElementById('search-input');
+  
+  // Hide elements
+  toggle.style.display = 'block';
+  expanded.style.display = 'none';
+  results.style.display = 'none';
+  container.classList.remove('search-active');
+  
+  // Clear input
+  input.value = '';
+  
+  // Clear any pending search
+  if (searchTimeout) {
+    clearTimeout(searchTimeout);
+    searchTimeout = null;
+  }
+}
+
+function performSearch() {
+  const input = document.getElementById('search-input');
+  const query = input.value.trim();
+  
+  if (query.length >= 2) {
+    window.location.href = `/search?q=${encodeURIComponent(query)}`;
+  } else {
+    showSearchError('Поисковый запрос должен содержать минимум 2 символа');
+  }
+}
+
+function performLiveSearch(query) {
+  if (!query || query.length < 2) {
+    hideSearchResults();
+    return;
+  }
+  
+  // Clear previous timeout
+  if (searchTimeout) {
+    clearTimeout(searchTimeout);
+  }
+  
+  // Debounce search
+  searchTimeout = setTimeout(async () => {
+    try {
+      showSearchLoading();
+      
+      const response = await fetch(`/api/public/search?q=${encodeURIComponent(query)}&limit=5`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        showSearchResults(data.articles || []);
+      } else {
+        showSearchError('Ошибка поиска');
+      }
+    } catch (error) {
+      console.error('Search error:', error);
+      showSearchError('Ошибка соединения');
+    }
+  }, 300);
+}
+
+function showSearchResults(articles) {
+  const results = document.getElementById('search-results');
+  const content = document.getElementById('search-results-content');
+  
+  if (!articles || articles.length === 0) {
+    content.innerHTML = '<div class="search-no-results">Ничего не найдено</div>';
+  } else {
+    content.innerHTML = articles.map(article => `
+      <div class="search-result-item" onclick="openArticleFromSearch(${article.id})">
+        <div class="search-result-title">${escapeHtml(article.title)}</div>
+        <div class="search-result-meta">
+          <span class="search-result-source">${escapeHtml(article.source_name || 'Неизвестный источник')}</span>
+          <span class="search-result-date">${formatSearchDate(article.published_at)}</span>
+        </div>
+      </div>
+    `).join('');
+  }
+  
+  results.style.display = 'block';
+}
+
+function showSearchLoading() {
+  const results = document.getElementById('search-results');
+  const content = document.getElementById('search-results-content');
+  
+  content.innerHTML = '<div class="search-loading">⏳ Поиск...</div>';
+  results.style.display = 'block';
+}
+
+function showSearchError(message) {
+  const results = document.getElementById('search-results');
+  const content = document.getElementById('search-results-content');
+  
+  content.innerHTML = `<div class="search-error">❌ ${message}</div>`;
+  results.style.display = 'block';
+}
+
+function hideSearchResults() {
+  const results = document.getElementById('search-results');
+  results.style.display = 'none';
+}
+
+function openArticleFromSearch(articleId) {
+  // Close search first
+  closeSearch();
+  
+  // Open article modal if available
+  if (typeof window.openArticleModal === 'function') {
+    window.openArticleModal(articleId);
+  } else {
+    // Fallback to article page
+    window.location.href = `/article/${articleId}`;
+  }
+}
+
+function formatSearchDate(dateString) {
+  if (!dateString) return '';
+  
+  try {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffHours = Math.floor((now - date) / (1000 * 60 * 60));
+    
+    if (diffHours < 1) return 'только что';
+    if (diffHours < 24) return `${diffHours}ч назад`;
+    
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays < 7) return `${diffDays}д назад`;
+    
+    return date.toLocaleDateString('ru-RU');
+  } catch (e) {
+    return '';
+  }
+}
+
+function escapeHtml(text) {
+  if (!text) return '';
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// Setup search input events
+document.addEventListener('DOMContentLoaded', function() {
+  const input = document.getElementById('search-input');
+  if (input) {
+    // Live search on input
+    input.addEventListener('input', function(e) {
+      performLiveSearch(e.target.value);
+    });
+    
+    // Submit on Enter
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        performSearch();
+      } else if (e.key === 'Escape') {
+        closeSearch();
+      }
+    });
+  }
+  
+  // Close search when clicking outside
+  document.addEventListener('click', function(e) {
+    const container = document.getElementById('search-container');
+    if (container && !container.contains(e.target)) {
+      closeSearch();
+    }
+  });
+});
 </script>
+
+<style>
+/* Search container styles */
+.search-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 200px;
+}
+
+.search-container.search-active {
+  min-width: 300px;
+}
+
+/* Search expanded state */
+.search-expanded {
+  display: none;
+  align-items: center;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  min-width: 280px;
+  animation: searchExpand 0.2s ease-out;
+}
+
+@keyframes searchExpand {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+    width: 60px;
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    width: 100%;
+  }
+}
+
+.search-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  padding: 8px 12px;
+  font-size: 14px;
+  background: transparent;
+  color: #1e293b;
+  min-width: 200px;
+}
+
+.search-input::placeholder {
+  color: #94a3b8;
+}
+
+.search-btn {
+  background: none;
+  border: none;
+  padding: 6px 8px;
+  cursor: pointer;
+  border-radius: 4px;
+  color: #64748b;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+.search-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #1e293b;
+}
+
+.search-btn .qt-ico {
+  font-size: 14px;
+}
+
+/* Search results dropdown */
+.search-results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  margin-top: 4px;
+  max-height: 400px;
+  overflow-y: auto;
+  animation: searchResultsShow 0.2s ease-out;
+}
+
+@keyframes searchResultsShow {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.search-results-content {
+  padding: 8px;
+}
+
+.search-result-item {
+  padding: 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.search-result-item:last-child {
+  border-bottom: none;
+}
+
+.search-result-item:hover {
+  background: #f8fafc;
+}
+
+.search-result-title {
+  font-weight: 600;
+  color: #1e293b;
+  font-size: 14px;
+  line-height: 1.4;
+  margin-bottom: 4px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.search-result-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.search-result-source {
+  font-weight: 500;
+  color: #3b82f6;
+}
+
+.search-result-date {
+  color: #94a3b8;
+}
+
+/* Search states */
+.search-loading,
+.search-error,
+.search-no-results {
+  padding: 16px;
+  text-align: center;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.search-error {
+  color: #ef4444;
+}
+
+.search-loading {
+  color: #3b82f6;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .search-container {
+    min-width: 150px;
+  }
+  
+  .search-container.search-active {
+    min-width: 250px;
+  }
+  
+  .search-expanded {
+    min-width: 240px;
+  }
+  
+  .search-input {
+    min-width: 160px;
+  }
+  
+  .search-results {
+    max-height: 300px;
+  }
+}
+
+@media (max-width: 480px) {
+  .search-container.search-active {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    right: 10px;
+    z-index: 1001;
+    min-width: auto;
+  }
+  
+  .search-expanded {
+    min-width: auto;
+    width: 100%;
+  }
+  
+  .search-input {
+    min-width: auto;
+  }
+}
+</style>

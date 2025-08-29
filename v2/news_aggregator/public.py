@@ -80,6 +80,15 @@ async def public_list_view(request: Request):
     })
 
 
+@router.get("/search", response_class=HTMLResponse)
+async def public_search_view(request: Request):
+    """Public search page."""
+    return templates.TemplateResponse("public/search.html", {
+        "request": request,
+        "title": "Поиск новостей"
+    })
+
+
 @router.get("/api/public/feed") 
 async def get_public_feed(
     limit: int = Query(20, ge=1, le=1000),
@@ -473,3 +482,205 @@ async def get_public_categories(
     except Exception as e:
         print(f"Categories error: {e}")
         return {"categories": {"all": 0}}
+
+
+@router.get("/api/public/search")
+async def search_articles(
+    q: str = Query(..., min_length=2, description="Search query"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    category: Optional[str] = Query(None, description="Filter by category"),
+    since_hours: Optional[int] = Query(None, ge=1, le=8760, description="Filter articles from last N hours"),
+    sort: str = Query("relevance", regex="^(relevance|date|title)$", description="Sort by: relevance, date, title"),
+    hide_ads: bool = Query(True, description="Hide advertisements from results")
+):
+    """
+    Search articles by content, title, and summary.
+    
+    Supports:
+    - Full-text search across title, summary, and content
+    - Category filtering
+    - Time-based filtering
+    - Multiple sorting options
+    - Pagination
+    - Relevance scoring
+    """
+    try:
+        from .models import Source, ArticleCategory, Category
+        from sqlalchemy.orm import selectinload
+        from sqlalchemy import or_, and_, case
+        
+        # Clean and prepare search query
+        search_query = q.strip()
+        if len(search_query) < 2:
+            raise HTTPException(status_code=400, detail="Search query must be at least 2 characters")
+        
+        # Build base query with relationships
+        query = select(Article).options(
+            selectinload(Article.source),
+            selectinload(Article.article_categories).selectinload(ArticleCategory.category)
+        )
+        
+        # Full-text search across title, summary, and content
+        # Using PostgreSQL ILIKE for case-insensitive partial matching
+        search_conditions = []
+        
+        # Split search query into words for better matching
+        search_words = [word.strip() for word in search_query.split() if len(word.strip()) >= 2]
+        
+        for word in search_words:
+            word_pattern = f"%{word}%"
+            word_condition = or_(
+                Article.title.ilike(word_pattern),
+                Article.summary.ilike(word_pattern),
+                Article.content.ilike(word_pattern)
+            )
+            search_conditions.append(word_condition)
+        
+        # Combine all word conditions (AND logic for better precision)
+        if search_conditions:
+            if len(search_conditions) == 1:
+                query = query.where(search_conditions[0])
+            else:
+                query = query.where(and_(*search_conditions))
+        
+        # Apply category filter
+        if category and category.lower() != 'all':
+            cats = [c.strip().lower() for c in category.split(',') if c.strip()]
+            if len(cats) == 1 and cats[0] == 'advertisements':
+                query = query.where(Article.is_advertisement == True)
+            elif cats:
+                subquery_categories = (
+                    select(Article.id)
+                    .join(ArticleCategory)
+                    .join(Category)
+                    .where(func.lower(Category.name).in_(cats))
+                )
+                query = query.where(Article.id.in_(subquery_categories))
+        
+        # Apply time filter
+        if since_hours:
+            since_time = datetime.utcnow() - timedelta(hours=since_hours)
+            query = query.where(Article.published_at >= since_time)
+        
+        # Hide advertisements if requested (default: true)
+        if hide_ads:
+            query = query.where(Article.is_advertisement != True)
+        
+        # Apply sorting
+        if sort == "date":
+            query = query.order_by(desc(Article.published_at))
+        elif sort == "title":
+            query = query.order_by(Article.title)
+        else:  # relevance (default)
+            # Simple relevance: prioritize title matches, then summary, then content
+            # Using CASE to create a relevance score
+            relevance_score = case(
+                (Article.title.ilike(f"%{search_query}%"), 3),
+                (Article.summary.ilike(f"%{search_query}%"), 2),
+                else_=1
+            )
+            query = query.order_by(desc(relevance_score), desc(Article.published_at))
+        
+        # Count total results for pagination
+        count_query_stmt = select(func.count()).select_from(
+            query.order_by(None).offset(None).limit(None).alias("search_results")
+        )
+        
+        # Apply pagination
+        query = query.offset(offset).limit(limit)
+        
+        # Execute queries
+        async with AsyncSessionLocal() as session:
+            # Get articles
+            result = await session.execute(query)
+            articles = result.scalars().all()
+            
+            # Get total count
+            try:
+                count_result = await session.execute(count_query_stmt)
+                total_count = count_result.scalar()
+            except Exception as count_error:
+                logging.warning(f"Count query failed, using fallback: {count_error}")
+                # Fallback: count current results
+                total_count = len(articles) + offset
+        
+        # Convert to dict format (reuse logic from get_public_feed)
+        articles_data = []
+        for article in articles:
+            # Extract images from content using shared function
+            existing_media = article.media_files or []
+            content_images = extract_images_from_content(article.content or '')
+            all_media_files = list(existing_media) + content_images
+            all_images = [m for m in all_media_files if m.get('type') == 'image']
+            
+            # Determine primary image
+            primary_image = article.image_url
+            if not primary_image and all_images:
+                primary_image = all_images[0]['url']
+            
+            # Calculate simple relevance score for display
+            relevance_score = 0
+            title_lower = (article.title or '').lower()
+            summary_lower = (article.summary or '').lower()
+            content_lower = (article.content or '').lower()
+            query_lower = search_query.lower()
+            
+            if query_lower in title_lower:
+                relevance_score += 3
+            if query_lower in summary_lower:
+                relevance_score += 2
+            if query_lower in content_lower:
+                relevance_score += 1
+            
+            article_dict = {
+                "id": article.id,
+                "title": article.title,
+                "summary": article.summary,
+                "url": article.url,
+                "image_url": article.image_url,
+                "primary_image": primary_image,
+                "source_id": article.source_id,
+                "source_name": article.source.name if article.source else "Unknown",
+                "category": article.primary_category,
+                "categories": [
+                    {
+                        "name": ac.category.name,
+                        "display_name": ac.category.display_name,
+                        "color": ac.category.color,
+                        "confidence": ac.confidence
+                    }
+                    for ac in article.article_categories
+                ],
+                "published_at": article.published_at.isoformat() if article.published_at else None,
+                "fetched_at": article.fetched_at.isoformat() if article.fetched_at else None,
+                "is_advertisement": article.is_advertisement,
+                "media_files": all_media_files,
+                "images": all_images,
+                "relevance_score": relevance_score
+            }
+            articles_data.append(article_dict)
+        
+        return {
+            "articles": articles_data,
+            "pagination": {
+                "total": total_count,
+                "limit": limit,
+                "offset": offset,
+                "has_more": offset + limit < total_count
+            },
+            "query": search_query,
+            "filters": {
+                "category": category,
+                "since_hours": since_hours,
+                "sort": sort,
+                "hide_ads": hide_ads
+            },
+            "results_count": len(articles_data)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"Error in search_articles: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")

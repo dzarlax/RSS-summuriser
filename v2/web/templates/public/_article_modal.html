@@ -54,11 +54,17 @@
             </div>
             
             <div class="modal-actions">
+                <button id="modalRefreshBtn" class="btn btn-warning" onclick="refreshArticle()" style="display: none;" title="Обновить статью (только для админов)">
+                    🔄 Обновить статью
+                </button>
                 <button id="modalOriginalBtn" class="btn btn-primary" onclick="window.open('', '_blank')" style="display: none;">
                     🔗 Читать оригинал
                 </button>
                 <button class="btn btn-secondary" onclick="closeArticleModal()">
                     Закрыть
+                </button>
+                <button id="adminAccessBtn" class="btn-admin-access" onclick="toggleAdminAccess()" title="Вход в админ-режим">
+                    🔐
                 </button>
             </div>
         </div>
@@ -537,6 +543,50 @@
     background: #5a6268;
 }
 
+.btn-warning {
+    background: #ffc107;
+    color: #212529;
+    border: 1px solid #ffc107;
+}
+
+.btn-warning:hover {
+    background: #e0a800;
+    border-color: #d39e00;
+    transform: translateY(-1px);
+}
+
+.btn-warning:disabled {
+    background: #f8f9fa;
+    color: #6c757d;
+    border-color: #dee2e6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.btn-admin-access {
+    background: none;
+    border: none;
+    font-size: 16px;
+    padding: 10px 12px;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.2s;
+    opacity: 0.6;
+    margin-left: 8px;
+}
+
+.btn-admin-access:hover {
+    background: rgba(0, 0, 0, 0.05);
+    opacity: 1;
+    transform: scale(1.1);
+}
+
+.btn-admin-access.admin-verified {
+    opacity: 1;
+    background: rgba(0, 255, 0, 0.1);
+    color: #28a745;
+}
+
 /* Loading */
 .loading-spinner {
     border: 3px solid #f3f3f3;
@@ -613,12 +663,18 @@ let currentGalleryIndex = 0;
 let galleryImages = [];
 let isFullscreen = false;
 
+// Current article ID for admin operations
+let currentArticleId = null;
+
 // Article modal functions
 window.openArticleModal = async function(articleId) {
     const modal = document.getElementById('articleModal');
     if (!modal) return;
     
     console.log('Opening modal for article ID:', articleId);
+    
+    // Store current article ID for admin operations
+    currentArticleId = articleId;
     
     // Show modal with loading state
     modal.style.display = 'flex';
@@ -637,6 +693,7 @@ window.openArticleModal = async function(articleId) {
     document.getElementById('modalFinalCategories').style.display = 'none';
     document.getElementById('modalOriginalCategories').style.display = 'none';
     document.getElementById('modalOriginalBtn').style.display = 'none';
+    document.getElementById('modalRefreshBtn').style.display = 'none';
     
     // Reset spoiler state
     const spoilerToggle = document.querySelector('.spoiler-toggle');
@@ -736,6 +793,9 @@ window.openArticleModal = async function(articleId) {
             originalBtn.style.display = 'inline-flex';
         }
         
+        // Initialize admin access indicator
+        updateAdminAccessIndicator();
+        
     } catch (error) {
         console.error('Произошла ошибка при загрузке статьи:', error);
         document.getElementById('modalSummary').innerHTML = `
@@ -761,6 +821,9 @@ window.closeArticleModal = function() {
         // Reset gallery state
         currentGalleryIndex = 0;
         galleryImages = [];
+        
+        // Reset admin state
+        currentArticleId = null;
     }
 };
 
@@ -1040,4 +1103,180 @@ document.addEventListener('click', function(e) {
         closeArticleModal();
     }
 });
+
+// Admin functionality
+function showAdminButton() {
+    const refreshBtn = document.getElementById('modalRefreshBtn');
+    if (refreshBtn) {
+        refreshBtn.style.display = 'inline-flex';
+    }
+}
+
+function updateAdminAccessIndicator() {
+    const adminBtn = document.getElementById('adminAccessBtn');
+    if (!adminBtn) return;
+    
+    if (window.adminAccessVerified === true) {
+        adminBtn.classList.add('admin-verified');
+        adminBtn.innerHTML = '🔓';
+        adminBtn.title = 'Админ-режим активен';
+        showAdminButton();
+    } else {
+        adminBtn.classList.remove('admin-verified');
+        adminBtn.innerHTML = '🔐';
+        adminBtn.title = 'Вход в админ-режим';
+        // Hide admin button
+        const refreshBtn = document.getElementById('modalRefreshBtn');
+        if (refreshBtn) {
+            refreshBtn.style.display = 'none';
+        }
+    }
+}
+
+window.toggleAdminAccess = async function() {
+    if (window.adminAccessVerified === true) {
+        // Already verified - just show message
+        alert('Админ-режим уже активен');
+        return;
+    }
+    
+    const adminBtn = document.getElementById('adminAccessBtn');
+    const originalContent = adminBtn.innerHTML;
+    
+    try {
+        adminBtn.innerHTML = '⏳';
+        adminBtn.disabled = true;
+        
+        await checkAdminAccess();
+        
+        if (window.adminAccessVerified === true) {
+            updateAdminAccessIndicator();
+            // Small celebration
+            setTimeout(() => {
+                alert('✅ Админ-режим активирован!');
+            }, 100);
+        } else {
+            alert('❌ Доступ запрещён. Войдите в админку: /admin/');
+        }
+        
+    } catch (error) {
+        console.error('Admin access toggle failed:', error);
+        alert('❌ Ошибка проверки доступа');
+    } finally {
+        adminBtn.disabled = false;
+        if (window.adminAccessVerified !== true) {
+            adminBtn.innerHTML = originalContent;
+        }
+    }
+};
+
+async function checkAdminAccess() {
+    // Only check if not already verified
+    if (window.adminAccessVerified === true) {
+        showAdminButton();
+        return;
+    }
+    
+    try {
+        console.log('Checking admin access...');
+        
+        // Try to access admin endpoint to check if user has admin rights
+        const response = await fetch('/admin/', {
+            method: 'GET',
+            credentials: 'include',  // Include cookies for auth
+            cache: 'no-cache'
+        });
+        
+        if (response.ok) {
+            console.log('Admin access confirmed');
+            // User has admin access - cache result and show button
+            window.adminAccessVerified = true;
+            showAdminButton();
+        } else {
+            console.log('No admin access - response:', response.status);
+            window.adminAccessVerified = false;
+        }
+    } catch (error) {
+        // Admin access check failed - keep button hidden
+        console.log('No admin access detected:', error.message);
+        window.adminAccessVerified = false;
+    }
+}
+
+window.refreshArticle = async function() {
+    if (!currentArticleId) {
+        alert('Ошибка: ID статьи не найден');
+        return;
+    }
+    
+    // Check admin access before proceeding
+    if (window.adminAccessVerified !== true) {
+        alert('❌ Для обновления статей сначала активируйте админ-режим (нажмите 🔐)');
+        return;
+    }
+    
+    const refreshBtn = document.getElementById('modalRefreshBtn');
+    const originalText = refreshBtn.innerHTML;
+    
+    try {
+        // Disable button and show loading
+        refreshBtn.disabled = true;
+        refreshBtn.innerHTML = '⏳ Обновляем...';
+        
+        console.log('Refreshing article:', currentArticleId);
+        
+        // Call reprocess API with content refetch
+        const response = await fetch(`/api/v1/articles/${currentArticleId}/reprocess`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            credentials: 'include',  // Include cookies for auth
+            body: JSON.stringify({
+                force: true,
+                refetch_content: true
+            })
+        });
+        
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Ошибка ${response.status}: ${errorText}`);
+        }
+        
+        const result = await response.json();
+        console.log('Refresh result:', result);
+        
+        if (result.success) {
+            // Show success message
+            refreshBtn.innerHTML = '✅ Обновлено!';
+            
+            // Auto-reload the article in modal after a short delay
+            setTimeout(async () => {
+                refreshBtn.innerHTML = originalText;
+                refreshBtn.disabled = false;
+                
+                // Reload article data in modal
+                await window.openArticleModal(currentArticleId);
+            }, 2000);
+            
+        } else {
+            throw new Error(result.message || 'Неизвестная ошибка');
+        }
+        
+    } catch (error) {
+        console.error('Article refresh failed:', error);
+        
+        // Show error state
+        refreshBtn.innerHTML = '❌ Ошибка';
+        
+        // Show user-friendly error message
+        alert(`Не удалось обновить статью: ${error.message}`);
+        
+        // Restore button after delay
+        setTimeout(() => {
+            refreshBtn.innerHTML = originalText;
+            refreshBtn.disabled = false;
+        }, 3000);
+    }
+};
 </script>

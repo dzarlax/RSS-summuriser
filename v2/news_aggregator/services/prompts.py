@@ -12,6 +12,31 @@ class NewsPrompts:
     """Collection of all AI prompts for news processing."""
     
     # =============================================================================
+    # DYNAMIC CATEGORY METADATA
+    # =============================================================================
+    
+    @staticmethod
+    async def get_available_categories():
+        """Get available categories from database for prompt enhancement."""
+        try:
+            from ..database import AsyncSessionLocal
+            from ..models import Category
+            from sqlalchemy import select
+            
+            async with AsyncSessionLocal() as session:
+                result = await session.execute(
+                    select(Category.name, Category.display_name)
+                    .order_by(Category.name)
+                )
+                categories = result.all()
+                
+                return [f"{name} ({display_name})" for name, display_name in categories]
+                
+        except Exception as e:
+            # Fallback to default categories if database is unavailable
+            return ['Business (Бизнес)', 'Tech (Технологии)', 'Science (Наука)', 'Serbia (Сербия)', 'Other (Прочее)']
+    
+    # =============================================================================
     # SHARED SUMMARIZATION RULES
     # =============================================================================
     
@@ -41,6 +66,88 @@ SUMMARIZATION REQUIREMENTS:
     # ARTICLE ANALYSIS PROMPTS (main processing)
     # =============================================================================
     
+    @staticmethod
+    async def unified_article_analysis_enhanced(title: str, content: str, url: str, 
+                                               source_context: str = "from an UNKNOWN source") -> str:
+        """
+        Enhanced unified prompt that uses dynamic category list from database.
+        """
+        # Get available categories from database
+        available_categories = await NewsPrompts.get_available_categories()
+        category_names = [cat.split(' (')[0] for cat in available_categories]
+        
+        # Limit content size for cost optimization
+        content_preview = content[:3500] + ("..." if len(content) > 3500 else "")
+        
+        return f"""Analyze this article and provide complete analysis in JSON format.
+
+ARTICLE INFORMATION:
+Title: {title}
+URL: {url}
+Source: {source_context}
+Content: {content_preview}
+
+ANALYSIS TASKS:
+1. TITLE OPTIMIZATION: Create clear, informative headline (max 120 characters for Telegram)
+2. CATEGORIZATION: Choose from available categories below  
+3. SUMMARIZATION: Create DETAILED 5-6 sentence summary in Russian (minimum 200 characters) with key facts and context
+4. ADVERTISEMENT DETECTION: Determine if content is promotional
+5. DATE EXTRACTION: Find publication date if mentioned
+
+AVAILABLE CATEGORIES: {', '.join(available_categories)}
+
+CATEGORIZATION PROCESS:
+1. FIRST - Create 1-2 specific descriptive categories (your own words)
+2. THEN - Map to system categories: {', '.join(category_names)}
+3. Include both recommended AND your improved descriptive categories in original_categories
+
+CATEGORIZATION RULES:
+- Use descriptive categories like: "financial_news", "technology_innovation", "political_analysis", etc.
+- If you find better descriptive terms than standard ones, include them in original_categories
+- Consider multiple categories if content spans domains (e.g., "Tech + Business" for fintech)
+- Provide high confidence scores (0.8+) when categories match well
+
+TITLE OPTIMIZATION RULES:
+- ALWAYS provide optimized_title field (even if keeping original)
+- Maximum 120 characters for Telegram readability
+- Make title clear and informative
+- Remove clickbait elements (BREAKING, TOP-5, etc.)
+- Fix truncated titles (ending with "..." or incomplete)
+- Keep language consistent with content (Russian for Russian content, English for English)
+- If original is good and under 120 chars, return it as optimized_title
+
+SUMMARIZATION:{NewsPrompts._get_summarization_rules("5-6")}
+
+ADVERTISEMENT DETECTION:
+Promotional keywords: "купить", "заказать", "скидка", "акция", "распродажа", "цена", "от ... рублей"
+Business keywords: "продает", "покупает", "инвестирует", "сделка", "контракт", "партнерство"
+
+DATE EXTRACTION:
+Look for publication dates in content, ignore article dates.
+
+OUTPUT FORMAT (JSON):
+{{
+    "optimized_title": "Краткий информативный заголовок новости",
+    "original_categories": ["financial_news", "banking_sector", "investment_strategy"],
+    "categories": ["Business"],
+    "category_confidences": [0.95],
+    "summary": "Краткий пересказ 5-6 предложений...",
+    "summary_confidence": 0.90,
+    "is_advertisement": false,
+    "ad_type": "news_article",
+    "ad_confidence": 0.1,
+    "ad_reasoning": "Content focuses on news reporting...",
+    "publication_date": "2024-01-15",
+    "confidence": 0.85
+}}
+
+EXAMPLES:
+- Single category: "categories": ["Business"], "category_confidences": [0.95]
+- Multiple categories: "categories": ["Tech", "Business"], "category_confidences": [0.85, 0.75]  
+- Enhanced original_categories: ["financial_analysis", "fintech_innovation", "investment_strategy"]
+
+Answer ONLY with valid JSON, no additional text."""
+
     @staticmethod
     def unified_article_analysis(title: str, content: str, url: str, 
                                 source_context: str = "from an UNKNOWN source") -> str:

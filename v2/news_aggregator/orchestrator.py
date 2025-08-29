@@ -306,9 +306,9 @@ class NewsOrchestrator:
         print(f"  🔧 DEBUG: force_processing = {force_processing}")
         
         # Check what processing is needed
-        needs_summary = not article_data.get('summary_processed', False) and not article_data.get('summary')
-        needs_category = not article_data.get('category_processed', False)
-        needs_ad_detection = not article_data.get('ad_processed', False)
+        needs_summary = force_processing or (not article_data.get('summary_processed', False) and not article_data.get('summary'))
+        needs_category = force_processing or not article_data.get('category_processed', False)
+        needs_ad_detection = force_processing or not article_data.get('ad_processed', False)
         
         # Smart Filtering: Check if article needs AI processing at all
         if needs_summary or needs_category or needs_ad_detection:

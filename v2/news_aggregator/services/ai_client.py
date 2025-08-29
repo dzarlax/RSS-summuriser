@@ -681,16 +681,21 @@ Return the complete, absolute URL. If the link is relative, make it absolute usi
         Returns:
             Dictionary with all analysis results
         """
-        # Enhanced content length protection
-        if not content or not isinstance(content, str) or len(content.strip()) < 120:
-            print(f"  ⚠️ Content too short for analysis: {len(content.strip()) if content else 0} chars < 120")
+        # Enhanced content length protection  
+        if not content or not isinstance(content, str) or len(content.strip()) < 30:
+            print(f"  ⚠️ Content too short for analysis: {len(content.strip()) if content else 0} chars < 30")
             return self._get_fallback_analysis()
         
         max_retries = 2
         for attempt in range(max_retries + 1):
             try:
-                # Build combined prompt
-                prompt = self._build_combined_analysis_prompt(title, content, url)
+                # Build enhanced combined prompt with dynamic category metadata
+                try:
+                    prompt = await self._build_combined_analysis_prompt_enhanced(title, content, url)
+                    print(f"  🚀 Using enhanced prompt with category metadata")
+                except Exception as e:
+                    print(f"  ⚠️ Failed to load enhanced prompt, falling back to standard: {e}")
+                    prompt = self._build_combined_analysis_prompt(title, content, url)
                 
                 retry_text = f" (attempt {attempt + 1}/{max_retries + 1})" if attempt > 0 else ""
                 print(f"  🧠 Combined AI analysis for article{retry_text}...")
@@ -739,8 +744,14 @@ Return the complete, absolute URL. If the link is relative, make it absolute usi
         # Fallback if all retries failed
         return self._get_fallback_analysis()
     
+    async def _build_combined_analysis_prompt_enhanced(self, title: str, content: str, url: str) -> str:
+        """Build enhanced combined prompt using dynamic category metadata."""
+        from .prompts import NewsPrompts, PromptBuilder
+        source_context = PromptBuilder.build_source_context(url)
+        return await NewsPrompts.unified_article_analysis_enhanced(title, content, url, source_context)
+    
     def _build_combined_analysis_prompt(self, title: str, content: str, url: str) -> str:
-        """Build combined prompt for all analysis tasks."""
+        """Build combined prompt for all analysis tasks (legacy method)."""
         # Limit content size for cost optimization
         content_preview = content[:2000] + ("..." if len(content) > 2000 else "")
         
@@ -782,6 +793,7 @@ Return the complete, absolute URL. If the link is relative, make it absolute usi
             'category_confidence': max(0.0, min(1.0, safe_float(result.get('category_confidence'), 0.8))),
             'summary_confidence': max(0.0, min(1.0, safe_float(result.get('summary_confidence'), 0.8))),
             'categories_parsed': parse_category(primary_category, title=title, content=content[:500] if content else None, return_multiple=True),
+            'original_categories': result.get('original_categories', []),  # Enhanced: AI descriptive categories before mapping
             'is_advertisement': bool(result.get('is_advertisement', False)),
             'ad_type': result.get('ad_type', 'news_article'),
             'ad_confidence': max(0.0, min(1.0, safe_float(result.get('ad_confidence'), 0.0))),
