@@ -141,7 +141,8 @@ async def get_main_feed(
             "is_advertisement": bool(getattr(article, 'is_advertisement', False)),
             "ad_confidence": float(getattr(article, 'ad_confidence', 0.0)),
             "ad_type": getattr(article, 'ad_type', None),
-            "ad_reasoning": getattr(article, 'ad_reasoning', None)
+            "ad_reasoning": getattr(article, 'ad_reasoning', None),
+            "ad_markers": getattr(article, 'ad_markers', [])
         })
     
     return {
@@ -2638,6 +2639,9 @@ async def get_article(
             "primary_category": article.primary_category,
             "is_advertisement": article.is_advertisement,
             "ad_confidence": article.ad_confidence,
+            "ad_type": article.ad_type,
+            "ad_reasoning": article.ad_reasoning,
+            "ad_markers": article.ad_markers or [],
             "categories": [
                 {
                     "name": ac.category.name,
