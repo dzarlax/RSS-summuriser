@@ -39,8 +39,8 @@ class TaskScheduler:
         self.running = True
         logger.info("Starting task scheduler")
         
-        # Start orchestrator's database queue
-        await self.orchestrator.start()
+        # NOTE: Do NOT start orchestrator's queue - use global queue from main.py
+        # The orchestrator will use the global database queue automatically
         
         # Start main scheduler loop
         self._tasks['main'] = asyncio.create_task(self._scheduler_loop())
@@ -64,8 +64,7 @@ class TaskScheduler:
         
         self._tasks.clear()
         
-        # Stop orchestrator's database queue
-        await self.orchestrator.stop()
+        # NOTE: Do NOT stop orchestrator's queue - it's managed globally by main.py
         
     async def _scheduler_loop(self):
         """Main scheduler loop."""

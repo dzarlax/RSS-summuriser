@@ -257,7 +257,7 @@ class NewsPrompts:
 class NewsOrchestrator:
     async def run_full_cycle(self):
         """Полный цикл: синхронизация, обработка, генерация сводок."""
-        await self._sync_all_sources()
+        # Uses SourceManager.fetch_from_all_sources() to get articles from all sources
         await self._process_unprocessed_articles()
         await self._generate_daily_summaries()
         return await self._create_combined_digest()

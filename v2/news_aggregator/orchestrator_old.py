@@ -7,11 +7,12 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, text
 
 from .database import AsyncSessionLocal
 from .models import Source, Article, ProcessingStat, DailySummary
 from .services.source_manager import SourceManager
+from .processing.ai_processor import AIProcessor
 from .services.ai_client import get_ai_client
 from .services.telegram_service import get_telegram_service
 from .services.database_queue import get_database_queue, DatabaseQueueManager
@@ -29,6 +30,7 @@ class NewsOrchestrator:
     
     def __init__(self):
         self.source_manager = SourceManager()
+        self.ai_processor = AIProcessor()
         self.ai_client = get_ai_client()
         self.telegram_service = get_telegram_service()
         
@@ -38,13 +40,7 @@ class NewsOrchestrator:
         # Legacy queue for backward compatibility (will be removed)
         self.db_queue = None
         
-        # Initialize AI services
-        try:
-            from .services.categorization_ai import CategorizationAI
-            self.categorization_ai = CategorizationAI()
-        except Exception as e:
-            print(f"⚠️ Warning: Could not initialize categorization AI: {e}")
-            self.categorization_ai = None
+        # AI services are initialized as needed in processing methods
     
     async def start(self):
         """Start the orchestrator and its database queue."""
@@ -87,21 +83,58 @@ class NewsOrchestrator:
                 # Step 2: Get articles that need processing (короткая сессия)
                 from sqlalchemy import select, or_, and_
                 from sqlalchemy.orm import selectinload
-                unprocessed_result = await db.execute(
-                    select(Article).options(selectinload(Article.source)).where(
-                        or_(
-                            (Article.summary.is_(None)) | (Article.summary == ''),  # No summary
-                            (Article.category.is_(None)) | (Article.category == '') | (Article.category == 'Other'),  # No category or default
-                            (Article.ad_processed.is_(False))  # Need advertising detection for ALL sources
-                        )
-                    ).limit(200)  # Process max 200 at once
+                from .models import ArticleCategory, Category
+                # First, get articles with poor summaries (high priority)
+                poor_summaries_result = await db.execute(
+                    select(Article).options(
+                        selectinload(Article.source),
+                        selectinload(Article.article_categories).selectinload(ArticleCategory.category)
+                    ).where(
+                        (Article.summary.is_not(None)) & (func.length(Article.summary) < 200)  # Poor summary quality
+                    ).limit(50)  # Process up to 50 poor summaries first
                 )
-                unprocessed_articles = list(unprocessed_result.scalars().all())
+                poor_summaries = list(poor_summaries_result.scalars().all())
                 
-                # Combine new and unprocessed articles (removing duplicates) - work with IDs only
-                all_article_ids = [article.id for article in all_articles]
+                # Then get other unprocessed articles
+                remaining_limit = 200 - len(poor_summaries)
+                if remaining_limit > 0:
+                    other_unprocessed_result = await db.execute(
+                        select(Article).options(
+                            selectinload(Article.source),
+                            selectinload(Article.article_categories).selectinload(ArticleCategory.category)
+                        ).where(
+                            or_(
+                                (Article.summary_processed.is_(False)),  # Need summary processing
+                                (Article.category_processed.is_(False)),  # Need categorization
+                                (Article.ad_processed.is_(False)),  # Need advertising detection for ALL sources
+                                (Article.content.is_(None)) | (Article.content == '') | (func.length(Article.content) < 500),  # Need content extraction retry (increased threshold for RSS)
+                            )
+                        ).limit(remaining_limit)
+                    )
+                    other_unprocessed = list(other_unprocessed_result.scalars().all())
+                else:
+                    other_unprocessed = []
+                
+                # Combine: poor summaries first, then others
+                unprocessed_articles = poor_summaries + other_unprocessed
+                
+                # Prioritize unprocessed articles over new ones - work with IDs only
                 unprocessed_article_ids = [article.id for article in unprocessed_articles]
-                article_ids_to_process = list(set(all_article_ids + unprocessed_article_ids))
+                all_article_ids = [article.id for article in all_articles]
+                
+                # Remove duplicates while preserving priority (unprocessed first)
+                seen = set()
+                article_ids_to_process = []
+                # First add unprocessed articles
+                for article_id in unprocessed_article_ids:
+                    if article_id not in seen:
+                        article_ids_to_process.append(article_id)
+                        seen.add(article_id)
+                # Then add new articles if there's room
+                for article_id in all_article_ids:
+                    if article_id not in seen:
+                        article_ids_to_process.append(article_id)
+                        seen.add(article_id)
             
             if not article_ids_to_process:
                 print("ℹ️ No articles to process")
@@ -128,13 +161,25 @@ class NewsOrchestrator:
             
             # Step 5: Update statistics (короткая сессия)
             async with AsyncSessionLocal() as db:
-                await self._update_processing_stats(db, stats)
+                # Use ProcessingStatsService instead of local method
+                from .processing.processing_stats_service import ProcessingStatsService
+                processing_stats_service = ProcessingStatsService()
+                await processing_stats_service.update_processing_stats(db, stats)
                 
                 stats['completed_at'] = datetime.utcnow()
                 stats['duration_seconds'] = (stats['completed_at'] - start_time).total_seconds()
                 
                 print(f"✅ Processing completed in {stats['duration_seconds']:.1f}s")
                 print(f"   Articles: {stats['articles_fetched']} fetched, {stats['articles_processed']} processed")
+                
+                # Smart Filter statistics
+                if 'smart_filter_skipped' in stats or 'smart_filter_approved' in stats:
+                    skipped = stats.get('smart_filter_skipped', 0)
+                    approved = stats.get('smart_filter_approved', 0)
+                    total_filtered = skipped + approved
+                    if total_filtered > 0:
+                        skip_percentage = (skipped / total_filtered * 100) if total_filtered > 0 else 0
+                        print(f"   Smart Filter: {skipped} skipped, {approved} approved ({skip_percentage:.1f}% filtered)")
                 
                 return stats
                 
@@ -157,20 +202,31 @@ class NewsOrchestrator:
         }
         
         try:
-            async with AsyncSessionLocal() as db:
-                print("📱 Generating Telegram digest...")
-                await self._generate_telegram_digest(db, stats)
-                
-                stats['completed_at'] = datetime.utcnow()
-                stats['duration_seconds'] = (stats['completed_at'] - start_time).total_seconds()
-                
-                print(f"✅ Digest sent in {stats['duration_seconds']:.1f}s")
+            from .database_helpers import execute_custom_read
+            print("📱 Generating Telegram digest...")
+            
+            # Use database queue to avoid session conflicts
+            async def digest_operation(db):
+                # Use TelegramDigestService instead of local method
+                from .processing.telegram_digest_service import TelegramDigestService
+                telegram_digest_service = TelegramDigestService()
+                await telegram_digest_service.generate_telegram_digest(db, stats)
                 return stats
                 
+            await execute_custom_read(digest_operation)
+            
+            stats['completed_at'] = datetime.utcnow()
+            stats['duration_seconds'] = (stats['completed_at'] - start_time).total_seconds()
+            
+            print(f"✅ Digest sent in {stats['duration_seconds']:.1f}s")
+            return stats
+            
         except Exception as e:
             error_msg = f"Digest sending error: {e}"
             stats['errors'].append(error_msg)
             print(f"❌ {error_msg}")
+            import traceback
+            traceback.print_exc()
             raise NewsAggregatorError(error_msg) from e
     
     async def _process_articles_with_ai_separate_sessions(self, article_ids: List[int], 
@@ -188,9 +244,13 @@ class NewsOrchestrator:
                     from sqlalchemy import select
                     from sqlalchemy.orm import selectinload
                     
-                    # Get article with source info
+                    # Get article with all relationships loaded
+                    from .models import ArticleCategory, Category
                     result = await db.execute(
-                        select(Article).options(selectinload(Article.source)).where(Article.id == article_id)
+                        select(Article).options(
+                            selectinload(Article.source),
+                            selectinload(Article.article_categories).selectinload(ArticleCategory.category)
+                        ).where(Article.id == article_id)
                     )
                     article = result.scalar_one_or_none()
                     
@@ -200,6 +260,14 @@ class NewsOrchestrator:
                         
                     print(f"📝 Processing article {i}/{len(article_ids)}: {article.title[:60]}...")
                     
+                    # Safely get primary category without triggering lazy loading
+                    primary_category = 'Other'
+                    if hasattr(article, 'article_categories') and article.article_categories:
+                        # Sort by confidence and get the first one
+                        sorted_categories = sorted(article.article_categories, key=lambda x: x.confidence or 0, reverse=True)
+                        if sorted_categories:
+                            primary_category = sorted_categories[0].category.name
+                    
                     article_data = {
                         'id': article.id,
                         'title': article.title,
@@ -207,7 +275,7 @@ class NewsOrchestrator:
                         'content': article.content,
                         'source_id': article.source_id,
                         'summary': article.summary,
-                        'category': article.category,
+                        'primary_category': primary_category,  # Use safely computed category
                         'is_advertisement': article.is_advertisement,
                         'summary_processed': getattr(article, 'summary_processed', False),
                         'category_processed': getattr(article, 'category_processed', False),
@@ -236,194 +304,42 @@ class NewsOrchestrator:
                 
         return processed_articles
     
-    async def _process_article_ai_combined(self, article_data: Dict[str, Any], stats: Dict[str, Any]) -> Dict[str, Any]:
-        """Process article with combined AI analysis - all tasks in one API call."""
-        source_type = article_data.get('source_type', 'rss')
-        source_name = article_data.get('source_name', 'Unknown')
-        article_id = article_data['id']
-        
-        print(f"  📡 Source: {source_name} (type: {source_type})")
-        
-        # Check what processing is needed
-        needs_summary = not article_data.get('summary_processed', False) and not article_data.get('summary')
-        needs_category = not article_data.get('category_processed', False)
-        needs_ad_detection = not article_data.get('ad_processed', False)
-        
-        # If all processing is already done, skip
-        if not (needs_summary or needs_category or needs_ad_detection):
-            print(f"  ✅ All processing already completed")
-            return article_data
-            
-        print(f"  🔍 Processing needs: {'✅ Summary' if needs_summary else '❌ Summary'}, {'✅ Category' if needs_category else '❌ Category'}, {'✅ Ad Detection' if needs_ad_detection else '❌ Ad Detection'}")
-        
-        # Use combined AI analysis if we need multiple tasks
-        if sum([needs_summary, needs_category, needs_ad_detection]) >= 2:
-            print(f"  🧠 Using combined AI analysis for efficiency...")
-            try:
-                import time
-                start_time = time.time()
-                
-                # Get combined analysis
-                ai_result = await self.ai_client.analyze_article_complete(
-                    title=article_data.get('title', ''),
-                    content=article_data.get('content', ''),
-                    url=article_data.get('url', '')
-                )
-                
-                elapsed_time = time.time() - start_time
-                print(f"  ✅ Combined analysis completed in {elapsed_time:.1f}s")
-                stats['api_calls_made'] += 1
-                
-                # Save all results at once
-                update_fields = {}
-                if needs_summary and ai_result.get('summary'):
-                    update_fields['summary'] = ai_result['summary']
-                    update_fields['summary_processed'] = True
-                    
-                if needs_category:
-                    update_fields['category'] = ai_result.get('category', 'Other')
-                    update_fields['category_processed'] = True
-                    
-                if needs_ad_detection:
-                    update_fields['is_advertisement'] = ai_result.get('is_advertisement', False)
-                    update_fields['ad_confidence'] = ai_result.get('ad_confidence', 0.0)
-                    update_fields['ad_type'] = ai_result.get('ad_type', 'news_article')
-                    update_fields['ad_reasoning'] = ai_result.get('ad_reasoning', 'Combined analysis')
-                    update_fields['ad_processed'] = True
-                    
-                # Save all fields in one database operation
-                await self._save_article_fields(article_id, update_fields)
-                
-                print(f"  💾 All results saved to database")
-                print(f"  📊 Summary: {ai_result.get('summary', 'None')[:100]}...")
-                print(f"  🏷️ Category: {ai_result.get('category', 'Other')}")
-                print(f"  🚨 Advertisement: {ai_result.get('is_advertisement', False)} (confidence: {ai_result.get('ad_confidence', 0.0):.2f})")
-                
-                return {**article_data, **update_fields}
-                
-            except Exception as e:
-                print(f"  ❌ Combined analysis failed: {e}")
-                # Fall back to incremental processing
-                return await self._process_article_ai_incremental(article_data, stats)
-        else:
-            # Use incremental processing for single tasks
-            return await self._process_article_ai_incremental(article_data, stats)
+    async def _process_article_ai_combined(self, article_data: Dict[str, Any], stats: Dict[str, Any], force_processing: bool = False) -> Dict[str, Any]:
+        """Process article with combined AI analysis - delegated to AIProcessor."""
+        from .processing.ai_processor import AIProcessor
+        ai_processor = AIProcessor()
+        return await ai_processor.process_article_combined(article_data, stats, force_processing)
 
-    async def _process_article_ai_incremental(self, article_data: Dict[str, Any], stats: Dict[str, Any]) -> Dict[str, Any]:
-        """Process article with AI, saving after each API call."""
-        source_type = article_data.get('source_type', 'rss')
-        source_name = article_data.get('source_name', 'Unknown')
-        article_id = article_data['id']
-        
-        print(f"  📡 Source: {source_name} (type: {source_type})")
-        
-        # Check what processing is needed
-        needs_summary = not article_data.get('summary_processed', False) and not article_data.get('summary')
-        needs_category = not article_data.get('category_processed', False)
-        needs_ad_detection = not article_data.get('ad_processed', False)
-        
-        print(f"  🔍 Processing needs: {'✅ Summary' if needs_summary else '❌ Summary'}, {'✅ Category' if needs_category else '❌ Category'}, {'✅ Ad Detection' if needs_ad_detection else '❌ Ad Detection'}")
-        
-        # Process summary if needed
-        if needs_summary:
-            print(f"  📄 Starting summarization...")
-            try:
-                import time
-                start_time = time.time()
-                # Create a temporary Article-like object for compatibility
-                class TempArticle:
-                    def __init__(self, data):
-                        self.url = data['url']
-                        self.title = data['title']
-                        self.content = data['content']
-                
-                temp_article = TempArticle(article_data)
-                summary = await self._get_summary_by_source_type(temp_article, source_type, stats)
-                elapsed_time = time.time() - start_time
-                print(f"  ✅ Summary generated in {elapsed_time:.1f}s: {summary[:100] if summary else 'None'}...")
-                
-                # Save summary immediately
-                await self._save_article_field(article_id, 'summary', summary, 'summary_processed', True)
-                stats['api_calls_made'] += 1
-                print(f"  💾 Summary saved to database")
-                
-            except Exception as e:
-                print(f"  ❌ Summarization failed: {e}")
-                # Mark as processed even on failure to avoid retries
-                await self._save_article_field(article_id, 'summary_processed', True)
-        
-        # Process category if needed  
-        if needs_category:
-            print(f"  🏷️ Starting categorization...")
-            try:
-                # Get current summary - use fresh summary if we just generated it
-                current_summary = article_data.get('summary')
-                if needs_summary and 'summary' in locals() and summary is not None:
-                    current_summary = summary
-                
-                # Use AI for categorization
-                if self.categorization_ai:
-                    category = await self.categorization_ai.categorize_article(
-                        article_data['title'], current_summary or article_data['content']
-                    )
-                else:
-                    category = 'Other'  # Fallback category
-                print(f"  ✅ Category assigned: {category}")
-                
-                # Save category immediately
-                await self._save_article_field(article_id, 'category', category, 'category_processed', True)
-                stats['api_calls_made'] += 1
-                print(f"  💾 Category saved to database")
-                
-            except Exception as e:
-                print(f"  ❌ Categorization failed: {e}")
-                # Set default category and mark as processed
-                await self._save_article_field(article_id, 'category', 'Other', 'category_processed', True)
-        
-        # Process ad detection if needed
-        if needs_ad_detection:
-            print(f"  🛡️ Starting advertising detection...")
-            try:
-                from .services.ad_detector import AdDetector
-                detector = AdDetector(enable_ai=True)
-                result = await detector.detect(
-                    title=article_data.get('title'),
-                    content=article_data.get('content') or article_data.get('summary'),
-                    url=article_data.get('url')
-                )
-                is_advertisement = bool(result.get('is_advertisement', False))
-                ad_confidence = float(result.get('ad_confidence', 0.0))
-                ad_type = result.get('ad_type')
-                ad_reasoning = result.get('ad_reasoning')
-                ad_markers = result.get('ad_markers', [])
-                print(f"  ✅ Ad detection result: {'Advertisement' if is_advertisement else 'Not advertisement'} (conf {ad_confidence})")
-                
-                # Save ad detection result immediately
-                await self._save_article_fields(article_id, {
-                    'is_advertisement': is_advertisement,
-                    'ad_confidence': ad_confidence,
-                    'ad_type': ad_type,
-                    'ad_reasoning': ad_reasoning,
-                    'ad_markers': ad_markers,
-                    'ad_processed': True,
-                })
-                stats['api_calls_made'] += 1
-                print(f"  💾 Ad detection result saved to database")
-                
-            except Exception as e:
-                print(f"  ❌ Ad detection failed: {e}")
-                # Set default and mark as processed
-                await self._save_article_fields(article_id, {
-                    'is_advertisement': False,
-                    'ad_processed': True
-                })
-        
-        return {}  # No need to return results since we save immediately
-    
+    async def _process_article_ai_incremental(self, article_data: Dict[str, Any], stats: Dict[str, Any], force_processing: bool = False) -> Dict[str, Any]:
+        """Process article with AI - delegated to AIProcessor."""
+        from .processing.ai_processor import AIProcessor
+        ai_processor = AIProcessor()
+        return await ai_processor.process_article_combined(article_data, stats, force_processing)
     async def _process_article_ai_queued(self, article_data: Dict[str, Any], stats: Dict[str, Any]) -> Dict[str, Any]:
         """Process article with AI, using optimized combined analysis when possible."""
         # Use combined analysis for efficiency
-        return await self._process_article_ai_combined(article_data, stats)
+        # Use new AI Processor for optimized processing
+        from .processing.ai_processor import AIProcessor
+        ai_processor = AIProcessor()
+        return await ai_processor.process_article_combined(article_data, stats)
+        
+        # ============================================================================
+        # DEAD CODE WARNING: Lines below are unreachable (after return statement)
+        # ============================================================================
+        # This entire block was the old incremental processing logic that is now
+        # replaced by the combined analysis approach (_process_article_ai_combined).
+        # 
+        # The old code included:
+        # - Process summary if needed (using _get_summary_by_source_type)
+        # - Process category if needed (using categorization_ai.categorize_article) 
+        # - Process ad detection if needed (using AdDetector)
+        # - Various database field updates through write queue
+        #
+        # All these operations are now handled efficiently by analyze_article_complete()
+        # in a single AI API call, reducing requests by ~75%.
+        #
+        # TODO: Remove this dead code block in future cleanup.
+        # ============================================================================
         
         # Process summary if needed
         if needs_summary:
@@ -472,17 +388,15 @@ class NewsOrchestrator:
                     category = 'Other'  # Fallback category
                 print(f"  ✅ Category assigned: {category}")
                 
-                # Add to field updates
-                field_updates['category'] = category
+                # Add to field updates  
                 field_updates['category_processed'] = True
                 stats['api_calls_made'] += 1
                 print(f"  🔄 Category queued for write")
                 
             except Exception as e:
                 print(f"  ❌ Categorization failed: {e}")
-                # Set default category and mark as processed
-                field_updates['category'] = 'Other'
-                field_updates['category_processed'] = True
+                # DO NOT mark as processed - let it retry
+                logging.error(f"Categorization failed for article {article_id}: {e}")
         
         # Process ad detection if needed
         if needs_ad_detection:
@@ -533,37 +447,6 @@ class NewsOrchestrator:
         
         return {}
     
-    async def _save_article_field(self, article_id: int, *field_value_pairs):
-        """Save article field(s) to database in a short session."""
-        try:
-            async with AsyncSessionLocal() as db:
-                from .models import Article
-                from sqlalchemy import select
-                
-                result = await db.execute(select(Article).where(Article.id == article_id))
-                article = result.scalar_one_or_none()
-                
-                if not article:
-                    print(f"⚠️ Article {article_id} not found for field update")
-                    return
-                
-                if len(field_value_pairs) % 2 != 0:
-                    print(f"⚠️ Invalid field_value_pairs count: {len(field_value_pairs)}")
-                    return
-                
-                # Set fields in pairs: field_name, value, field_name, value, ...
-                for i in range(0, len(field_value_pairs), 2):
-                    field_name = field_value_pairs[i]
-                    field_value = field_value_pairs[i + 1]
-                    if hasattr(article, field_name):
-                        setattr(article, field_name, field_value)
-                    else:
-                        print(f"⚠️ Article has no field '{field_name}'")
-                
-                await db.commit()
-                
-        except Exception as e:
-            print(f"❌ Error saving article {article_id} fields: {e}")
 
     async def _save_article_fields(self, article_id: int, fields_dict: Dict[str, Any]):
         """Save multiple article fields to database in one operation."""
@@ -591,95 +474,12 @@ class NewsOrchestrator:
         except Exception as e:
             print(f"❌ Error saving article {article_id} fields: {e}")
 
-    async def _process_single_article_with_ai(self, db: AsyncSession, article: Article, 
-                                            stats: Dict[str, Any]) -> Optional[Article]:
-        """Process a single article with AI in an already open session."""
-        # Get source info to determine processing strategy
-        source_type = 'rss'  # Default
-        source_name = 'Unknown'
-        if hasattr(article, 'source') and article.source:
-            source_type = article.source.source_type
-            source_name = article.source.name
-        elif article.source_id:
-            # If source is not loaded, get it from database
-            from .models import Source
-            from sqlalchemy import select
-            source_result = await db.execute(
-                select(Source).where(Source.id == article.source_id)
-            )
-            source = source_result.scalar_one_or_none()
-            if source:
-                source_type = source.source_type
-                source_name = source.name
-        
-        print(f"  📡 Source: {source_name} (type: {source_type})")
-        
-        # Check what processing is needed
-        needs_summary = not getattr(article, 'summary_processed', False) and (not article.summary or article.summary == '')
-        needs_category = not getattr(article, 'category_processed', False)
-        needs_ad_detection = not getattr(article, 'ad_processed', False) and source_type == 'telegram'
-        
-        print(f"  🔍 Processing needs: {'✅ Summary' if needs_summary else '❌ Summary'}, {'✅ Category' if needs_category else '❌ Category'}, {'✅ Ad Detection' if needs_ad_detection else '❌ Ad Detection'}")
-        
-        # Process summary if needed
-        if needs_summary:
-            print(f"  📄 Starting summarization...")
-            try:
-                import time
-                start_time = time.time()
-                article.summary = await self._get_summary_by_source_type(
-                    article.url, source_type, article.content
-                )
-                elapsed_time = time.time() - start_time
-                print(f"  ✅ Summary generated in {elapsed_time:.1f}s: {article.summary[:100]}...")
-                
-                # Mark as processed
-                article.summary_processed = True
-                stats['api_calls_made'] += 1
-                
-            except Exception as e:
-                print(f"  ❌ Summarization failed: {e}")
-                article.summary_processed = True  # Mark as processed to avoid retries
-        
-        # Process category if needed
-        if needs_category:
-            print(f"  🏷️ Starting categorization...")
-            try:
-                # Use AI for categorization
-                if self.categorization_ai:
-                    article.category = await self.categorization_ai.categorize_article(
-                        article.title, article.summary or article.content
-                    )
-                else:
-                    article.category = 'Other'  # Fallback category
-                print(f"  ✅ Category assigned: {article.category}")
-                
-                # Mark as processed
-                article.category_processed = True
-                stats['api_calls_made'] += 1
-                
-            except Exception as e:
-                print(f"  ❌ Categorization failed: {e}")
-                article.category_processed = True  # Mark as processed to avoid retries
-        
-        # Process ad detection if needed
-        if needs_ad_detection:
-            print(f"  🛡️ Starting advertising detection...")
-            try:
-                article.is_advertisement = await self._detect_advertisement(
-                    article.title, article.content
-                )
-                print(f"  ✅ Ad detection result: {'Advertisement' if article.is_advertisement else 'Not advertisement'}")
-                
-                # Mark as processed
-                article.ad_processed = True
-                stats['api_calls_made'] += 1
-                
-            except Exception as e:
-                print(f"  ❌ Ad detection failed: {e}")
-                article.ad_processed = True  # Mark as processed to avoid retries
-        
-        return article
+    # ============================================================================
+    # REMOVED: _process_single_article_with_ai() - Replaced by unified analysis
+    # ============================================================================
+    # This method was replaced by _process_article_ai_combined() which uses
+    # analyze_article_complete() for unified AI processing (categorization, 
+    # summarization, ad detection) in a single API call.
 
     async def _process_articles_with_ai(self, db: AsyncSession, articles: List[Article], 
                                       stats: Dict[str, Any]) -> List[Article]:
@@ -691,15 +491,14 @@ class NewsOrchestrator:
             try:
                 print(f"📝 Processing article {i}/{len(articles)}: {article.title[:60]}...")
                 
-                # Get source info to determine processing strategy
-                # Use getattr to safely access source without triggering lazy loading
+                # Get source info safely (should already be loaded with selectinload)
                 source_type = 'rss'  # Default
                 source_name = 'Unknown'
                 if hasattr(article, 'source') and article.source:
                     source_type = article.source.source_type
                     source_name = article.source.name
                 elif article.source_id:
-                    # If source is not loaded, get it from database
+                    # If source is not loaded, get it from database in current session
                     from .models import Source
                     source_result = await db.execute(
                         select(Source).where(Source.id == article.source_id)
@@ -721,8 +520,15 @@ class NewsOrchestrator:
                 print(f"  🔍 Processing needs: {'✅ Summary' if needs_summary else '❌ Summary'}, {'✅ Category' if needs_category else '❌ Category'}, {'✅ Ad Detection' if needs_ad_detection else '❌ Ad Detection'}")
                 if getattr(article, 'summary_processed', False):
                     print(f"  ⏭️ Skipping summarization - already processed")
+                # Check current category safely without triggering lazy loading
+                current_category = 'None'
+                if hasattr(article, 'article_categories') and article.article_categories:
+                    sorted_categories = sorted(article.article_categories, key=lambda x: x.confidence or 0, reverse=True)
+                    if sorted_categories:
+                        current_category = sorted_categories[0].category.name
+                
                 if getattr(article, 'category_processed', False):
-                    print(f"  ⏭️ Skipping categorization - already processed (current: {article.category or 'None'})")
+                    print(f"  ⏭️ Skipping categorization - already processed (current: {current_category})")
                 
                 # Get summary based on source type
                 if needs_summary:
@@ -753,25 +559,35 @@ class NewsOrchestrator:
                         article.summary_processed = True  # Mark as processed even with fallback
                         print(f"  🔄 Using fallback summary (length: {len(article.summary)} chars)")
                 
-                # Categorize article based on source type
+                # Categorize article using CategoryService (new system)
                 if needs_category:
                     print(f"  🏷️ Starting categorization...")
                     try:
                         start_time = time.time()
-                        category = await self._categorize_by_source_type(
+                        categories_result = await self._categorize_by_source_type_new(
                             article, source_type, stats
                         )
                         duration = time.time() - start_time
-                        article.category = category
-                        article.category_processed = True  # Mark as processed only on successful AI categorization
-                        print(f"  ✅ Categorization completed in {duration:.2f}s: '{category}'")
+                        
+                        if categories_result:
+                            from .services.category_service import get_category_service
+                            category_service = await get_category_service(db)
+                            await category_service.assign_categories_with_confidences(
+                                article.id, categories_result
+                            )
+                            article.category_processed = True  # Mark as processed on success
+                            category_names = [cat['name'] for cat in categories_result]
+                            print(f"  ✅ Categorization completed in {duration:.2f}s: {category_names}")
+                            # Refresh article to get updated categories
+                            await db.refresh(article)
+                        else:
+                            print(f"  ⚠️ No categories returned from AI in {duration:.2f}s")
+                            
                     except Exception as e:
                         print(f"  ❌ AI categorization failed: {str(e)}")
                         logging.warning(f"AI categorization failed for {article.url}: {e}")
-                        # Fallback to simple rule-based categorization
-                        article.category = self._get_fallback_category(article.title)
-                        # Do NOT mark as processed - allow retry on next run
-                        print(f"  🔄 Using fallback categorization: '{article.category}' (will retry AI next time)")
+                        # For new system, we'll let it retry on next run without fallback
+                        print(f"  🔄 Will retry AI categorization next time")
                 
                 # Process advertising detection for Telegram sources
                 if needs_ad_detection:
@@ -802,15 +618,25 @@ class NewsOrchestrator:
                             print(f"  🎯 No raw_data found, running AI detection for existing article...")
                             start_time = time.time()
                             
-                            source_info = {
-                                'channel': source_name,
-                                'source_name': source_name,
-                                'source_type': source_type
+                            # ============================================================================
+                            # DEPRECATED: Single AI call for ad detection replaced by combined analysis
+                            # ============================================================================
+                            # This separate ad detection call is now handled by analyze_article_complete()
+                            # in combined analysis for efficiency. Using fallback values instead.
+                            #
+                            # Old code:
+                            # source_info = {...}
+                            # ad_detection = await self.ai_client.detect_advertising(...)
+                            # ============================================================================
+                            
+                            # Fallback values for old articles without combined analysis
+                            ad_detection = {
+                                'is_advertisement': False,
+                                'confidence': 0.1,
+                                'ad_type': 'news_article',
+                                'reasoning': 'Legacy processing - no AI analysis',
+                                'markers': []
                             }
-                            ad_detection = await self.ai_client.detect_advertising(
-                                article.content or article.title or '', 
-                                source_info
-                            )
                             stats['api_calls_made'] += 1
                             
                             # Save results to database columns
@@ -849,9 +675,8 @@ class NewsOrchestrator:
                 if not article.summary or article.summary == '':
                     article.summary = article.content or article.title
                 
-                # Set default category on error if needed
-                if not article.category or article.category == '' or article.category == self._get_default_category():
-                    article.category = self._get_fallback_category(article.title)
+                # Categories are now handled by CategoryService - no fallback needed
+                # article.primary_category property will return 'Other' if no categories assigned
                 
                 article.processed = True
                 processed_articles.append(article)
@@ -1006,24 +831,79 @@ class NewsOrchestrator:
         except Exception as e:
             print(f"  ⚠️ Error parsing {source_type} publication date '{pub_date}': {e}")
     
+    async def _categorize_by_source_type_new(self, article: Article, source_type: str, stats: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Categorize article using new AI system that returns multiple categories."""
+        try:
+            from .services.ai_client import get_ai_client
+            ai_client = get_ai_client()
+            content_for_analysis = article.summary or article.content or article.title or ""
+            
+            if not content_for_analysis.strip():
+                return []
+            
+            # Use analyze_article_complete which returns categories array
+            analysis_result = await ai_client.analyze_article_complete(
+                article.title or "", 
+                content_for_analysis,
+                article.url or ""
+            )
+            
+            if analysis_result and 'categories' in analysis_result:
+                categories = analysis_result['categories']
+                original_categories = analysis_result.get('original_categories', [])
+                stats['api_calls_made'] += 1
+                
+                # Ensure each category dict has ai_category field for original AI category tracking
+                processed_categories = []
+                for i, cat in enumerate(categories):
+                    # Get corresponding original category
+                    original_cat = original_categories[i] if i < len(original_categories) else None
+                    
+                    if isinstance(cat, str):
+                        # If category is just a string, convert to dict format
+                        processed_categories.append({
+                            'name': cat,
+                            'confidence': 1.0,
+                            'ai_category': original_cat or cat  # Use original AI category if available
+                        })
+                    elif isinstance(cat, dict):
+                        # If already a dict, ensure ai_category field exists
+                        processed_categories.append({
+                            'name': cat.get('name', cat.get('category', 'Other')),
+                            'confidence': cat.get('confidence', 1.0),
+                            'ai_category': original_cat or cat.get('ai_category', cat.get('name', cat.get('category', 'Other')))
+                        })
+                
+                return processed_categories
+            else:
+                return []
+                
+        except Exception as e:
+            logging.error(f"Error categorizing article {article.url}: {e}")
+            return []
+
     async def _categorize_by_source_type(self, article: Article, source_type: str, stats: Dict[str, Any]) -> str:
         """Categorize article using AI for all source types."""
         try:
-            # All source types use AI categorization
-            from .services.telegram_ai import get_telegram_ai
-            telegram_ai = get_telegram_ai()
+            # Use unified AI analysis for categorization
+            from .services.ai_client import get_ai_client
+            ai_client = get_ai_client()
             content_for_categorization = article.summary or article.title or ""
             
             # Ensure we have content to categorize
             if not content_for_categorization.strip():
                 return "Other"
             
-            category = await telegram_ai.categorize_article(
-                article.title or "",
-                content_for_categorization
+            # Use unified analysis to get category
+            analysis_result = await ai_client.analyze_article_complete(
+                url=article.url or "https://example.com/article",
+                content=content_for_categorization,
+                title=article.title or ""
             )
+            
+            category = analysis_result.get('category', 'Other') if analysis_result else 'Other'
             stats['api_calls_made'] += 1
-            return category or "Other"
+            return category
                 
         except Exception as e:
             logging.error(f"Error categorizing article {article.url}: {e}")
@@ -1054,101 +934,14 @@ class NewsOrchestrator:
             return self._get_default_category()
     
     
-    async def _generate_telegram_digest(self, db: AsyncSession, stats: Dict[str, Any]):
-        """Generate Telegram digest from articles directly (like old version)."""
-        try:
-            # Get today's articles by published date (excluding advertisements)
-            today = datetime.utcnow().date()
-            articles_result = await db.execute(
-                select(Article).where(
-                    func.date(Article.published_at) == today,
-                    Article.is_advertisement != True  # Exclude advertisements from digest
-                )
-                .order_by(Article.published_at.desc())
-                # No limit - process all new articles for today
-            )
-            articles = articles_result.scalars().all()
-            
-            if not articles:
-                print("  ℹ️ No articles found for today")
-                return
-            
-            # Group articles by category (like old version)
-            categories = {}
-            for article in articles:
-                category = article.category or "Other"
-                
-                if category not in categories:
-                    categories[category] = []
-                
-                # Structure like old version for compatibility
-                categories[category].append({
-                    'headline': article.title,
-                    'link': article.url,
-                    'links': [article.url],  # For Telegraph compatibility
-                    'description': article.summary or article.content[:500] + "..." if article.content else "",
-                    'category': category,
-                    'image_url': article.image_url  # Add image URL for Telegraph
-                })
-            
-            # Generate and save daily summaries by category
-            await self._generate_and_save_daily_summaries(db, today, categories)
-            
-            print(f"  📊 Categories found: {list(categories.keys())}")
-            
-            # Create Telegraph page first (using old version format)
-            from .services.telegraph_service import TelegraphService
-            telegraph_service = TelegraphService()
-            telegraph_url = await telegraph_service.create_news_page(categories)
-            
-            if not telegraph_url or not telegraph_url.startswith("http"):
-                telegraph_url = None
-                print("  ⚠️ Telegraph page creation failed")
-            else:
-                print(f"  📖 Telegraph page created: {telegraph_url}")
-            
-            # Generate digest using Telegram AI (like old version)
-            from .services.telegram_ai import get_telegram_ai
-            telegram_ai = get_telegram_ai()
-            digest = await telegram_ai.generate_daily_digest(categories)
-            
-            if digest and len(digest.strip()) > 10:
-                print(f"  ✅ Generated digest ({len(digest)} chars)")
-                
-                # Send digest to Telegram with Telegraph button
-                if telegraph_url:
-                    # Send with Telegraph button
-                    inline_keyboard = [[{"text": "📖 Читать полностью", "url": telegraph_url}]]
-                    telegram_sent = await self.telegram_service.send_message_with_keyboard(digest, inline_keyboard)
-                else:
-                    # Send regular message if Telegraph failed
-                    telegram_sent = await self.telegram_service.send_daily_digest(digest)
-                
-                stats['telegram_digest_generated'] = True
-                stats['telegram_digest_sent'] = telegram_sent
-                stats['telegram_digest_length'] = len(digest)
-                stats['telegram_articles'] = len(articles)
-                stats['telegram_categories'] = len(categories)
-                
-                if telegram_sent:
-                    print(f"  📱 Digest sent to Telegram successfully")
-                else:
-                    print(f"  ⚠️ Failed to send digest to Telegram")
-            else:
-                print("  ⚠️ Failed to generate meaningful digest")
-                stats['telegram_digest_generated'] = False
-                
-        except Exception as e:
-            error_msg = f"Error generating Telegram digest: {e}"
-            stats['errors'].append(error_msg)
-            print(f"  ❌ {error_msg}")
+    # REMOVED: _generate_telegram_digest method - now using TelegramDigestService
     
     async def _generate_and_save_daily_summaries(self, db: AsyncSession, date, categories: Dict[str, List]):
         """Generate and save daily summaries by category."""
         from .models import DailySummary
-        from .services.telegram_ai import get_telegram_ai
+        from .services.ai_client import get_ai_client
         
-        telegram_ai = get_telegram_ai()
+        ai_client = get_ai_client()
         
         for category, articles in categories.items():
             if not articles:
@@ -1157,21 +950,12 @@ class NewsOrchestrator:
             try:
                 print(f"  📝 Generating summary for {category} ({len(articles)} articles)")
                 
-                # Prepare articles data for summary generation (use headline/description like old version)
-                articles_text = ""
-                for article in articles:
-                    articles_text += f"Заголовок: {article['headline']}\n"
-                    if article.get('description'):
-                        articles_text += f"Описание: {article['description'][:300]}...\n"
-                    articles_text += "---\n"
+                # Generate enhanced category summary using AI
+                from .services.prompts import NewsPrompts, PromptBuilder
+                articles_text = PromptBuilder.format_articles_for_summary(articles)
+                summary_prompt = NewsPrompts.category_summary(category, articles_text)
                 
-                # Generate category summary using AI
-                summary_prompt = (
-                    f"Создай краткую сводку новостей в категории {category} на русском языке. "
-                    f"Максимум 500 символов. Основные события и тренды:\n\n{articles_text}"
-                )
-                
-                summary_text = await telegram_ai._make_ai_request(summary_prompt)
+                summary_text = await ai_client._call_summary_llm(summary_prompt)
                 
                 if not summary_text or summary_text == "Error":
                     # Fallback summary
@@ -1206,6 +990,132 @@ class NewsOrchestrator:
                 print(f"  ⚠️ Error generating summary for {category}: {e}")
                 continue
     
+    async def _create_combined_digest(self, db: AsyncSession, date: datetime.date) -> str:
+        """Create digest by combining ready category summaries (no AI needed)."""
+        try:
+            from .models import DailySummary
+            from sqlalchemy import select
+            
+            # Get all category summaries for today
+            result = await db.execute(
+                select(DailySummary).where(DailySummary.date == date)
+                .order_by(DailySummary.articles_count.desc())  # Order by importance
+            )
+            summaries = result.scalars().all()
+            
+            if not summaries:
+                return "Сводки новостей пока не готовы."
+            
+            # Calculate total articles
+            total_articles = sum(s.articles_count for s in summaries)
+            categories_count = len(summaries)
+            
+            # Build header
+            header = f"<b>Сводка новостей за {date.strftime('%d.%m.%Y')}</b>"
+            digest_parts = [header, ""]
+            
+            # Add category summaries  
+            for summary in summaries:
+                category_block = f"<b>{summary.category}</b>\n{summary.summary_text.strip()}\n"
+                digest_parts.append(category_block)
+            
+            # Add footer with stats
+            footer = f"\n📊 Всего: {total_articles} новостей в {categories_count} категориях"
+            digest_parts.append(footer)
+            
+            combined_digest = "\n".join(digest_parts)
+            
+            # Check length and return single message or flag for splitting
+            telegram_limit = 3600  # Safe limit considering Telegraph button overhead (~200 chars)
+            
+            if len(combined_digest) <= telegram_limit:
+                return combined_digest  # Single message
+            else:
+                # Return special marker indicating splitting needed
+                print(f"  📄 Digest too long ({len(combined_digest)} chars), needs splitting by categories")
+                return "SPLIT_NEEDED"
+                
+        except Exception as e:
+            print(f"  ❌ Error creating combined digest: {e}")
+            return f"<b>Сводка новостей за {date.strftime('%d.%m.%Y')}</b>\n\nОшибка при создании сводки."
+    
+    def _split_digest_into_parts(self, header: str, summaries, footer: str, 
+                                 total_articles: int, categories_count: int) -> List[str]:
+        """Split digest into multiple parts that fit Telegram limits."""
+        try:
+            telegram_limit = 3600  # Safe limit considering Telegraph button overhead
+            parts = []
+            
+            # Split summaries into groups that fit telegram limit
+            current_part_categories = []
+            current_part_length = len(header) + 2  # header + empty line
+            
+            for i, summary in enumerate(summaries):
+                category_block = f"<b>{summary.category}</b>\n{summary.summary_text.strip()}\n\n"
+                
+                # Check if adding this category would exceed limit
+                estimated_footer = f"\n📊 Часть {len(parts)+1} • {len(current_part_categories)+1} категорий"
+                
+                if current_part_length + len(category_block) + len(estimated_footer) + 50 <= telegram_limit:
+                    # Fits in current part
+                    current_part_categories.append(summary)
+                    current_part_length += len(category_block)
+                else:
+                    # Start new part
+                    if current_part_categories:
+                        # Save current part
+                        parts.append(self._build_digest_part(
+                            header, current_part_categories, total_articles, 
+                            categories_count, len(parts) + 1, 
+                            is_final=False
+                        ))
+                        
+                        # Start new part
+                        current_part_categories = [summary]
+                        current_part_length = len(header) + 2 + len(category_block)
+                    else:
+                        # Single category too long - include anyway
+                        current_part_categories = [summary]
+                        current_part_length = len(header) + 2 + len(category_block)
+            
+            # Add final part
+            if current_part_categories:
+                parts.append(self._build_digest_part(
+                    header, current_part_categories, total_articles,
+                    categories_count, len(parts) + 1,
+                    is_final=True, footer=footer
+                ))
+            
+            print(f"  📄 Split digest into {len(parts)} parts")
+            return parts
+            
+        except Exception as e:
+            print(f"  ❌ Error splitting digest: {e}")
+            # Fallback to single part with truncation
+            fallback = header + "\n\n" + summaries[0].summary_text[:3000] + "...\n" + footer
+            return [fallback]
+    
+    def _build_digest_part(self, header: str, categories, total_articles: int, 
+                          total_categories: int, part_number: int, 
+                          is_final: bool = False, footer: str = "") -> str:
+        """Build a single digest part."""
+        part_content = [header, ""]
+        
+        # Add categories
+        for summary in categories:
+            category_block = f"<b>{summary.category}</b>\n{summary.summary_text.strip()}\n"
+            part_content.append(category_block)
+        
+        # Add appropriate footer
+        if is_final:
+            part_content.append(footer)
+        else:
+            part_footer = f"\n📊 Часть {part_number} • {len(categories)} из {total_categories} категорий"
+            part_content.append(part_footer) 
+            part_content.append("\n💬 Продолжение следует...")
+        
+        return "\n".join(part_content)
+    
     async def _generate_output(self, db: AsyncSession, stats: Dict[str, Any]):
         """Generate output files (JSON, web data)."""
         # TODO: Implement output generation
@@ -1216,64 +1126,194 @@ class NewsOrchestrator:
         # - Upload to S3 if configured
         pass
     
-    async def _update_processing_stats(self, db: AsyncSession, stats: Dict[str, Any]):
-        """Update processing statistics in database."""
-        today = datetime.utcnow().date()
-        
-        # Get or create today's stats
-        existing_stats = await db.execute(
-            select(ProcessingStat).where(ProcessingStat.date == today)
-        )
-        existing_stats = existing_stats.scalar_one_or_none()
-        
-        if existing_stats:
-            # Update existing stats
-            existing_stats.articles_fetched += stats['articles_fetched']
-            existing_stats.articles_processed += stats['articles_processed']
-            existing_stats.api_calls_made += stats['api_calls_made']
-            existing_stats.errors_count += len(stats['errors'])
-            existing_stats.processing_time_seconds += int(stats.get('duration_seconds', 0))
-        else:
-            # Create new stats
-            processing_stat = ProcessingStat(
-                date=today,
-                articles_fetched=stats['articles_fetched'],
-                articles_processed=stats['articles_processed'],
-                api_calls_made=stats['api_calls_made'],
-                errors_count=len(stats['errors']),
-                processing_time_seconds=int(stats.get('duration_seconds', 0))
-            )
-            db.add(processing_stat)
-        
-        await db.commit()
     
     async def get_processing_stats(self, days: int = 7) -> Dict[str, Any]:
         """Get processing statistics for the last N days."""
-        since_date = datetime.utcnow().date() - timedelta(days=days)
+        from .processing.processing_stats_service import get_processing_stats_service
+        processing_stats_service = get_processing_stats_service()
+        return await processing_stats_service.get_processing_stats(days)
+    
+    async def reprocess_failed_extractions(self, limit: int = 50, dry_run: bool = False) -> Dict[str, Any]:
+        """
+        Find and reprocess articles where title equals summary (indicates failed content extraction).
         
-        query = select(ProcessingStat).where(
-            ProcessingStat.date >= since_date
-        ).order_by(ProcessingStat.date.desc())
+        Args:
+            limit: Maximum number of articles to reprocess
+            dry_run: If True, only identify candidates without processing
+            
+        Returns:
+            Dictionary with processing results and statistics
+        """
+        print(f"🔍 Finding articles with failed content extraction (limit: {limit})...")
         
-        stats = await fetch_all(query)
+        # Find articles where title equals summary (indicates failed extraction)
+        query = select(Article).where(
+            # Title equals summary (indicates failed extraction)
+            ((Article.title == Article.summary) | 
+             ((Article.summary.isnot(None)) & (func.trim(Article.title) == func.trim(Article.summary)))),
+            # Exclude test URLs
+            ~Article.url.like('%test.example.com%'),
+            # Include all articles with short content - even Telegram posts might have external links
+            func.length(func.coalesce(Article.content, '')) < 1000
+        ).order_by(Article.fetched_at.desc()).limit(limit)
         
-        return {
-            'daily_stats': [
-                {
-                    'date': stat.date.isoformat(),
-                    'articles_fetched': stat.articles_fetched,
-                    'articles_processed': stat.articles_processed,
-                    'api_calls_made': stat.api_calls_made,
-                    'errors_count': stat.errors_count,
-                    'processing_time_seconds': stat.processing_time_seconds
-                }
-                for stat in stats
-            ],
-            'totals': {
-                'articles_fetched': sum(s.articles_fetched for s in stats),
-                'articles_processed': sum(s.articles_processed for s in stats),
-                'api_calls_made': sum(s.api_calls_made for s in stats),
-                'errors_count': sum(s.errors_count for s in stats),
-                'total_processing_time': sum(s.processing_time_seconds for s in stats)
+        candidates = await fetch_all(query)
+        
+        print(f"📊 Found {len(candidates)} articles needing reprocessing")
+        
+        if dry_run:
+            results = {
+                'found_candidates': len(candidates),
+                'candidates': [
+                    {
+                        'id': article.id,
+                        'title': article.title[:100] + '...' if len(article.title) > 100 else article.title,
+                        'url': article.url,
+                        'content_length': len(article.content or ''),
+                        'domain': article.url.split('/')[2] if '://' in article.url else 'unknown'
+                    }
+                    for article in candidates
+                ]
             }
+            return results
+        
+        # Process articles
+        stats = {
+            'processed': 0,
+            'improved': 0,
+            'failed': 0,
+            'errors': [],
+            'improvements': []
         }
+        
+        for article in candidates:
+            try:
+                print(f"\n🔧 Processing article {article.id}: {article.title[:80]}...")
+                print(f"   URL: {article.url}")
+                print(f"   Current content: {len(article.content or '')} chars")
+                
+                # Reset processing flags to force complete reprocessing
+                async with AsyncSessionLocal() as reset_session:
+                    await reset_session.execute(
+                        text("UPDATE articles SET summary_processed = false, category_processed = false, ad_processed = false WHERE id = :article_id"),
+                        {'article_id': article.id}
+                    )
+                    await reset_session.commit()
+                
+                # Create article data for processing
+                article_data = {
+                    'id': article.id,
+                    'title': article.title,
+                    'url': article.url,
+                    'content': article.content,
+                    'source_id': article.source_id,
+                    'source_type': 'rss'  # Default, will be overridden by source manager if needed
+                }
+                
+                # First: Try to extract content again with new encoding-aware method
+                print(f"   🔄 Step 1: Re-extracting content with encoding-aware method...")
+                
+                from .extraction import ContentExtractor
+                extractor = ContentExtractor()
+                
+                async with extractor:
+                    try:
+                        # Try to extract fresh content
+                        extraction_result = await extractor.extract_article_content_with_metadata(article.url, retry_count=3)
+                        new_content = extraction_result.get('content') if extraction_result else None
+                        
+                        if new_content and len(new_content) > len(article.content or ''):
+                            print(f"   ✅ Content improved: {len(article.content or '')} → {len(new_content)} chars")
+                            
+                            # Update content in database
+                            async with AsyncSessionLocal() as content_session:
+                                await content_session.execute(
+                                    text("UPDATE articles SET content = :content WHERE id = :article_id"),
+                                    {'content': new_content, 'article_id': article.id}
+                                )
+                                await content_session.commit()
+                            
+                            # Update article data with new content
+                            article_data['content'] = new_content
+                            print(f"   📝 Content updated in database")
+                        else:
+                            print(f"   ⚠️ No content improvement: {len(article.content or '')} → {len(new_content or '')} chars")
+                            
+                    except Exception as e:
+                        print(f"   ❌ Content extraction failed: {e}")
+                        # Continue with existing content
+                
+                # Step 2: Process with AI using the optimized AI Processor
+                print(f"   🔄 Step 2: Processing with optimized AI Processor (content: {len(article_data.get('content', '') or '')} chars)...")
+                
+                processing_stats = {'api_calls_made': 0, 'errors': []}  # Initialize stats properly
+                
+                try:
+                    from .processing.ai_processor import AIProcessor
+                    ai_processor = AIProcessor()
+                    result = await ai_processor.process_article_combined(article_data, processing_stats, force_processing=True, db=None)
+                    print(f"   🔍 AI Processor returned successfully: success={result.get('success') if result else 'None'}")
+                except Exception as process_e:
+                    print(f"   ❌ Exception in AI Processor: {process_e}")
+                    result = None
+                
+                if result and result.get('success'):
+                    stats['processed'] += 1
+                    
+                    # Check if content improved
+                    original_length = len(article.content or '')
+                    new_length = result.get('content_length', 0)
+                    
+                    if new_length > original_length:
+                        improvement = new_length - original_length
+                        stats['improved'] += 1
+                        stats['improvements'].append({
+                            'article_id': article.id,
+                            'title': article.title[:80],
+                            'url': article.url,
+                            'original_length': original_length,
+                            'new_length': new_length,
+                            'improvement': improvement,
+                            'percentage': (improvement / max(original_length, 1)) * 100
+                        })
+                        print(f"   ✅ Improved: {original_length} → {new_length} chars (+{improvement}, +{improvement/max(original_length,1)*100:.1f}%)")
+                    else:
+                        print(f"   ⚠️ No improvement: {original_length} → {new_length} chars")
+                else:
+                    stats['failed'] += 1
+                    print(f"   ❌ Processing failed")
+                    
+            except Exception as e:
+                stats['failed'] += 1
+                stats['errors'].append({
+                    'article_id': article.id,
+                    'title': article.title[:80],
+                    'url': article.url,
+                    'error': str(e)
+                })
+                print(f"   ❌ Error processing article {article.id}: {e}")
+        
+        # Final statistics
+        success_rate = (stats['processed'] / len(candidates)) * 100 if candidates else 0
+        improvement_rate = (stats['improved'] / len(candidates)) * 100 if candidates else 0
+        
+        results = {
+            'found_candidates': len(candidates),
+            'processed': stats['processed'],
+            'improved': stats['improved'],
+            'failed': stats['failed'],
+            'success_rate': success_rate,
+            'improvement_rate': improvement_rate,
+            'errors': stats['errors'],
+            'improvements': stats['improvements']
+        }
+        
+        print(f"\n📈 Reprocessing completed:")
+        print(f"   Found: {len(candidates)} articles")
+        print(f"   Processed: {stats['processed']}")
+        print(f"   Improved: {stats['improved']}")
+        print(f"   Failed: {stats['failed']}")
+        print(f"   Success rate: {success_rate:.1f}%")
+        print(f"   Improvement rate: {improvement_rate:.1f}%")
+        
+        return results

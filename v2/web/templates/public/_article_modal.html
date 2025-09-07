@@ -767,7 +767,7 @@ window.openArticleModal = async function(articleId) {
     
     try {
         console.log('Fetching article data...');
-        const response = await fetch(`/api/public/article/${articleId}`);
+        const response = await fetch(`/api/public/article/${articleId}?v=${Date.now()}`);
         
         if (!response.ok) {
             const errorText = await response.text();
@@ -859,7 +859,30 @@ window.openArticleModal = async function(articleId) {
         if (article.content) {
             const contentEl = document.getElementById('modalContent');
             const spoilerEl = document.getElementById('modalContentSpoiler');
-            contentEl.innerHTML = article.content;
+            
+            console.log('DEBUG: Content length:', article.content.length);
+            console.log('DEBUG: Content preview:', article.content.substring(0, 100));
+            
+            // Check if content contains HTML tags
+            const hasHtmlTags = /<[^>]+>/.test(article.content);
+            console.log('DEBUG: Has HTML tags:', hasHtmlTags);
+            
+            if (hasHtmlTags) {
+                // Content is HTML - use innerHTML
+                console.log('DEBUG: Using innerHTML for HTML content');
+                contentEl.innerHTML = article.content;
+            } else {
+                // Content is plain text - convert to HTML with paragraphs
+                console.log('DEBUG: Formatting plain text content');
+                const formattedContent = article.content
+                    .split('\n\n')  // Split by double newlines (paragraphs)
+                    .filter(p => p.trim())  // Remove empty paragraphs
+                    .map(p => `<p>${escapeHtml(p.trim())}</p>`)  // Wrap in <p> tags
+                    .join('');
+                console.log('DEBUG: Formatted content length:', formattedContent.length);
+                contentEl.innerHTML = formattedContent || `<p>${escapeHtml(article.content)}</p>`;
+            }
+            
             spoilerEl.style.display = 'block';
         }
         
@@ -1019,7 +1042,7 @@ function showOriginalAiCategories(aiCategories) {
         return `
             <div class="category-item ${confidenceClass}">
                 <span class="category-name">
-                    🤖 ${escapeHtml(cat.category)}
+                    🤖 ${escapeHtml(cat.ai_category || cat.category)}
                     ${cat.mapped_to ? ` → ${escapeHtml(cat.mapped_to)}` : ''}
                 </span>
                 <span class="confidence-score">${confidencePercent}%</span>

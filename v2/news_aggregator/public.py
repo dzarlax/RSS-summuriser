@@ -2,21 +2,59 @@
 
 import logging
 from fastapi import APIRouter, Request, Query, Depends, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func, text
 from sqlalchemy.orm import selectinload
 from datetime import datetime, timedelta
 from typing import Optional
+from pathlib import Path
+import magic
 
 from .database import get_db, AsyncSessionLocal
 from .database_helpers import fetch_raw_all, count_query, execute_custom_read
-from .models import Article, Category, ArticleCategory
+from .models import Article, Category, ArticleCategory, MediaFile
+from .config import get_settings
 
 router = APIRouter()
 templates = Jinja2Templates(directory="web/templates")
 
+
+def process_cached_media(article, image_url=None, media_files=None):
+    """Process article media to return cached URLs when available."""
+    if not hasattr(article, 'cached_media_files') or not article.cached_media_files:
+        return image_url or article.image_url, media_files or article.media_files or []
+    
+    # Create a mapping of original URLs to cached media
+    cached_media_map = {mf.original_url: mf for mf in article.cached_media_files if mf.cache_status == 'cached'}
+    
+    # Process image_url
+    processed_image_url = image_url or article.image_url
+    if processed_image_url and processed_image_url in cached_media_map:
+        cached_media = cached_media_map[processed_image_url]
+        cached_url = cached_media.get_cached_url('optimized') or cached_media.get_cached_url('original')
+        if cached_url:
+            processed_image_url = cached_url
+    
+    # Process media_files array
+    processed_media_files = list(media_files or article.media_files or [])
+    for media_item in processed_media_files:
+        if isinstance(media_item, dict) and 'url' in media_item:
+            original_url = media_item['url']
+            if original_url in cached_media_map:
+                cached_media = cached_media_map[original_url]
+                cached_url = cached_media.get_cached_url('optimized') or cached_media.get_cached_url('original')
+                if cached_url:
+                    media_item['cached_url'] = cached_url
+                    media_item['cache_status'] = 'cached'
+                    media_item['file_size'] = cached_media.file_size
+                    if cached_media.width:
+                        media_item['width'] = cached_media.width
+                    if cached_media.height:
+                        media_item['height'] = cached_media.height
+    
+    return processed_image_url, processed_media_files
 
 def extract_images_from_content(content: str) -> list:
     """Extract images from HTML content and return as media file objects."""
@@ -103,13 +141,14 @@ async def get_public_feed(
     
     try:
         # Import required models
-        from .models import Source, ArticleCategory, Category
+        from .models import Source, ArticleCategory, Category, MediaFile
         from sqlalchemy.orm import selectinload
         
         # Build query for articles with source and categories information
         query = select(Article).options(
             selectinload(Article.source),
-            selectinload(Article.article_categories).selectinload(ArticleCategory.category)
+            selectinload(Article.article_categories).selectinload(ArticleCategory.category),
+            selectinload(Article.cached_media_files)
         )
         
         # Apply time filter
@@ -149,27 +188,45 @@ async def get_public_feed(
         # Convert to dict format
         articles_data = []
         for article in articles:
+            # Process cached media URLs first
+            processed_image_url, processed_media_files = process_cached_media(article)
+            
             # Extract images from content using shared function
-            existing_media = article.media_files or []
             content_images = extract_images_from_content(article.content or '')
-            all_media_files = list(existing_media) + content_images
+            all_media_files = list(processed_media_files) + content_images
             all_images = [m for m in all_media_files if m.get('type') == 'image']
             
-            # Determine primary image
-            primary_image = article.image_url
+            # Determine primary image (prefer cached URL)
+            primary_image = processed_image_url
             if not primary_image and all_images:
-                primary_image = all_images[0]['url']
+                primary_image = all_images[0].get('cached_url') or all_images[0]['url']
+            
+            # Get mapped categories for display
+            from .services.category_display_service import get_category_display_service
+            category_display_service = await get_category_display_service(session)
+            
+            # Map AI categories to display categories
+            ai_categories = [
+                {
+                    'ai_category': ac.ai_category or 'Other',
+                    'confidence': ac.confidence or 1.0
+                }
+                for ac in article.article_categories
+            ]
+            
+            display_categories = await category_display_service.get_article_display_categories(ai_categories)
+            primary_display_category = display_categories[0]['name'] if display_categories else 'Other'
             
             article_dict = {
                 "id": article.id,
                 "title": article.title,
                 "summary": article.summary,
                 "url": article.url,
-                "image_url": article.image_url,
+                "image_url": processed_image_url,
                 "source_id": article.source_id,
                 "source_name": article.source.name if article.source else "Unknown",
-                "category": article.primary_category,  # Primary category from new system
-                "categories": article.categories_with_confidence,  # New multiple categories
+                "category": primary_display_category,  # Primary mapped category
+                "categories": display_categories,  # Mapped display categories
                 "published_at": (article.published_at or article.fetched_at).isoformat(),
                 "fetched_at": article.fetched_at.isoformat() if article.fetched_at else None,
                 "is_advertisement": article.is_advertisement or False,
@@ -292,46 +349,89 @@ async def get_public_article(article_id: int):
                 "ad_markers": getattr(article, 'ad_markers', []),
             }
             
-            # Get categories manually to avoid lazy loading
-            from .models import ArticleCategory, Category
-            categories_query = (
-                select(Category.name, Category.display_name, Category.color, 
-                       ArticleCategory.confidence, ArticleCategory.ai_category)
-                .join(ArticleCategory)
+            # Get AI categories and map them to display categories
+            from .models import ArticleCategory
+            from .services.category_display_service import get_category_display_service
+            
+            # Get AI categories from database
+            ai_categories_query = (
+                select(ArticleCategory.ai_category, ArticleCategory.confidence)
                 .where(ArticleCategory.article_id == article_id)
                 .order_by(ArticleCategory.confidence.desc())
             )
-            categories_result = await session.execute(categories_query)
-            categories = categories_result.fetchall()
+            ai_categories_result = await session.execute(ai_categories_query)
+            ai_categories_data = ai_categories_result.fetchall()
             
-            # Build categories list and AI categories list
-            categories_list = []
-            ai_categories = []
-            primary_category = "other"
-            for cat_row in categories:
-                categories_list.append({
-                    "name": cat_row.name,
-                    "display_name": cat_row.display_name,
-                    "color": cat_row.color,
-                    "confidence": cat_row.confidence
+            # Map AI categories to display categories
+            category_display_service = await get_category_display_service(session)
+            
+            ai_categories = [
+                {
+                    'ai_category': row.ai_category or 'Other',
+                    'confidence': row.confidence or 1.0
+                }
+                for row in ai_categories_data
+            ]
+            
+            # Filter out empty AI categories for cleaner display
+            filtered_ai_categories = [
+                cat for cat in ai_categories 
+                if cat['ai_category'] and cat['ai_category'] != 'Other' and cat['ai_category'].strip()
+            ]
+            
+            display_categories = await category_display_service.get_article_display_categories(ai_categories)
+            primary_display_category = display_categories[0]['name'] if display_categories else 'Other'
+                    
+            article_data["category"] = primary_display_category
+            article_data["categories"] = display_categories
+            article_data["ai_categories"] = filtered_ai_categories  # Only meaningful AI categories
+            
+            # Handle cached media files properly
+            cached_media_files = []
+            cached_image_url = article_data["image_url"]  # Default to original
+            
+            # Get cached media files from database relationship
+            from .models import MediaFile
+            cached_query = select(MediaFile).where(
+                MediaFile.article_id == article_id,
+                MediaFile.cache_status == 'cached'
+            )
+            cached_result = await session.execute(cached_query)
+            cached_files = cached_result.scalars().all()
+            
+            # Check if main image_url has a cached version
+            for cached_file in cached_files:
+                if cached_file.original_url == article_data["image_url"]:
+                    cached_url = cached_file.get_cached_url('optimized') or cached_file.get_cached_url('original')
+                    if cached_url:
+                        cached_image_url = cached_url
+                        break
+            
+            article_data["image_url"] = cached_image_url
+            
+            for cached_file in cached_files:
+                cached_media_files.append({
+                    'type': cached_file.media_type,
+                    'url': cached_file.get_cached_url('optimized') or cached_file.get_cached_url('original'),
+                    'thumbnail_url': cached_file.get_cached_url('thumbnail'),
+                    'original_url': cached_file.original_url,
+                    'filename': cached_file.filename,
+                    'mime_type': cached_file.mime_type,
+                    'file_size': cached_file.file_size,
+                    'width': cached_file.width,
+                    'height': cached_file.height,
+                    'duration': cached_file.duration,
+                    'cached_urls': {
+                        'original': cached_file.get_cached_url('original'),
+                        'thumbnail': cached_file.get_cached_url('thumbnail'),
+                        'optimized': cached_file.get_cached_url('optimized')
+                    },
+                    'source': 'cached'
                 })
-                # If there's an original AI category, add to AI categories list
-                if cat_row.ai_category:
-                    ai_categories.append({
-                        'category': cat_row.ai_category,
-                        'confidence': cat_row.confidence,
-                        'mapped_to': cat_row.display_name or cat_row.name
-                    })
-                if not primary_category or primary_category == "other":
-                    primary_category = cat_row.name
             
-            article_data["category"] = primary_category
-            article_data["categories"] = categories_list
-            
-            # Handle media files safely using shared function
-            existing_media = article.media_files or []
+            # Add content images
             content_images = extract_images_from_content(article.content or '')
-            all_media_files = list(existing_media) + content_images
+            all_media_files = cached_media_files + content_images
             
             images = [m for m in all_media_files if m.get('type') == 'image'] if all_media_files else []
             videos = [m for m in all_media_files if m.get('type') == 'video'] if all_media_files else []
@@ -344,15 +444,14 @@ async def get_public_article(article_id: int):
             elif article.image_url:
                 primary_image = article.image_url
             
-            # AI categories already built above in the categories loop
+            # AI categories were filtered above
             
             article_data.update({
                 "media_files": all_media_files,
                 "images": images,
                 "videos": videos,
                 "documents": documents,
-                "primary_image": primary_image,
-                "ai_categories": ai_categories
+                "primary_image": primary_image
             })
         
         # Return data (session is now closed)
@@ -684,3 +783,128 @@ async def search_articles(
     except Exception as e:
         logging.error(f"Error in search_articles: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/media/{media_type}/{variant}/{filename}")
+async def serve_cached_media(
+    media_type: str,  # images, videos, documents
+    variant: str,     # original, thumbnails, optimized
+    filename: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Serve cached media files.
+    
+    Path parameters:
+        - media_type: Type of media (images, videos, documents)
+        - variant: File variant (original, thumbnails, optimized)
+        - filename: Media file name
+        
+    Returns cached media file with appropriate headers for browser caching.
+    """
+    try:
+        settings = get_settings()
+        
+        # Validate media type and variant
+        valid_media_types = ['images', 'videos', 'documents']
+        valid_variants = ['original', 'thumbnails', 'optimized']
+        
+        if media_type not in valid_media_types:
+            raise HTTPException(status_code=400, detail=f"Invalid media type. Must be one of: {valid_media_types}")
+        
+        if variant not in valid_variants:
+            raise HTTPException(status_code=400, detail=f"Invalid variant. Must be one of: {valid_variants}")
+        
+        # Construct file path
+        file_path = Path(settings.media_cache_dir) / media_type / variant / filename
+        
+        # Security check - ensure file is within cache directory
+        try:
+            file_path.resolve().relative_to(Path(settings.media_cache_dir).resolve())
+        except ValueError:
+            logging.warning(f"⚠️ Security violation: Attempted to access file outside cache dir: {file_path}")
+            raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Check if file exists
+        if not file_path.exists() or not file_path.is_file():
+            logging.warning(f"⚠️ Media file not found: {file_path}")
+            raise HTTPException(status_code=404, detail="Media file not found")
+        
+        # Update access time in database for LRU tracking
+        try:
+            # Find media file record by filename/path pattern
+            result = await db.execute(
+                select(MediaFile).where(
+                    MediaFile.cached_original_path.contains(filename) |
+                    MediaFile.cached_thumbnail_path.contains(filename) |
+                    MediaFile.cached_optimized_path.contains(filename)
+                ).limit(1)
+            )
+            media_record = result.scalar_one_or_none()
+            
+            if media_record:
+                media_record.accessed_at = datetime.utcnow()
+                await db.commit()
+                
+        except Exception as e:
+            logging.warning(f"⚠️ Could not update access time for {filename}: {e}")
+            # Continue serving file even if DB update fails
+        
+        # Determine MIME type
+        try:
+            mime_type = magic.from_file(str(file_path), mime=True)
+        except Exception:
+            # Fallback to extension-based detection
+            extension = file_path.suffix.lower()
+            mime_map = {
+                '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+                '.png': 'image/png', '.gif': 'image/gif',
+                '.webp': 'image/webp', '.bmp': 'image/bmp',
+                '.mp4': 'video/mp4', '.avi': 'video/avi',
+                '.pdf': 'application/pdf', '.txt': 'text/plain'
+            }
+            mime_type = mime_map.get(extension, 'application/octet-stream')
+        
+        # Set cache headers for optimal browser caching
+        headers = {
+            "Cache-Control": "public, max-age=31536000, immutable",  # Cache for 1 year
+            "ETag": f'"{filename}-{file_path.stat().st_mtime}"',  # ETag based on filename and modification time
+        }
+        
+        # Add content-specific headers
+        if media_type == 'images':
+            headers["X-Content-Type-Options"] = "nosniff"
+        
+        logging.info(f"📁 Serving cached media: {file_path} (MIME: {mime_type})")
+        
+        return FileResponse(
+            path=file_path,
+            media_type=mime_type,
+            headers=headers,
+            filename=filename  # Suggests download filename
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error(f"❌ Error serving media file {media_type}/{variant}/{filename}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@router.get("/media/stats")
+async def get_media_cache_stats():
+    """Get media cache statistics."""
+    try:
+        from .services.media_cache_service import get_media_cache_service
+        
+        cache_service = get_media_cache_service()
+        stats = await cache_service.get_cache_stats()
+        
+        return {
+            "cache_stats": stats,
+            "status": "success"
+        }
+        
+    except Exception as e:
+        logging.error(f"❌ Error getting media cache stats: {e}")
+        raise HTTPException(status_code=500, detail="Could not retrieve cache statistics")

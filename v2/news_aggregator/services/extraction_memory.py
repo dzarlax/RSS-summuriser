@@ -377,6 +377,28 @@ class ExtractionMemoryService:
             'patterns_successful': 0,  # Not tracked in simple version
             'ai_cost_effectiveness': 0  # Not tracked in simple version
         }
+    
+    async def get_successful_pattern(self, domain: str) -> Optional[ExtractionMemoryEntry]:
+        """Get the most successful pattern for a domain."""
+        if domain not in self._patterns:
+            return None
+        
+        # Find patterns with success rate > 50% and success count > 0
+        successful_patterns = [
+            pattern for pattern in self._patterns[domain]
+            if pattern.success_count > 0 and pattern.success_rate > 50.0
+        ]
+        
+        if not successful_patterns:
+            return None
+        
+        # Sort by success rate, then by success count
+        successful_patterns.sort(
+            key=lambda p: (p.success_rate, p.success_count), 
+            reverse=True
+        )
+        
+        return successful_patterns[0]
 
 
 # Global instance

@@ -12,8 +12,8 @@ from .config import settings
 from .database import init_db, AsyncSessionLocal
 from .migrations.universal_migration_manager import create_migration_manager
 from .migrations.media_files_migration import MediaFilesMigration
-from .migrations.fixed_categories_migration import FixedCategoriesMigration
-from .migrations.category_mapping_migration import CategoryMappingMigration
+# Category migrations removed - already executed and managed via web interface
+from .migrations.media_cache_migration import media_cache_migration
 
 import logging
 
@@ -27,11 +27,10 @@ migration_manager = create_migration_manager(AsyncSessionLocal, "RSS Summarizer 
 media_files_migration = MediaFilesMigration()
 migration_manager.register_migration(media_files_migration)
 
-fixed_categories_migration = FixedCategoriesMigration()
-migration_manager.register_migration(fixed_categories_migration)
+# Category migrations removed - already executed and managed via web interface
 
-category_mapping_migration = CategoryMappingMigration()
-migration_manager.register_migration(category_mapping_migration)
+# Register media cache migration
+migration_manager.register_migration(media_cache_migration)
 
 
 
@@ -93,6 +92,16 @@ async def lifespan(app: FastAPI):
         print("✅ Process monitor started successfully")
     except Exception as e:
         print(f"❌ Process monitor startup error: {e}")
+    
+    # Initialize media cache directory structure
+    from .services.media_cache_service import get_media_cache_service
+    try:
+        print("📁 Initializing media cache...")
+        media_cache_service = get_media_cache_service()
+        media_cache_service.ensure_cache_structure()
+        print("✅ Media cache initialized successfully")
+    except Exception as e:
+        print(f"❌ Media cache initialization error: {e}")
         import traceback
         traceback.print_exc()
         # Don't prevent app startup on monitor errors
@@ -108,7 +117,7 @@ async def lifespan(app: FastAPI):
     await stop_process_monitor()
     
     # Force cleanup ContentExtractor on shutdown
-    from .services.content_extractor import cleanup_content_extractor
+    from .extraction import cleanup_content_extractor
     try:
         await cleanup_content_extractor()
         print("✅ ContentExtractor cleanup completed")
@@ -132,7 +141,7 @@ app.mount("/static", StaticFiles(directory="web/static"), name="static")
 # Шаблоны
 templates = Jinja2Templates(directory="web/templates")
 
-# API routes
+# API routes - New modular architecture
 from .api import router as api_router
 app.include_router(api_router, prefix="/api/v1")
 

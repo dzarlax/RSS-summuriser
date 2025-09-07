@@ -10,7 +10,7 @@ from .config import settings
 # Create async engine with connection pool settings
 engine = create_async_engine(
     settings.database_url.replace("postgresql://", "postgresql+asyncpg://"),
-    echo=settings.development,
+    echo=False,  # Disabled SQL logging for cleaner logs
     future=True,
     pool_size=settings.db_pool_size,
     max_overflow=settings.db_max_overflow,

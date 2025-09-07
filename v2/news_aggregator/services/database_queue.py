@@ -313,14 +313,22 @@ def get_database_queue() -> DatabaseQueueManager:
     return _queue_manager
 
 
+async def ensure_database_queue_running() -> DatabaseQueueManager:
+    """Ensure database queue is running and return the instance."""
+    queue = get_database_queue()
+    if not queue.running:
+        await queue.start()
+    return queue
+
+
 # Convenience functions for common use cases
 async def execute_read_query(operation: Callable, timeout: Optional[float] = 30.0) -> Any:
     """Execute a read query through the database queue."""
-    queue = get_database_queue()
+    queue = await ensure_database_queue_running()
     return await queue.execute_read(operation, timeout)
 
 
 async def execute_write_query(operation: Callable, timeout: Optional[float] = 60.0) -> Any:
     """Execute a write query through the database queue."""
-    queue = get_database_queue()
+    queue = await ensure_database_queue_running()
     return await queue.execute_write(operation, timeout)

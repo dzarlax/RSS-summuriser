@@ -23,7 +23,7 @@ async def fetch_one(query, timeout: Optional[float] = 30.0) -> Optional[Any]:
 
 
 async def fetch_all(query, timeout: Optional[float] = 30.0) -> List[Any]:
-    """Fetch all rows using read queue."""
+    """Fetch all rows using read queue with fallback to direct connection."""
     async def operation(session: AsyncSession):
         result = await session.execute(query)
         rows = list(result.scalars().all())  # Force list materialization
@@ -31,7 +31,15 @@ async def fetch_all(query, timeout: Optional[float] = 30.0) -> List[Any]:
         result.close()
         return rows
     
-    return await execute_read_query(operation, timeout)
+    try:
+        return await execute_read_query(operation, timeout)
+    except RuntimeError as e:
+        if "Database queue is not running" in str(e):
+            # Fallback to direct database connection
+            from .database import AsyncSessionLocal
+            async with AsyncSessionLocal() as session:
+                return await operation(session)
+        raise
 
 
 async def fetch_raw_all(query, timeout: Optional[float] = 30.0) -> List[Any]:

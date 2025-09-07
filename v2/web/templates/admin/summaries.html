@@ -9,11 +9,16 @@
     <div class="admin-main">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
             <h1>Дневные сводки</h1>
-            <div class="filters">
-                <select id="category-filter" onchange="filterSummaries()">
-                    <option value="">Все категории</option>
-                </select>
-                <input type="date" id="date-filter" onchange="filterSummaries()" />
+            <div class="header-actions">
+                <button id="generate-summaries-btn" class="btn-generate" onclick="generateSummaries()">
+                    ⚡ Создать сводки
+                </button>
+                <div class="filters">
+                    <select id="category-filter" onchange="filterSummaries()">
+                        <option value="">Все категории</option>
+                    </select>
+                    <input type="date" id="date-filter" onchange="filterSummaries()" />
+                </div>
             </div>
         </div>
 
@@ -58,6 +63,44 @@
 </div>
 
 <style>
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.btn-generate {
+    background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(40, 167, 69, 0.2);
+}
+
+.btn-generate:hover {
+    background: linear-gradient(135deg, #218838 0%, #1eb082 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(40, 167, 69, 0.3);
+}
+
+.btn-generate:disabled {
+    background: #6c757d;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: 0 2px 4px rgba(108, 117, 125, 0.2);
+}
+
+.filters {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
 .summaries-grid {
     display: grid;
     gap: 20px;
@@ -732,6 +775,61 @@ async function copySummaryText() {
         } finally {
             document.body.removeChild(textArea);
         }
+    }
+}
+
+async function generateSummaries() {
+    const button = document.getElementById('generate-summaries-btn');
+    const originalText = button.textContent;
+    
+    // Disable button and show loading state
+    button.disabled = true;
+    button.textContent = '🔄 Генерируем...';
+    
+    try {
+        const response = await fetch('/api/v1/summaries/generate', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            // Show success message
+            button.textContent = `✅ Создано ${data.summaries_generated} сводок`;
+            
+            // Reload summaries to show new ones
+            setTimeout(() => {
+                loadSummaries(true);
+            }, 1000);
+            
+            // Reset button after 3 seconds
+            setTimeout(() => {
+                button.textContent = originalText;
+                button.disabled = false;
+            }, 3000);
+        } else {
+            // Show error message
+            button.textContent = '❌ Ошибка';
+            console.error('Error generating summaries:', data.message);
+            
+            // Reset button after 3 seconds
+            setTimeout(() => {
+                button.textContent = originalText;
+                button.disabled = false;
+            }, 3000);
+        }
+    } catch (error) {
+        console.error('Error generating summaries:', error);
+        button.textContent = '❌ Ошибка сети';
+        
+        // Reset button after 3 seconds
+        setTimeout(() => {
+            button.textContent = originalText;
+            button.disabled = false;
+        }, 3000);
     }
 }
 </script>

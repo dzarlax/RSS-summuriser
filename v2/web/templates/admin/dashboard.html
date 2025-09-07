@@ -1268,6 +1268,7 @@ async function loadDashboardData() {
 
         // Load extractor high-level stats and per-domain details
         loadExtractorStats();
+        loadQueueStats();
         
     } catch (error) {
         console.error('Error loading dashboard data:', error);
@@ -1557,10 +1558,9 @@ function getNotificationIcon(type) {
 
 async function loadQueueStats() {
     try {
-        const response = await apiRequest('/api/v1/stats/queue');
+        const stats = await apiRequest('/api/v1/stats/queue');
         
-        if (response.success && response.stats) {
-            const stats = response.stats;
+        if (stats && typeof stats === 'object' && !stats.error) {
             
             // Update read queue stats
             document.getElementById('read-operations').textContent = stats.read_operations || 0;

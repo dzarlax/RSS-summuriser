@@ -12,7 +12,7 @@ PLAYWRIGHT_TIMEOUT_RETRY_MS = 35_000
 PLAYWRIGHT_TOTAL_BUDGET_MS = 90_000
 
 # Heuristic quality thresholds
-MIN_QUALITY_SCORE = 30
+MIN_QUALITY_SCORE = 15  # Temporarily lowered for testing
 
 # Lightweight caches
 HTML_CACHE_TTL_SECONDS = 300        # cache fetched HTML for 5 minutes

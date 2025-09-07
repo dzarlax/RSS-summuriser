@@ -13,7 +13,7 @@ class SmartFilter:
     
     def __init__(self):
         # Content quality thresholds
-        self.min_content_length = 100  # Minimum content length for AI processing
+        self.min_content_length = 10  # Minimum content length for AI processing (lowered for Telegram)
         self.max_content_length = 50000  # Maximum content length to avoid token limits
         self.min_title_length = 10  # Minimum title length
         
@@ -41,12 +41,21 @@ class SmartFilter:
             r'^\s*(?:404|error|ошибка)\s*',
         ]
         
+        # Metadata/low-quality content patterns
+        self.metadata_patterns = [
+            r'\d+\s+min\s+read',  # "5 min read"
+            r'(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+\d{2}',  # "Sep 05"
+            r'^\s*\w{3}\s+\d{2}\s+.*\d+\s+min\s+read\s*$',  # Typical metadata line
+            r'\bsubscribe\s+(now|here|today)\b|\bподписаться\b',  # Subscribe prompts (more specific)
+            r'\bshare\s+(this|on|now)\b|\bpoделиться\b',  # Share prompts (more specific, avoid "shareholder")
+        ]
+        
         # Duplicate detection (simple hash-based)
         self.recent_content_hashes = {}  # Hash -> timestamp
         self.duplicate_detection_window = timedelta(hours=24)
         
     def should_process_with_ai(self, title: str, content: str, url: str, 
-                              source_type: str = 'rss') -> Tuple[bool, str]:
+                              source_type: str = 'rss', allow_extraction: bool = True) -> Tuple[bool, str]:
         """
         Determine if article should be processed with AI.
         
@@ -82,12 +91,50 @@ class SmartFilter:
         if self._is_spam_content(title, content):
             return False, "Spam patterns detected"
         
+        # Check for metadata/low-quality content
+        if self._is_metadata_content(content):
+            # If extraction is allowed and we have a valid URL, let it pass to trigger extraction
+            if allow_extraction and url and url.startswith(('http://', 'https://')):
+                skip_domains = ['t.me', 'telegram.me', 'twitter.com', 'x.com', 'instagram.com']
+                if not any(domain in url.lower() for domain in skip_domains):
+                    # Pass through for extraction, but mark as needing extraction
+                    pass  # Continue with other checks instead of returning False
+                else:
+                    return False, "Metadata/low-quality content detected (non-extractable URL)"
+            else:
+                return False, "Metadata/low-quality content detected (no extraction possible)"
+        
         # Check for duplicates
         if self._is_duplicate_content(content):
             return False, "Duplicate content detected"
         
+        # Check for suspiciously short articles that might need extraction
+        if allow_extraction and url and url.startswith(('http://', 'https://')):
+            skip_domains = ['t.me', 'telegram.me', 'twitter.com', 'x.com', 'instagram.com']
+            if not any(domain in url.lower() for domain in skip_domains):
+                # Check if content is suspiciously short for a full article
+                word_count = len(content.split()) if content else 0
+                char_count = len(content.strip()) if content else 0
+                
+                # Flag for extraction if content is very short but has extractable URL
+                # Typical RSS summaries are 20-200 characters, full articles are 500+ chars
+                if char_count < 300 and word_count < 50:
+                    # Additional check: if title is long/detailed but content is short, likely needs extraction
+                    title_words = len(title.split()) if title else 0
+                    if title_words >= 5 and char_count < 200:
+                        return False, f"Content suspiciously short ({char_count} chars, {word_count} words) for detailed title (needs extraction)"
+                    elif char_count < 150:
+                        return False, f"Content very short ({char_count} chars, {word_count} words) - likely RSS summary (needs extraction)"
+        
         # Check content quality score
         quality_score = self._calculate_quality_score(title, content, source_type)
+        
+        # Special case: if we detected metadata but have extractable URL, flag for extraction
+        if self._is_metadata_content(content) and allow_extraction and url and url.startswith(('http://', 'https://')):
+            skip_domains = ['t.me', 'telegram.me', 'twitter.com', 'x.com', 'instagram.com']
+            if not any(domain in url.lower() for domain in skip_domains):
+                return False, f"Metadata/low-quality content detected (needs extraction)"
+        
         if quality_score < 0.4:  # Threshold for minimum quality
             return False, f"Content quality too low (score: {quality_score:.2f})"
         
@@ -141,6 +188,27 @@ class SmartFilter:
         
         for pattern in self.spam_patterns:
             if re.search(pattern, text, re.IGNORECASE):
+                return True
+        
+        return False
+    
+    def _is_metadata_content(self, content: str) -> bool:
+        """Check if content is mostly metadata/boilerplate."""
+        if not content:
+            return False
+        
+        content_lower = content.lower().strip()
+        
+        # Check for metadata patterns
+        for pattern in self.metadata_patterns:
+            if re.search(pattern, content_lower, re.IGNORECASE):
+                return True
+        
+        # Check if content is too short and repetitive
+        if len(content.strip()) < 100:  # Very short content
+            words = content.split()
+            unique_words = set(word.lower() for word in words)
+            if len(words) > 5 and len(unique_words) / len(words) < 0.6:  # Less than 60% unique words
                 return True
         
         return False

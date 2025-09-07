@@ -25,8 +25,6 @@ class AIClient:
             raise APIError("Constructor KM API endpoint and key must be configured")
         
         self.enabled = True
-        
-        self.content_extractor = None
     
     # Note: get_article_summary() method was removed and replaced by analyze_article_complete()
     # which provides combined analysis (summarization + categorization + ad detection) in a single request.
@@ -49,30 +47,28 @@ class AIClient:
         try:
             print(f"  🔗 Extracting content with metadata from URL: {article_url}")
             # Step 1: Extract article content using enhanced extractor with metadata
-            if not self.content_extractor:
-                # Import dynamically to avoid circular import
-                from .content_extractor import get_content_extractor
-                self.content_extractor = await get_content_extractor()
+            from ..extraction import ContentExtractor
             
             # Try AI-enhanced extraction first
             try:
-                metadata_result = await self.content_extractor.extract_article_content_with_metadata(article_url)
-                content = metadata_result.get('content')
-                pub_date = metadata_result.get('publication_date')
-                full_url = metadata_result.get('full_article_url')
-                
-                if pub_date:
-                    print(f"  📅 Found publication date: {pub_date}")
-                if full_url and full_url != article_url:
-                    print(f"  🔗 Followed link to full article: {full_url}")
+                async with ContentExtractor() as content_extractor:
+                    metadata_result = await content_extractor.extract_article_content_with_metadata(article_url)
+                    content = metadata_result.get('content')
+                    pub_date = metadata_result.get('publication_date')
+                    full_url = metadata_result.get('full_article_url')
+                    
+                    if pub_date:
+                        print(f"  📅 Found publication date: {pub_date}")
+                    if full_url and full_url != article_url:
+                        print(f"  🔗 Followed link to full article: {full_url}")
+                        
+                    # If AI-enhanced extraction didn't get content, try standard extraction
+                    if not content:
+                        content = await content_extractor.extract_article_content(article_url)
                     
             except Exception as e:
-                print(f"  ⚠️ AI-enhanced extraction failed, using fallback: {e}")
+                print(f"  ⚠️ Content extraction failed: {e}")
                 content = None
-            
-            # If AI-enhanced extraction didn't get content, try standard extraction
-            if not content:
-                content = await self.content_extractor.extract_article_content(article_url)
             
             if not content:
                 print(f"  ❌ Could not extract content from {article_url}")
@@ -120,39 +116,8 @@ class AIClient:
             # Truncate HTML to manageable size
             content_sample = html_content[:3000] if len(html_content) > 3000 else html_content
             
-            prompt = f"""Extract the publication date from this HTML content.
-
-URL: {url}
-
-HTML CONTENT:
-{content_sample}
-
-TASK: Find the publication date/time when this article was published.
-
-Look for:
-- Published date/time metadata
-- Article timestamps  
-- Date in structured markup (JSON-LD, microdata, etc.)
-- Visible date/time near article title
-- Time elements with datetime attributes
-
-RESPONSE FORMAT (JSON):
-{{
-  "date_found": true,
-  "publication_date": "2025-01-15",
-  "confidence": 0.8,
-  "source": "meta tag with property='article:published_time'",
-  "raw_text": "January 15, 2025"
-}}
-
-If no date found, respond with:
-{{
-  "date_found": false,
-  "confidence": 0.0,
-  "reason": "No publication date indicators found"
-}}
-
-Focus on finding the actual publication date, not update dates or other timestamps."""
+            from .prompts import NewsPrompts
+            prompt = NewsPrompts.extract_publication_date(content_sample)
 
             payload = {
                 "model": self.summarization_model,
@@ -250,38 +215,8 @@ Focus on finding the actual publication date, not update dates or other timestam
             # Truncate HTML to manageable size
             content_sample = html_content[:4000] if len(html_content) > 4000 else html_content
             
-            prompt = f"""Find the link to the full article content from this HTML.
-
-BASE URL: {base_url}
-
-HTML CONTENT:
-{content_sample}
-
-TASK: Find a link that leads to the full article content (not summary/excerpt).
-
-Look for:
-- "Read more", "Continue reading", "Full article" links
-- Links in article cards that point to detailed pages
-- Main article title links
-- Links with text like "Read full story", "See more", etc.
-
-RESPONSE FORMAT (JSON):
-{{
-  "link_found": true,
-  "full_article_url": "https://example.com/full-article",
-  "confidence": 0.8,
-  "link_text": "Read more",
-  "selector": "a.read-more-link"
-}}
-
-If no link found, respond with:
-{{
-  "link_found": false,
-  "confidence": 0.0,
-  "reason": "No full article link found"
-}}
-
-Return the complete, absolute URL. If the link is relative, make it absolute using the base URL."""
+            from .prompts import NewsPrompts
+            prompt = NewsPrompts.find_full_article_link(content_sample, base_url)
 
             payload = {
                 "model": self.summarization_model,
@@ -683,19 +618,23 @@ Return the complete, absolute URL. If the link is relative, make it absolute usi
         """
         # Enhanced content length protection  
         if not content or not isinstance(content, str) or len(content.strip()) < 30:
-            print(f"  ⚠️ Content too short for analysis: {len(content.strip()) if content else 0} chars < 30")
-            return self._get_fallback_analysis()
+            # Special case for scientific sources: allow analysis of informative titles
+            is_scientific_source = url and any(domain in url.lower() for domain in ['nplus1.ru', 'arxiv.org', 'nature.com', 'sciencedirect.com'])
+            
+            if is_scientific_source and title and len(title.strip()) > 20:
+                print(f"  🧬 Scientific source detected - analyzing informative title: '{title[:50]}...'")
+                # Use title as content for analysis
+                content = title
+            else:
+                print(f"  ⚠️ Content too short for analysis: {len(content.strip()) if content else 0} chars < 30")
+                return self._get_fallback_analysis()
         
-        max_retries = 2
+        max_retries = 3
         for attempt in range(max_retries + 1):
             try:
                 # Build enhanced combined prompt with dynamic category metadata
-                try:
-                    prompt = await self._build_combined_analysis_prompt_enhanced(title, content, url)
-                    print(f"  🚀 Using enhanced prompt with category metadata")
-                except Exception as e:
-                    print(f"  ⚠️ Failed to load enhanced prompt, falling back to standard: {e}")
-                    prompt = self._build_combined_analysis_prompt(title, content, url)
+                prompt = await self._build_combined_analysis_prompt_enhanced(title, content, url)
+                print(f"  🚀 Using enhanced prompt with category metadata")
                 
                 retry_text = f" (attempt {attempt + 1}/{max_retries + 1})" if attempt > 0 else ""
                 print(f"  🧠 Combined AI analysis for article{retry_text}...")
@@ -750,14 +689,6 @@ Return the complete, absolute URL. If the link is relative, make it absolute usi
         source_context = PromptBuilder.build_source_context(url)
         return await NewsPrompts.unified_article_analysis_enhanced(title, content, url, source_context)
     
-    def _build_combined_analysis_prompt(self, title: str, content: str, url: str) -> str:
-        """Build combined prompt for all analysis tasks (legacy method)."""
-        # Limit content size for cost optimization
-        content_preview = content[:2000] + ("..." if len(content) > 2000 else "")
-        
-        from .prompts import NewsPrompts, PromptBuilder
-        source_context = PromptBuilder.build_source_context(url)
-        return NewsPrompts.unified_article_analysis(title, content, url, source_context)
     
     def _validate_analysis_result(self, result: Dict[str, Any], title: str = None, content: str = None) -> Dict[str, Any]:
         """Validate and clean analysis result."""
