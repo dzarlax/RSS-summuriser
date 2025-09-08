@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 import sqlalchemy
 
 from ..database import get_db
-from ..models import Article, ArticleCategory, MediaFile
+from ..models import Article, ArticleCategory
 from ..orchestrator import NewsOrchestrator
 
 
@@ -160,18 +160,6 @@ async def reprocess_article(
                 print(f"❌ Media re-extraction failed for article {article.id}: {e}")
                 # Continue with original media_files
         
-        # Clear media cache if requested
-        if request.reextract_media:
-            try:
-                # Delete cached media files from database
-                await db.execute(
-                    sqlalchemy.text("DELETE FROM media_files_cache WHERE article_id = :article_id"),
-                    {"article_id": article_id}
-                )
-                await db.commit()
-                print(f"🗑️ Cleared media cache for article {article_id}")
-            except Exception as cache_error:
-                print(f"⚠️ Failed to clear media cache for article {article_id}: {cache_error}")
         
         # Add source information  
         if article.source:
@@ -221,8 +209,7 @@ async def get_article(
             select(Article)
             .options(
                 selectinload(Article.source),
-                selectinload(Article.article_categories).selectinload(ArticleCategory.category),
-                selectinload(Article.cached_media_files)
+                selectinload(Article.article_categories).selectinload(ArticleCategory.category)
             )
             .where(Article.id == article_id)
         )
@@ -231,37 +218,9 @@ async def get_article(
         if not article:
             raise HTTPException(status_code=404, detail="Article not found")
         
-        # Process cached media files to return cached URLs when available
+        # Get media files
         image_url = article.image_url
         media_files = article.media_files or []
-        
-        # Check if we have cached media files
-        if article.cached_media_files:
-            cached_media_map = {mf.original_url: mf for mf in article.cached_media_files if mf.cache_status == 'cached'}
-            
-            # Replace image_url with cached version if available
-            if image_url and image_url in cached_media_map:
-                cached_media = cached_media_map[image_url]
-                cached_url = cached_media.get_cached_url('optimized') or cached_media.get_cached_url('original')
-                if cached_url:
-                    image_url = cached_url
-            
-            # Process media_files array and replace URLs with cached versions
-            if media_files:
-                for media_item in media_files:
-                    if isinstance(media_item, dict) and 'url' in media_item:
-                        original_url = media_item['url']
-                        if original_url in cached_media_map:
-                            cached_media = cached_media_map[original_url]
-                            cached_url = cached_media.get_cached_url('optimized') or cached_media.get_cached_url('original')
-                            if cached_url:
-                                media_item['cached_url'] = cached_url
-                                media_item['cache_status'] = 'cached'
-                                media_item['file_size'] = cached_media.file_size
-                                if cached_media.width:
-                                    media_item['width'] = cached_media.width
-                                if cached_media.height:
-                                    media_item['height'] = cached_media.height
         
         return {
             "id": article.id,

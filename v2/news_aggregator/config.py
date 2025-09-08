@@ -45,17 +45,6 @@ class Settings(BaseSettings):
     # API Rate Limiting
     api_rate_limit: int = Field(default=3, alias="RPS")  # Requests per second
     
-    # Media Cache Settings
-    media_cache_dir: str = Field(default="/app/media_cache", alias="MEDIA_CACHE_DIR")
-    media_cache_max_size_gb: int = Field(default=10, alias="MEDIA_CACHE_MAX_SIZE_GB")
-    media_thumbnail_size: int = Field(default=150, alias="MEDIA_THUMBNAIL_SIZE")
-    media_optimized_max_width: int = Field(default=1920, alias="MEDIA_OPTIMIZED_MAX_WIDTH")
-    media_cache_retention_days: int = Field(default=30, alias="MEDIA_CACHE_RETENTION_DAYS")
-    
-    # Media Processing
-    enable_media_caching: bool = Field(default=True, alias="ENABLE_MEDIA_CACHING")
-    enable_media_optimization: bool = Field(default=True, alias="ENABLE_MEDIA_OPTIMIZATION") 
-    max_media_file_size_mb: int = Field(default=50, alias="MAX_MEDIA_FILE_SIZE_MB")
     
     # Database Connection Pool (увеличенные настройки для стабильности)
     db_pool_size: int = Field(default=5, alias="DB_POOL_SIZE") 

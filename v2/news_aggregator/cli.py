@@ -273,58 +273,6 @@ async def config():
     console.print(table)
 
 
-@cli.command()
-@click.option('--limit', default=50, help='Maximum number of articles to process')
-@click.option('--article-ids', help='Comma-separated list of specific article IDs')
-@async_command
-async def cache_media(limit: int, article_ids: str = None):
-    """Cache media files for articles that have media but no cached files."""
-    from .processing.media_cache_manager import MediaCacheManager
-    from rich.progress import Progress, SpinnerColumn, TextColumn
-    
-    console.print("🎬 [bold blue]Media Caching Tool[/bold blue]")
-    
-    try:
-        manager = MediaCacheManager()
-        
-        # Parse article IDs if provided
-        target_article_ids = None
-        if article_ids:
-            try:
-                target_article_ids = [int(id.strip()) for id in article_ids.split(',')]
-                console.print(f"🎯 Targeting specific articles: {target_article_ids}")
-            except ValueError:
-                console.print("[red]❌ Invalid article IDs format. Use comma-separated integers.[/red]")
-                return
-        
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console,
-        ) as progress:
-            task = progress.add_task("Caching media files...", total=None)
-            
-            stats = await manager.cache_media_for_articles(
-                article_ids=target_article_ids,
-                limit=limit
-            )
-            
-            progress.update(task, description="✅ Media caching completed!")
-        
-        # Display results
-        console.print("\n📊 [bold]Media Caching Results:[/bold]")
-        console.print(f"  Articles processed: {stats['articles_processed']}")
-        console.print(f"  Media cached: {stats['media_cached']}")
-        console.print(f"  Media failed: {stats['media_failed']}")
-        console.print(f"  Media skipped: {stats['media_skipped']}")
-        
-        if stats['errors']:
-            console.print(f"\n❌ [red]{len(stats['errors'])} errors occurred:[/red]")
-            for error in stats['errors'][:5]:  # Show first 5 errors
-                console.print(f"  • {error}")
-        
-    except Exception as e:
-        console.print(f"[red]❌ Error: {e}[/red]")
         sys.exit(1)
 
 
@@ -469,111 +417,8 @@ async def update_mapping(ai_category: str, new_fixed_category: str, description:
         sys.exit(1)
 
 
-@cli.command()
-@click.option('--limit', '-l', default=50, help='Maximum number of articles to process')
-@click.option('--article-ids', help='Comma-separated list of article IDs to cache')
-async def cache_media(limit: int, article_ids: Optional[str]):
-    """Cache media files for articles."""
-    from .processing.media_cache_manager import MediaCacheManager
-    
-    article_id_list = None
-    if article_ids:
-        try:
-            article_id_list = [int(x.strip()) for x in article_ids.split(',')]
-            console.print(f"[bold blue]📸 Caching media for specific articles: {article_id_list}[/bold blue]")
-        except ValueError:
-            console.print("[red]❌ Invalid article IDs format. Use comma-separated integers.[/red]")
-            sys.exit(1)
-    else:
-        console.print(f"[bold blue]📸 Caching media for up to {limit} articles with uncached media[/bold blue]")
-    
-    try:
-        media_cache_manager = MediaCacheManager()
-        
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console,
-        ) as progress:
-            task = progress.add_task("Caching media files...", total=None)
-            
-            if article_id_list:
-                stats = await media_cache_manager.cache_media_for_articles(article_ids=article_id_list, limit=limit)
-            else:
-                stats = await media_cache_manager.cache_media_for_articles(limit=limit)
-            
-            progress.remove_task(task)
-        
-        # Display results
-        console.print(f"\n[bold green]✅ Media caching completed![/bold green]")
-        console.print(f"• Articles processed: {stats['articles_processed']}")
-        console.print(f"• Media files cached: {stats['media_cached']}")
-        console.print(f"• Media files failed: {stats['media_failed']}")
-        console.print(f"• Media files skipped: {stats['media_skipped']}")
-        
-        if stats['errors']:
-            console.print(f"\n[bold red]Errors ({len(stats['errors'])}):[/bold red]")
-            for error in stats['errors'][:5]:  # Show first 5 errors
-                console.print(f"• {error}")
-            if len(stats['errors']) > 5:
-                console.print(f"... and {len(stats['errors']) - 5} more errors")
-    
-    except Exception as e:
-        console.print(f"[red]❌ Media caching failed: {e}[/red]")
-        sys.exit(1)
 
 
-@cli.command()
-async def cache_stats():
-    """Show media cache statistics."""
-    from .services.media_cache_service import get_media_cache_service
-    
-    try:
-        media_cache_service = get_media_cache_service()
-        stats = await media_cache_service.get_cache_stats()
-        
-        if 'error' in stats:
-            console.print(f"[red]❌ Error getting cache stats: {stats['error']}[/red]")
-            sys.exit(1)
-        
-        console.print(f"[bold blue]📊 Media Cache Statistics:[/bold blue]")
-        console.print(f"• Cache directory: {stats['cache_dir']}")
-        console.print(f"• Total files: {stats['total_files']}")
-        console.print(f"• Total size: {stats['total_size_mb']} MB")
-        
-        # Show by type
-        if stats['by_type']:
-            console.print(f"\n[bold]By media type:[/bold]")
-            table = Table()
-            table.add_column("Type")
-            table.add_column("Files", justify="right")
-            table.add_column("Size (MB)", justify="right")
-            table.add_column("Original", justify="right")
-            table.add_column("Thumbnails", justify="right")
-            table.add_column("Optimized", justify="right")
-            
-            for media_type, type_stats in stats['by_type'].items():
-                size_mb = round(type_stats['size_bytes'] / (1024 * 1024), 2)
-                
-                # Variant counts
-                original = type_stats['by_variant'].get('original', {}).get('files', 0)
-                thumbnails = type_stats['by_variant'].get('thumbnails', {}).get('files', 0)
-                optimized = type_stats['by_variant'].get('optimized', {}).get('files', 0)
-                
-                table.add_row(
-                    media_type.title(),
-                    str(type_stats['files']),
-                    str(size_mb),
-                    str(original),
-                    str(thumbnails),
-                    str(optimized)
-                )
-            
-            console.print(table)
-    
-    except Exception as e:
-        console.print(f"[red]❌ Error getting cache stats: {e}[/red]")
-        sys.exit(1)
 
 
 # Async command support
@@ -593,8 +438,6 @@ stats = async_command(stats)
 config = async_command(config)
 reprocess_failed = async_command(reprocess_failed)
 update_mapping = async_command(update_mapping)
-cache_media = async_command(cache_media)
-cache_stats = async_command(cache_stats)
 
 
 if __name__ == '__main__':

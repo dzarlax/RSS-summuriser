@@ -14,47 +14,13 @@ import magic
 
 from .database import get_db, AsyncSessionLocal
 from .database_helpers import fetch_raw_all, count_query, execute_custom_read
-from .models import Article, Category, ArticleCategory, MediaFile
+from .models import Article, Category, ArticleCategory
 from .config import get_settings
 
 router = APIRouter()
 templates = Jinja2Templates(directory="web/templates")
 
 
-def process_cached_media(article, image_url=None, media_files=None):
-    """Process article media to return cached URLs when available."""
-    if not hasattr(article, 'cached_media_files') or not article.cached_media_files:
-        return image_url or article.image_url, media_files or article.media_files or []
-    
-    # Create a mapping of original URLs to cached media
-    cached_media_map = {mf.original_url: mf for mf in article.cached_media_files if mf.cache_status == 'cached'}
-    
-    # Process image_url
-    processed_image_url = image_url or article.image_url
-    if processed_image_url and processed_image_url in cached_media_map:
-        cached_media = cached_media_map[processed_image_url]
-        cached_url = cached_media.get_cached_url('optimized') or cached_media.get_cached_url('original')
-        if cached_url:
-            processed_image_url = cached_url
-    
-    # Process media_files array
-    processed_media_files = list(media_files or article.media_files or [])
-    for media_item in processed_media_files:
-        if isinstance(media_item, dict) and 'url' in media_item:
-            original_url = media_item['url']
-            if original_url in cached_media_map:
-                cached_media = cached_media_map[original_url]
-                cached_url = cached_media.get_cached_url('optimized') or cached_media.get_cached_url('original')
-                if cached_url:
-                    media_item['cached_url'] = cached_url
-                    media_item['cache_status'] = 'cached'
-                    media_item['file_size'] = cached_media.file_size
-                    if cached_media.width:
-                        media_item['width'] = cached_media.width
-                    if cached_media.height:
-                        media_item['height'] = cached_media.height
-    
-    return processed_image_url, processed_media_files
 
 def extract_images_from_content(content: str) -> list:
     """Extract images from HTML content and return as media file objects."""
@@ -189,7 +155,7 @@ async def get_public_feed(
         articles_data = []
         for article in articles:
             # Process cached media URLs first
-            processed_image_url, processed_media_files = process_cached_media(article)
+            processed_image_url, processed_media_files = article.image_url, article.media_files or []
             
             # Extract images from content using shared function
             content_images = extract_images_from_content(article.content or '')

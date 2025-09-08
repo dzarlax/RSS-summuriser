@@ -67,7 +67,6 @@ class Article(Base):
     source = relationship("Source", back_populates="articles")
     cluster_articles = relationship("ClusterArticle", back_populates="article")
     article_categories = relationship("ArticleCategory", back_populates="article", cascade="all, delete-orphan")
-    cached_media_files = relationship("MediaFile", back_populates="article", cascade="all, delete-orphan")
 
     @property
     def categories(self) -> List[str]:
@@ -389,74 +388,3 @@ class CategoryMapping(Base):
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
 
-class MediaFile(Base):
-    """Media file cache model for storing cached media files."""
-    __tablename__ = "media_files_cache"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    article_id = Column(Integer, ForeignKey("articles.id", ondelete="CASCADE"), nullable=False, index=True)
-    
-    # Original media data
-    original_url = Column(Text, nullable=False, index=True)
-    media_type = Column(String(20), nullable=False, index=True)  # image, video, document
-    filename = Column(String(255))
-    mime_type = Column(String(100))
-    file_size = Column(Integer)  # bytes
-    
-    # Cached file paths (relative to media_cache_dir)
-    cached_original_path = Column(String(500))    # Path to cached original file
-    cached_thumbnail_path = Column(String(500))   # Path to thumbnail
-    cached_optimized_path = Column(String(500))   # Path to optimized version
-    
-    # Media metadata
-    width = Column(Integer)      # For images/videos
-    height = Column(Integer)     # For images/videos  
-    duration = Column(Float)     # For videos (seconds)
-    
-    # Cache status and error tracking
-    cache_status = Column(String(20), default='pending', index=True)  # pending, cached, failed, processing
-    cache_attempts = Column(Integer, default=0)
-    last_cache_attempt = Column(DateTime)
-    cache_error = Column(Text)
-    
-    # Usage tracking for LRU cleanup
-    created_at = Column(DateTime, default=func.now(), index=True)
-    accessed_at = Column(DateTime, default=func.now(), index=True)  # Updated on access
-    
-    # Relationships
-    article = relationship("Article", back_populates="cached_media_files")
-    
-    def get_cached_url(self, variant: str = 'optimized') -> Optional[str]:
-        """Get URL for cached media file variant."""
-        # Map media types to plural folder names (support both singular and plural)
-        media_type_map = {
-            'image': 'images', 'video': 'videos', 'document': 'documents',
-            'images': 'images', 'videos': 'videos', 'documents': 'documents'
-        }
-        folder_name = media_type_map.get(self.media_type, self.media_type)
-        
-        if variant == 'thumbnail' and self.cached_thumbnail_path:
-            return f"/media/{folder_name}/thumbnails/{self.get_filename_from_path(self.cached_thumbnail_path)}"
-        elif variant == 'optimized' and self.cached_optimized_path:
-            return f"/media/{folder_name}/optimized/{self.get_filename_from_path(self.cached_optimized_path)}"
-        elif variant == 'original' and self.cached_original_path:
-            return f"/media/{folder_name}/original/{self.get_filename_from_path(self.cached_original_path)}"
-        return None
-    
-    def get_filename_from_path(self, path: str) -> str:
-        """Extract filename from file path."""
-        if not path:
-            return ""
-        return path.split("/")[-1]
-    
-    @property
-    def is_cached(self) -> bool:
-        """Check if media file is successfully cached."""
-        return self.cache_status == 'cached' and bool(self.cached_original_path)
-    
-    @property
-    def cache_size_mb(self) -> float:
-        """Get cache size in MB."""
-        if not self.file_size:
-            return 0.0
-        return round(self.file_size / (1024 * 1024), 2)

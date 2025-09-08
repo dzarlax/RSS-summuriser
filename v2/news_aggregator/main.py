@@ -13,7 +13,6 @@ from .database import init_db, AsyncSessionLocal
 from .migrations.universal_migration_manager import create_migration_manager
 from .migrations.media_files_migration import MediaFilesMigration
 # Category migrations removed - already executed and managed via web interface
-from .migrations.media_cache_migration import media_cache_migration
 
 import logging
 
@@ -29,8 +28,6 @@ migration_manager.register_migration(media_files_migration)
 
 # Category migrations removed - already executed and managed via web interface
 
-# Register media cache migration
-migration_manager.register_migration(media_cache_migration)
 
 
 
@@ -93,18 +90,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"❌ Process monitor startup error: {e}")
     
-    # Initialize media cache directory structure
-    from .services.media_cache_service import get_media_cache_service
-    try:
-        print("📁 Initializing media cache...")
-        media_cache_service = get_media_cache_service()
-        media_cache_service.ensure_cache_structure()
-        print("✅ Media cache initialized successfully")
-    except Exception as e:
-        print(f"❌ Media cache initialization error: {e}")
-        import traceback
-        traceback.print_exc()
-        # Don't prevent app startup on monitor errors
     
     yield
     
@@ -146,8 +131,6 @@ app = FastAPI(
 # Статические файлы
 app.mount("/static", StaticFiles(directory="web/static"), name="static")
 
-# Медиафайлы из кеша
-app.mount("/media", StaticFiles(directory="media_cache"), name="media")
 
 # Шаблоны
 templates = Jinja2Templates(directory="web/templates")

@@ -1,7 +1,6 @@
 """Processing components for news aggregation."""
 
 from .ai_processor import AIProcessor
-from .media_cache_manager import MediaCacheManager
 from .telegram_digest_service import TelegramDigestService
 from .processing_stats_service import ProcessingStatsService
 from .summarization_processor import SummarizationProcessor
@@ -11,7 +10,6 @@ from .stats_collector import StatsCollector
 
 __all__ = [
     'AIProcessor', 
-    'MediaCacheManager', 
     'TelegramDigestService', 
     'ProcessingStatsService',
     'SummarizationProcessor',

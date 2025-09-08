@@ -144,11 +144,9 @@ class AIProcessor:
                 # Mark as processed even when skipped by Smart Filter
                 update_fields['processed'] = True
                 
-                # IMPORTANT: Extract and cache media files even when Smart Filter skips AI processing
-                # This ensures media files are cached for duplicate/low-quality content
-                print(f"  🖼️ Extracting and caching media files (despite Smart Filter skip)...")
+                # Extract media files even when Smart Filter skips AI processing
+                print(f"  🖼️ Extracting media files (Smart Filter skip)...")
                 from .media_extractor import get_media_extractor
-                from .media_cache_manager import MediaCacheManager
                 
                 try:
                     # Check if media files already exist in article_data (e.g., from Telegram sources)
@@ -177,19 +175,15 @@ class AIProcessor:
                             media_extractor = get_media_extractor()
                             
                         summary = media_extractor.get_media_summary(extracted_media)
-                        print(f"  📎 Found {summary['total']} media files for caching (Smart Filter skip)")
+                        print(f"  📎 Found {summary['total']} media files (Smart Filter skip)")
                         
-                        # Save media files to database first
+                        # Save media files to database
                         await self._save_article_fields(article_id, {'media_files': extracted_media})
-                        
-                        # Cache the media files using proper method
-                        media_cache_manager = MediaCacheManager()
-                        await media_cache_manager.cache_article_media(article_id, extracted_media)
                     else:
                         print(f"  📭 No media files found in content (Smart Filter skip)")
                         
                 except Exception as media_error:
-                    print(f"  ❌ Media extraction/caching failed (Smart Filter skip): {media_error}")
+                    print(f"  ❌ Media extraction failed (Smart Filter skip): {media_error}")
                     # Don't raise - media processing is optional
                 
                 # Save fallback results
@@ -438,10 +432,9 @@ class AIProcessor:
             
             print(f"  🚨 Advertisement: {ai_result.get('is_advertisement', False)} (confidence: {ai_result.get('ad_confidence', 0.0):.2f})")
             
-            # Extract and cache media files from article content
+            # Extract media files from article content
             print(f"  🖼️ Extracting media files from content...")
             from .media_extractor import get_media_extractor
-            from .media_cache_manager import MediaCacheManager
             
             try:
                 # Check if media files already exist in article_data (e.g., from Telegram sources)
@@ -472,18 +465,13 @@ class AIProcessor:
                     summary = media_extractor.get_media_summary(extracted_media)
                     print(f"  📎 Found {summary['total']} media files: {summary['image']} images, {summary['video']} videos, {summary['document']} documents")
                     
-                    # Save media files to database first
+                    # Save media files to database
                     await self._save_article_fields(article_id, {'media_files': extracted_media})
-                    
-                    # Try to cache the media files using MediaCacheManager
-                    print(f"  💾 Attempting to cache {len(extracted_media)} media files...")
-                    media_cache_manager = MediaCacheManager()
-                    await media_cache_manager.cache_article_media(article_id, extracted_media)
                 else:
                     print(f"  📭 No media files found in content")
                     
             except Exception as media_error:
-                print(f"  ❌ Media extraction/caching failed: {media_error}")
+                print(f"  ❌ Media extraction failed: {media_error}")
                 # Don't raise - media processing is optional
             
             # Note: processed flag already set in update_fields and saved above
@@ -495,10 +483,9 @@ class AIProcessor:
             if "duplicate key value violates unique constraint" in str(e) and "article_categories" in str(e):
                 print(f"  ⚠️ Combined analysis completed with duplicate category warning (normal during reprocessing)")
                 
-                # Extract and cache media even with category duplication error
+                # Extract media even with category duplication error
                 print(f"  🖼️ Extracting media files (after category error)...")
                 from .media_extractor import get_media_extractor
-                from .media_cache_manager import MediaCacheManager
                 
                 try:
                     # Extract media files from content
@@ -511,17 +498,13 @@ class AIProcessor:
                     if extracted_media:
                         article_data['media_files'] = extracted_media
                         summary = media_extractor.get_media_summary(extracted_media)
-                        print(f"  📎 Found {summary['total']} media files for caching")
+                        print(f"  📎 Found {summary['total']} media files")
                         
-                        # Save to database first
+                        # Save to database
                         await self._save_article_fields(article_id, {'media_files': extracted_media})
-                        
-                        # Cache the media files
-                        media_cache_manager = MediaCacheManager()
-                        await media_cache_manager.cache_article_media(article_id, extracted_media)
                     
                 except Exception as media_error:
-                    print(f"  ❌ Media extraction/caching failed: {media_error}")
+                    print(f"  ❌ Media extraction failed: {media_error}")
                 
                 # Return success even with duplicate category error
                 safe_update_fields = locals().get('update_fields', {})
@@ -590,11 +573,9 @@ class AIProcessor:
                         'processed': True  # Mark as processed when skipped by Smart Filter
                     })
                 
-                # IMPORTANT: Extract and cache media files even when Smart Filter skips AI processing
-                # This ensures media files are cached for duplicate/low-quality content 
-                print(f"  🖼️ Extracting and caching media files (despite Smart Filter skip)...")
+                # Extract media files even when Smart Filter skips AI processing
+                print(f"  🖼️ Extracting media files (Smart Filter skip)...")
                 from .media_extractor import get_media_extractor
-                from .media_cache_manager import MediaCacheManager
                 
                 try:
                     # Check if media files already exist in article_data (e.g., from Telegram sources)
@@ -623,16 +604,12 @@ class AIProcessor:
                             media_extractor = get_media_extractor()
                             
                         summary = media_extractor.get_media_summary(extracted_media)
-                        print(f"  📎 Found {summary['total']} media files for caching (Smart Filter skip)")
-                        
-                        # Cache the media files using proper method
-                        media_cache_manager = MediaCacheManager()
-                        await media_cache_manager.cache_article_media(article_id, extracted_media)
+                        print(f"  📎 Found {summary['total']} media files (Smart Filter skip)")
                     else:
                         print(f"  📭 No media files found in content (Smart Filter skip)")
                         
                 except Exception as media_error:
-                    print(f"  ❌ Media extraction/caching failed (Smart Filter skip): {media_error}")
+                    print(f"  ❌ Media extraction failed (Smart Filter skip): {media_error}")
                     # Don't raise - media processing is optional
                 
                 stats.setdefault('smart_filter_skipped', 0)
@@ -718,12 +695,11 @@ class AIProcessor:
             })
             print(f"  💾 Ad detection fallback saved to database")
         
-        # Extract and cache media files from article content
-        print(f"  🖼️ Extracting and caching media files...")
+        # Extract media files from article content
+        print(f"  🖼️ Extracting media files...")
         print(f"  🔍 DEBUG: article_data keys = {list(article_data.keys())}")
         print(f"  🔍 DEBUG: media_files in article_data = {article_data.get('media_files', 'NOT_FOUND')}")
         from .media_extractor import get_media_extractor
-        from .media_cache_manager import MediaCacheManager
         
         try:
             # Check if media files already exist in article_data (e.g., from Telegram sources)
@@ -752,16 +728,12 @@ class AIProcessor:
                     media_extractor = get_media_extractor()
                     
                 summary = media_extractor.get_media_summary(extracted_media)
-                print(f"  📎 Found {summary['total']} media files for caching")
-                
-                # Cache the media files using proper method
-                media_cache_manager = MediaCacheManager()
-                await media_cache_manager.cache_article_media(article_id, extracted_media)
+                print(f"  📎 Found {summary['total']} media files")
             else:
                 print(f"  📭 No media files found in content")
                 
         except Exception as media_error:
-            print(f"  ❌ Media extraction/caching failed: {media_error}")
+            print(f"  ❌ Media extraction failed: {media_error}")
             # Don't raise - media processing is optional
         
         # Mark article as fully processed after incremental processing
