@@ -150,7 +150,7 @@ class CategoryDisplayService:
                 select(CategoryMapping).where(
                     func.lower(CategoryMapping.ai_category) == ai_category.lower().strip(),
                     CategoryMapping.is_active == True
-                )
+                ).limit(1)
             )
             db_mapping = result.scalar_one_or_none()
             

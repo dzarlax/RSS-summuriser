@@ -43,9 +43,17 @@ async def fetch_all(query, timeout: Optional[float] = 30.0) -> List[Any]:
 
 
 async def fetch_raw_all(query, timeout: Optional[float] = 30.0) -> List[Any]:
-    """Fetch all raw rows (tuples) using read queue."""
+    """Fetch all raw rows (tuples) using read queue.""" 
+    from sqlalchemy import text
+    
     async def operation(session: AsyncSession):
-        result = await session.execute(query)
+        # Convert string query to text() if needed
+        if isinstance(query, str):
+            query_obj = text(query)
+        else:
+            query_obj = query
+            
+        result = await session.execute(query_obj)
         rows = list(result.all())  # Force list materialization
         # Force close result to release connection immediately
         result.close()

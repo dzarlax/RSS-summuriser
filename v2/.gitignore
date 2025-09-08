@@ -61,4 +61,4 @@ exports/
 backups/
 .claude/
 SOURCES_FROM_BACKUPS.md
-media_cache/
+# media_cache/ - removed, media caching disabled

@@ -12,7 +12,6 @@ from .backup_router import router as backup_router
 from .articles_router import router as articles_router
 from .system_router import router as system_router
 from .scheduler_router import router as scheduler_router
-from .media_router import router as media_router
 from .summaries_router import router as summaries_router
 
 
@@ -31,7 +30,6 @@ def create_api_router() -> APIRouter:
     router.include_router(articles_router, prefix="/articles", tags=["articles"])
     router.include_router(system_router, prefix="/system", tags=["system"])
     router.include_router(scheduler_router, prefix="/schedule", tags=["scheduler"])
-    router.include_router(media_router, prefix="/media", tags=["media"])
     router.include_router(summaries_router, prefix="/summaries", tags=["summaries"])
     
     # Add category-mappings alias endpoints for frontend compatibility

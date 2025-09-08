@@ -17,9 +17,8 @@ engine = create_async_engine(
     pool_timeout=settings.db_pool_timeout,
     pool_pre_ping=True,  # Проверка соединений перед использованием
     pool_recycle=3600,   # Переиспользование соединений каждый час
-    # Enhanced pool cleanup settings
+    # Enhanced pool cleanup settings - force cleanup of connections
     pool_reset_on_return='commit',  # Always reset connections on return
-    pool_logging_name='RSS_Aggregator_V2_Pool',  # Enable pool logging
     connect_args={
         "server_settings": {
             "application_name": "RSS_Aggregator_V2",

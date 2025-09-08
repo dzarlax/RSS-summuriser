@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db, engine
-from ..main import migration_manager
+# Migration manager will be imported dynamically to avoid circular imports
 
 
 router = APIRouter()

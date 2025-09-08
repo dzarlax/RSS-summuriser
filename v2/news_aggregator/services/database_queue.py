@@ -152,6 +152,9 @@ class DatabaseQueueManager:
         # Wait for result with timeout
         try:
             if timeout:
+                # Ensure timeout is a number
+                if isinstance(timeout, str):
+                    timeout = float(timeout)
                 return await asyncio.wait_for(result_future, timeout=timeout)
             else:
                 return await result_future

@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse
 from .config import settings
 from .database import init_db, AsyncSessionLocal
 from .migrations.universal_migration_manager import create_migration_manager
-from .migrations.media_files_migration import MediaFilesMigration
+# MediaFilesMigration removed - media caching functionality disabled
 # Category migrations removed - already executed and managed via web interface
 
 import logging
@@ -23,8 +23,7 @@ logger = logging.getLogger(__name__)
 migration_manager = create_migration_manager(AsyncSessionLocal, "RSS Summarizer v2")
 
 # Register migrations
-media_files_migration = MediaFilesMigration()
-migration_manager.register_migration(media_files_migration)
+# MediaFilesMigration removed - media caching functionality disabled
 
 # Category migrations removed - already executed and managed via web interface
 
@@ -139,13 +138,22 @@ templates = Jinja2Templates(directory="web/templates")
 from .api import router as api_router
 app.include_router(api_router, prefix="/api/v1")
 
-# Auth routes
-from .auth_api import router as auth_router
-app.include_router(auth_router)
+# Auth routes (optional - only if JWT is available)
+try:
+    from .auth_api import router as auth_router
+    app.include_router(auth_router)
+    print("✅ Authentication enabled")
+except ImportError as e:
+    print(f"⚠️ Authentication disabled (missing dependency): {e}")
+    print("ℹ️ Install PyJWT to enable authentication: pip install PyJWT")
 
-# Admin routes
-from .admin import router as admin_router
-app.include_router(admin_router, prefix="/admin")
+# Admin routes (optional - only if auth dependencies are available)
+try:
+    from .admin import router as admin_router
+    app.include_router(admin_router, prefix="/admin")
+    print("✅ Admin interface enabled")
+except ImportError as e:
+    print(f"⚠️ Admin interface disabled (missing dependency): {e}")
 
 # Public routes
 from .public import router as public_router
