@@ -92,6 +92,8 @@ SUMMARIZATION REQUIREMENTS:
         
         return f"""Analyze this article and provide complete analysis in JSON format.
 
+🇷🇺 ВАЖНО: ВСЕ результаты анализа должны быть на РУССКОМ языке!
+
 ARTICLE INFORMATION:
 Title: {title}
 URL: {url}
