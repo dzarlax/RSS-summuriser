@@ -6,7 +6,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, delete, update
+from sqlalchemy import select, func, delete, update, text
 from sqlalchemy.orm import selectinload
 
 from ..database import get_db
@@ -475,4 +475,331 @@ def _suggest_fixed_category(ai_category: str) -> str:
     
     else:
         return "Other"
+
+
+# ============================================================================
+# AI Category Mapping Analysis
+# ============================================================================
+
+class AICategoryAnalysisRequest(BaseModel):
+    """Request model for AI category analysis."""
+    limit: Optional[int] = 50
+    include_examples: Optional[bool] = True
+    confidence_threshold: Optional[float] = 0.7
+
+
+class AISuggestion(BaseModel):
+    """Individual AI suggestion for category mapping."""
+    category: str
+    confidence: float
+    reasoning: str
+
+
+class AICategoryAnalysisResponse(BaseModel):
+    """Response model for AI category analysis."""
+    ai_category: str
+    suggested_fixed_category: str  # Primary suggestion (for backward compatibility)
+    confidence: float  # Primary confidence (for backward compatibility)
+    usage_count: int
+    example_articles: List[str]
+    reasoning: str  # Primary reasoning (for backward compatibility)
+    all_suggestions: List[AISuggestion]  # All AI suggestions
+
+
+class AICategoryAnalysisBatchResponse(BaseModel):
+    """Response model for batch AI category analysis."""
+    suggestions: List[AICategoryAnalysisResponse]
+    total_analyzed: int
+    execution_time_seconds: float
+    
+
+class AICategoryMappingApprovalRequest(BaseModel):
+    """Request model for approving AI category mappings."""
+    ai_category: str
+    approved_fixed_category: str
+    confidence_threshold: Optional[float] = 0.0
+    description: Optional[str] = None
+
+
+@router.post("/ai-category-analysis", response_model=AICategoryAnalysisBatchResponse)
+async def analyze_categories_with_ai(
+    request: AICategoryAnalysisRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Analyze uncategorized articles and suggest category mappings using AI.
+    Provides confidence scores and reasoning for each suggestion.
+    """
+    import time
+    from ..services.ai_client import get_ai_client
+    from ..services.prompts import NewsPrompts
+    
+    start_time = time.time()
+    
+    # Get unmapped AI categories with examples
+    query = text("""
+        SELECT DISTINCT ac.ai_category, COUNT(*) as usage_count,
+               string_agg(DISTINCT a.title, ' | ') as example_titles
+        FROM article_categories ac 
+        JOIN articles a ON ac.article_id = a.id
+        LEFT JOIN category_mapping cm ON LOWER(ac.ai_category) = LOWER(cm.ai_category) 
+            AND cm.is_active = true
+        WHERE ac.ai_category IS NOT NULL 
+          AND ac.ai_category != ''
+          AND cm.ai_category IS NULL
+        GROUP BY ac.ai_category 
+        ORDER BY usage_count DESC, ac.ai_category
+        LIMIT :limit
+    """)
+    
+    result = await db.execute(query, {"limit": request.limit})
+    unmapped_data = result.fetchall()
+    
+    if not unmapped_data:
+        return AICategoryAnalysisBatchResponse(
+            suggestions=[],
+            total_analyzed=0,
+            execution_time_seconds=time.time() - start_time
+        )
+    
+    # Get available fixed categories from database
+    categories_result = await db.execute(
+        select(Category.name, Category.display_name)
+        .order_by(Category.name)
+    )
+    available_categories = categories_result.fetchall()
+    categories_list = [f"{name} ({display_name})" for name, display_name in available_categories]
+    
+    # Prepare AI analysis
+    ai_client = get_ai_client()
+    suggestions = []
+    
+    for row in unmapped_data:
+        ai_category = row.ai_category
+        usage_count = row.usage_count
+        example_titles = (row.example_titles or "").split(" | ")[:5]  # Limit to 5 examples
+        
+        # Create AI prompt for category analysis with multiple suggestions
+        prompt = f"""Analyze this AI-generated category and suggest the top 3 most appropriate mappings to our fixed categories.
+
+AI CATEGORY: "{ai_category}"
+USAGE COUNT: {usage_count} articles
+EXAMPLE ARTICLES: {example_titles[:3]}
+
+AVAILABLE FIXED CATEGORIES:
+{chr(10).join([f"- {cat}" for cat in categories_list])}
+
+TASK: Provide 3 ranked suggestions for mapping this AI category to fixed categories.
+
+Response in JSON format:
+{{
+    "suggestions": [
+        {{
+            "category": "Most appropriate category name (exact match from list above)",
+            "confidence": 0.85,
+            "reasoning": "Brief explanation why this is the best match"
+        }},
+        {{
+            "category": "Second best category name",
+            "confidence": 0.65,
+            "reasoning": "Brief explanation for second choice"
+        }},
+        {{
+            "category": "Third alternative category name",
+            "confidence": 0.45,
+            "reasoning": "Brief explanation for third choice"
+        }}
+    ]
+}}
+
+Requirements:
+- Always provide exactly 3 suggestions
+- Categories must be exact matches from the available list
+- Confidence scores should reflect semantic similarity
+- Consider semantic similarity, example articles context, and categorization patterns
+- Order suggestions by confidence (highest first)
+"""
+
+        try:
+            # Get AI suggestion using the correct method
+            ai_response = await ai_client._call_summary_llm(
+                prompt=prompt,
+                system_prompt="You are a news categorization expert. Analyze categories and provide accurate mappings. Always respond with valid JSON."
+            )
+            
+            # Parse AI response
+            import json
+            
+            if ai_response is None:
+                raise Exception("AI response is None")
+            
+            try:
+                # Clean the response - remove any non-JSON content
+                ai_response_clean = ai_response.strip()
+                if not ai_response_clean.startswith('{'):
+                    # Try to find JSON in the response
+                    json_start = ai_response_clean.find('{')
+                    if json_start != -1:
+                        ai_response_clean = ai_response_clean[json_start:]
+                    else:
+                        raise json.JSONDecodeError("No JSON found in response", ai_response, 0)
+                
+                ai_suggestion = json.loads(ai_response_clean)
+                suggestions_list = ai_suggestion.get("suggestions", [])
+                
+                if suggestions_list and len(suggestions_list) > 0:
+                    # Use the first (highest confidence) suggestion as primary
+                    primary = suggestions_list[0]
+                    suggested_category = primary.get("category", "Other").split(" (")[0]
+                    confidence = float(primary.get("confidence", 0.5))
+                    reasoning = primary.get("reasoning", "AI analysis")
+                    
+                    # Store all suggestions for UI
+                    all_suggestions = []
+                    for sugg in suggestions_list[:3]:  # Max 3 suggestions
+                        all_suggestions.append({
+                            "category": sugg.get("category", "Other").split(" (")[0],
+                            "confidence": float(sugg.get("confidence", 0.0)),
+                            "reasoning": sugg.get("reasoning", "")
+                        })
+                else:
+                    # Fallback if no suggestions array
+                    suggested_category = "Other"
+                    confidence = 0.3
+                    reasoning = "No AI suggestions provided"
+                    all_suggestions = [{"category": "Other", "confidence": 0.3, "reasoning": "Fallback suggestion"}]
+            except json.JSONDecodeError as json_err:
+                print(f"JSON parsing failed for '{ai_category}'. AI response: {ai_response[:200]}...")
+                # Fallback to rule-based suggestion
+                suggested_category = _suggest_fixed_category(ai_category)
+                confidence = 0.3
+                reasoning = f"Fallback to keyword-based analysis (JSON error: {str(json_err)[:50]})"
+                all_suggestions = [{"category": suggested_category, "confidence": 0.3, "reasoning": reasoning}]
+            except Exception as parse_err:
+                print(f"Response parsing failed for '{ai_category}': {parse_err}")
+                # Fallback to rule-based suggestion
+                suggested_category = _suggest_fixed_category(ai_category)
+                confidence = 0.3
+                reasoning = "Fallback to keyword-based analysis (parse error)"
+                all_suggestions = [{"category": suggested_category, "confidence": 0.3, "reasoning": reasoning}]
+            
+            # Convert dict suggestions to AISuggestion objects
+            ai_suggestions = [
+                AISuggestion(
+                    category=sugg["category"],
+                    confidence=sugg["confidence"],
+                    reasoning=sugg["reasoning"]
+                ) for sugg in all_suggestions
+            ]
+            
+            suggestions.append(AICategoryAnalysisResponse(
+                ai_category=ai_category,
+                suggested_fixed_category=suggested_category,
+                confidence=confidence,
+                usage_count=usage_count,
+                example_articles=example_titles[:5] if request.include_examples else [],
+                reasoning=reasoning,
+                all_suggestions=ai_suggestions
+            ))
+            
+        except Exception as e:
+            print(f"AI analysis failed for category '{ai_category}': {type(e).__name__}: {str(e)}")
+            # Fallback to rule-based suggestion
+            fallback_category = _suggest_fixed_category(ai_category)
+            fallback_reasoning = f"Keyword-based analysis (AI error: {type(e).__name__})"
+            
+            suggestions.append(AICategoryAnalysisResponse(
+                ai_category=ai_category,
+                suggested_fixed_category=fallback_category,
+                confidence=0.3,
+                usage_count=usage_count,
+                example_articles=example_titles[:5] if request.include_examples else [],
+                reasoning=fallback_reasoning,
+                all_suggestions=[AISuggestion(
+                    category=fallback_category,
+                    confidence=0.3,
+                    reasoning=fallback_reasoning
+                )]
+            ))
+    
+    # Sort by confidence descending
+    suggestions.sort(key=lambda x: x.confidence, reverse=True)
+    
+    return AICategoryAnalysisBatchResponse(
+        suggestions=suggestions,
+        total_analyzed=len(suggestions),
+        execution_time_seconds=time.time() - start_time
+    )
+
+
+@router.post("/ai-category-mapping/approve")
+async def approve_ai_category_mapping(
+    request: AICategoryMappingApprovalRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Approve and apply an AI category mapping suggestion.
+    Creates a category mapping entry and optionally applies it to existing articles.
+    """
+    try:
+        # Check if mapping already exists
+        existing_mapping = await db.execute(
+            select(CategoryMapping)
+            .where(CategoryMapping.ai_category == request.ai_category)
+        )
+        existing = existing_mapping.scalar_one_or_none()
+        
+        if existing:
+            if existing.is_active:
+                return {
+                    "success": False,
+                    "message": f"Active mapping already exists for '{request.ai_category}'"
+                }
+            else:
+                # Reactivate existing mapping with new settings
+                existing.fixed_category = request.approved_fixed_category
+                existing.confidence_threshold = request.confidence_threshold
+                existing.description = request.description
+                existing.is_active = True
+                existing.updated_at = func.now()
+                await db.commit()
+                return {
+                    "success": True,
+                    "message": f"Reactivated mapping: '{request.ai_category}' → '{request.approved_fixed_category}'"
+                }
+        
+        # Create new mapping
+        new_mapping = CategoryMapping(
+            ai_category=request.ai_category,
+            fixed_category=request.approved_fixed_category,
+            confidence_threshold=request.confidence_threshold,
+            description=request.description or f"AI-suggested mapping approved via admin panel",
+            created_by="admin_ai_analysis",
+            is_active=True
+        )
+        
+        db.add(new_mapping)
+        await db.commit()
+        
+        # Get count of articles that will be affected
+        count_result = await db.execute(
+            select(func.count(ArticleCategory.article_id))
+            .where(ArticleCategory.ai_category == request.ai_category)
+        )
+        affected_articles = count_result.scalar() or 0
+        
+        return {
+            "success": True,
+            "message": f"Created mapping: '{request.ai_category}' → '{request.approved_fixed_category}'",
+            "affected_articles": affected_articles,
+            "note": "Mapping will be applied to new articles automatically. Existing articles can be updated via reprocessing."
+        }
+        
+    except Exception as e:
+        await db.rollback()
+        print(f"Error creating AI category mapping: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to create category mapping: {str(e)}"
+        )
 

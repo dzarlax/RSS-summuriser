@@ -134,7 +134,12 @@
                 </div>
 
                 <div class="card" style="padding: 1rem;">
-                    <h3 style="margin-top: 0;">Список категорий</h3>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <h3 style="margin: 0;">Список категорий</h3>
+                        <button id="ai-analyze-btn" class="btn btn-secondary" onclick="startAIAnalysis()" style="display: flex; align-items: center; gap: 0.5rem;">
+                            🤖 AI Анализ категорий
+                        </button>
+                    </div>
                     <div class="table-container">
                         <table class="table">
                             <thead>
@@ -152,6 +157,49 @@
                                 </tr>
                             </tbody>
                         </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI Category Analysis Modal -->
+        <div id="ai-analysis-modal" class="modal" style="display: none;">
+            <div class="modal-content" style="max-width: 800px; max-height: 80vh;">
+                <div class="modal-header">
+                    <h3 style="margin: 0;">🤖 AI Анализ категорий</h3>
+                    <button class="btn btn-ghost" onclick="closeAIAnalysisModal()" style="padding: 0.5rem;">✕</button>
+                </div>
+                <div class="modal-body" style="max-height: 60vh; overflow-y: auto;">
+                    <div id="ai-analysis-loading" style="text-align: center; padding: 2rem;">
+                        <div class="spinner" style="margin: 0 auto 1rem;"></div>
+                        <p>AI анализирует категории статей...</p>
+                        <p style="color: var(--text-muted); font-size: 0.9rem;">Это может занять несколько секунд</p>
+                    </div>
+                    <div id="ai-analysis-results" style="display: none;">
+                        <div id="ai-analysis-summary" style="margin-bottom: 1rem; padding: 1rem; background: var(--surface-hover); border-radius: 8px;">
+                            <h4 style="margin: 0 0 0.5rem 0;">📊 Результаты анализа</h4>
+                            <p id="analysis-summary-text" style="margin: 0; color: var(--text-muted);"></p>
+                        </div>
+                        <div id="ai-suggestions-container">
+                            <!-- AI suggestions will be populated here -->
+                        </div>
+                    </div>
+                    <div id="ai-analysis-error" style="display: none; text-align: center; padding: 2rem;">
+                        <p style="color: var(--error-color);">❌ Ошибка при анализе категорий</p>
+                        <p id="ai-error-message" style="color: var(--text-muted);"></p>
+                    </div>
+                </div>
+                <div class="modal-actions" style="display: flex; gap: 0.5rem; justify-content: space-between; margin-top: 1rem;">
+                    <div>
+                        <button id="apply-selected-btn" class="btn btn-primary" onclick="applySelectedMappings()" style="display: none;">
+                            Применить выбранные (<span id="selected-count">0</span>)
+                        </button>
+                    </div>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <button type="button" class="btn btn-secondary" onclick="closeAIAnalysisModal()">Закрыть</button>
+                        <button id="restart-analysis-btn" class="btn btn-secondary" onclick="restartAIAnalysis()" style="display: none;">
+                            🔄 Повторить анализ
+                        </button>
                     </div>
                 </div>
             </div>
@@ -851,6 +899,327 @@ document.getElementById('edit-category-form').addEventListener('submit', async f
         showAlert(error.message, 'error');
     }
 });
+
+// AI Category Analysis Functions
+let aiAnalysisData = [];
+let selectedMappings = new Set();
+
+async function startAIAnalysis() {
+    const modal = document.getElementById('ai-analysis-modal');
+    if (!modal) {
+        console.error('AI analysis modal not found');
+        return;
+    }
+    
+    modal.style.display = 'flex';
+    
+    // Safely show/hide elements with existence checks
+    const loadingEl = document.getElementById('ai-analysis-loading');
+    const resultsEl = document.getElementById('ai-analysis-results');
+    const errorEl = document.getElementById('ai-analysis-error');
+    const restartBtn = document.getElementById('restart-analysis-btn');
+    
+    if (loadingEl) loadingEl.style.display = 'block';
+    if (resultsEl) resultsEl.style.display = 'none';
+    if (errorEl) errorEl.style.display = 'none';
+    if (restartBtn) restartBtn.style.display = 'none';
+    
+    try {
+        const response = await fetch('/api/v1/categories/ai-category-analysis', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                limit: 20,
+                include_examples: true,
+                confidence_threshold: 0.7
+            })
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Ошибка AI анализа');
+        }
+        
+        const data = await response.json();
+        aiAnalysisData = data.suggestions || [];
+        
+        if (loadingEl) loadingEl.style.display = 'none';
+        
+        if (aiAnalysisData.length === 0) {
+            if (errorEl) errorEl.style.display = 'block';
+            const errorMsgEl = document.getElementById('ai-error-message');
+            if (errorMsgEl) errorMsgEl.textContent = 'Не найдено категорий для анализа';
+            return;
+        }
+        
+        displayAIAnalysisResults(data);
+        if (resultsEl) resultsEl.style.display = 'block';
+        
+    } catch (error) {
+        console.error('AI analysis error:', error);
+        if (loadingEl) loadingEl.style.display = 'none';
+        if (errorEl) errorEl.style.display = 'block';
+        
+        const errorMsgEl = document.getElementById('ai-error-message');
+        if (errorMsgEl) errorMsgEl.textContent = error.message;
+        if (restartBtn) restartBtn.style.display = 'inline-block';
+    }
+}
+
+function displayAIAnalysisResults(data) {
+    // Update summary
+    const summaryText = `Проанализировано ${data.total_analyzed} категорий за ${data.execution_time_seconds.toFixed(1)} сек. Выберите предложения для применения:`;
+    const summaryElement = document.getElementById('analysis-summary-text');
+    if (summaryElement) {
+        summaryElement.textContent = summaryText;
+    }
+    
+    // Clear previous selections
+    categorySelections.clear();
+    
+    // Initialize with default selections (first option for each category)
+    setTimeout(() => {
+        // Auto-select all categories with their top suggestions
+        aiAnalysisData.forEach((suggestion, index) => {
+            const allSuggestions = suggestion.all_suggestions || [
+                {
+                    category: suggestion.suggested_fixed_category,
+                    confidence: suggestion.confidence,
+                    reasoning: suggestion.reasoning
+                }
+            ];
+            
+            if (allSuggestions.length > 0) {
+                categorySelections.set(suggestion.ai_category, allSuggestions[0].category);
+            }
+        });
+        
+        updateSelectedCount();
+    }, 100);
+    
+    // Generate suggestions HTML
+    const container = document.getElementById('ai-suggestions-container');
+    if (!container) {
+        console.error('AI suggestions container not found');
+        return;
+    }
+    
+    container.innerHTML = aiAnalysisData.map((suggestion, index) => {
+        const examplesList = suggestion.example_articles.length > 0 ? 
+            suggestion.example_articles.slice(0, 3).map(title => `<li style="font-size: 0.85rem; color: var(--text-muted);">${title}</li>`).join('') : '';
+        
+        // Generate options for all suggestions
+        const allSuggestions = suggestion.all_suggestions || [
+            {
+                category: suggestion.suggested_fixed_category,
+                confidence: suggestion.confidence,
+                reasoning: suggestion.reasoning
+            }
+        ];
+        
+        const optionsHtml = allSuggestions.map((option, optIndex) => {
+            const confidenceColor = option.confidence >= 0.8 ? 'var(--success-color)' : 
+                                   option.confidence >= 0.6 ? 'var(--warning-color)' : 'var(--error-color)';
+            
+            return `
+                <div style="margin-bottom: 0.75rem; padding: 0.5rem; border-radius: 6px; border: 1px solid var(--border-color); background: ${optIndex === 0 ? 'var(--surface-hover)' : 'var(--surface)'};">
+                    <label style="display: flex; align-items: start; gap: 0.5rem; cursor: pointer;">
+                        <input type="radio" name="suggestion-${index}" value="${option.category}" 
+                               onchange="selectSuggestionOption('${suggestion.ai_category}', '${option.category}', ${index})" 
+                               ${optIndex === 0 ? 'checked' : ''} style="margin-top: 0.2rem;">
+                        <div style="flex: 1;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem;">
+                                <strong style="color: var(--primary-color);">${option.category}</strong>
+                                <span style="color: ${confidenceColor}; font-weight: bold; font-size: 0.85rem;">
+                                    ${(option.confidence * 100).toFixed(0)}%
+                                </span>
+                                ${optIndex === 0 ? '<span style="font-size: 0.75rem; padding: 0.1rem 0.3rem; background: var(--primary-color); color: white; border-radius: 3px;">TOP</span>' : ''}
+                            </div>
+                            <div style="font-size: 0.8rem; color: var(--text-muted); line-height: 1.3;">
+                                ${option.reasoning}
+                            </div>
+                        </div>
+                    </label>
+                </div>
+            `;
+        }).join('');
+        
+        return `
+            <div class="ai-suggestion-card" style="border: 1px solid var(--border-color); border-radius: 8px; padding: 1rem; margin-bottom: 1rem; background: var(--surface);">
+                <div style="margin-bottom: 1rem;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem;">
+                        <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                            <input type="checkbox" onchange="toggleCategorySelection('${suggestion.ai_category}', ${index}, this.checked)" style="margin: 0;" checked>
+                            <strong style="color: var(--text-primary); font-size: 1.1rem;">${suggestion.ai_category}</strong>
+                        </label>
+                        <span style="font-size: 0.8rem; padding: 0.2rem 0.5rem; background: var(--surface-hover); border-radius: 4px; color: var(--text-muted);">
+                            ${suggestion.usage_count} статей
+                        </span>
+                    </div>
+                    
+                    <div style="margin-left: 1.5rem;">
+                        <h4 style="margin: 0 0 0.5rem 0; color: var(--text-primary); font-size: 0.9rem;">Выберите категорию:</h4>
+                        ${optionsHtml}
+                    </div>
+                    
+                    ${examplesList ? `
+                        <details style="margin-top: 0.75rem;">
+                            <summary style="cursor: pointer; font-size: 0.85rem; color: var(--text-muted);">Примеры статей (${suggestion.example_articles.length})</summary>
+                            <ul style="margin: 0.5rem 0 0 1rem; padding: 0;">
+                                ${examplesList}
+                            </ul>
+                        </details>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// New structure to store selected mappings with their chosen categories
+let categorySelections = new Map(); // ai_category -> selected_fixed_category
+
+function toggleCategorySelection(aiCategory, categoryIndex, isSelected) {
+    if (isSelected) {
+        // Get the currently selected radio button for this category
+        const selectedRadio = document.querySelector(`input[name="suggestion-${categoryIndex}"]:checked`);
+        if (selectedRadio) {
+            categorySelections.set(aiCategory, selectedRadio.value);
+        }
+    } else {
+        categorySelections.delete(aiCategory);
+    }
+    
+    updateSelectedCount();
+}
+
+function selectSuggestionOption(aiCategory, selectedCategory, categoryIndex) {
+    // Update the selected category for this AI category
+    if (categorySelections.has(aiCategory)) {
+        categorySelections.set(aiCategory, selectedCategory);
+    }
+}
+
+// Legacy function for backward compatibility (not used in new UI)
+function toggleMapping(aiCategory, suggestedCategory, isSelected) {
+    const mappingKey = `${aiCategory}→${suggestedCategory}`;
+    
+    if (isSelected) {
+        selectedMappings.add(mappingKey);
+    } else {
+        selectedMappings.delete(mappingKey);
+    }
+    
+    updateSelectedCount();
+}
+
+function updateSelectedCount() {
+    const count = categorySelections.size;
+    const countElement = document.getElementById('selected-count');
+    const applyBtn = document.getElementById('apply-selected-btn');
+    
+    if (countElement) {
+        countElement.textContent = count;
+    } else {
+        console.warn('Element selected-count not found');
+    }
+    
+    if (applyBtn) {
+        if (count > 0) {
+            applyBtn.style.display = 'inline-block';
+        } else {
+            applyBtn.style.display = 'none';
+        }
+    } else {
+        console.warn('Element apply-selected-btn not found');
+    }
+}
+
+async function applySelectedMappings() {
+    if (categorySelections.size === 0) {
+        showAlert('Выберите хотя бы одно предложение для применения', 'warning');
+        return;
+    }
+    
+    const applyBtn = document.getElementById('apply-selected-btn');
+    if (!applyBtn) {
+        console.error('Apply button not found');
+        showAlert('Ошибка интерфейса: кнопка не найдена', 'error');
+        return;
+    }
+    
+    const originalText = applyBtn.textContent;
+    applyBtn.disabled = true;
+    applyBtn.textContent = 'Применение...';
+    
+    let successCount = 0;
+    let errorCount = 0;
+    
+    for (const [aiCategory, suggestedCategory] of categorySelections) {
+        
+        try {
+            const response = await fetch('/api/v1/categories/ai-category-mapping/approve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    ai_category: aiCategory,
+                    approved_fixed_category: suggestedCategory,
+                    confidence_threshold: 0.0,
+                    description: `AI-suggested mapping approved via admin panel`
+                })
+            });
+            
+            if (!response.ok) {
+                const error = await response.json();
+                console.error(`Failed to apply mapping ${aiCategory} → ${suggestedCategory}:`, error);
+                errorCount++;
+            } else {
+                successCount++;
+            }
+            
+        } catch (error) {
+            console.error(`Error applying mapping ${aiCategory} → ${suggestedCategory}:`, error);
+            errorCount++;
+        }
+    }
+    
+    // Reset button
+    if (applyBtn) {
+        applyBtn.disabled = false;
+        applyBtn.textContent = originalText;
+    }
+    
+    // Show results
+    if (successCount > 0) {
+        showAlert(`Успешно применено ${successCount} маппингов`, 'success');
+        // Refresh mappings table
+        await loadMappings();
+    }
+    
+    if (errorCount > 0) {
+        showAlert(`Ошибка при применении ${errorCount} маппингов`, 'error');
+    }
+    
+    // Clear selections and close modal if all succeeded
+    if (errorCount === 0) {
+        categorySelections.clear();
+        updateSelectedCount();
+        closeAIAnalysisModal();
+    }
+}
+
+function closeAIAnalysisModal() {
+    const modal = document.getElementById('ai-analysis-modal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+    categorySelections.clear();
+    updateSelectedCount();
+}
+
+function restartAIAnalysis() {
+    startAIAnalysis();
+}
 </script>
         </div>
     </div>

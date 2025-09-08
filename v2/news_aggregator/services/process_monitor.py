@@ -175,7 +175,7 @@ class ProcessMonitor:
     async def _force_content_extractor_cleanup(self):
         """Force cleanup of ContentExtractor after process cleanup."""
         try:
-            from .content_extractor import cleanup_content_extractor
+            from ..extraction import cleanup_content_extractor
             await cleanup_content_extractor()
             logger.info("Forced ContentExtractor cleanup after process cleanup")
         except Exception as e:

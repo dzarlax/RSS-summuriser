@@ -126,6 +126,14 @@ async def lifespan(app: FastAPI):
     
     # Stop database queue system
     await db_queue.stop()
+    
+    # Close database connections
+    try:
+        from .database import close_db_engine
+        await close_db_engine()
+        print("✅ Database connections closed")
+    except Exception as e:
+        print(f"⚠️ Database cleanup error: {e}")
 
 
 app = FastAPI(
@@ -137,6 +145,9 @@ app = FastAPI(
 
 # Статические файлы
 app.mount("/static", StaticFiles(directory="web/static"), name="static")
+
+# Медиафайлы из кеша
+app.mount("/media", StaticFiles(directory="media_cache"), name="media")
 
 # Шаблоны
 templates = Jinja2Templates(directory="web/templates")

@@ -7,7 +7,7 @@ from sqlalchemy import text
 
 from .config import settings
 
-# Create async engine with connection pool settings
+# Create async engine with enhanced connection pool settings
 engine = create_async_engine(
     settings.database_url.replace("postgresql://", "postgresql+asyncpg://"),
     echo=False,  # Disabled SQL logging for cleaner logs
@@ -17,20 +17,27 @@ engine = create_async_engine(
     pool_timeout=settings.db_pool_timeout,
     pool_pre_ping=True,  # Проверка соединений перед использованием
     pool_recycle=3600,   # Переиспользование соединений каждый час
+    # Enhanced pool cleanup settings
+    pool_reset_on_return='commit',  # Always reset connections on return
+    pool_logging_name='RSS_Aggregator_V2_Pool',  # Enable pool logging
     connect_args={
         "server_settings": {
             "application_name": "RSS_Aggregator_V2",
+            "statement_timeout": "300000",  # 5 minutes for long operations
         },
-        # Более агрессивные настройки таймаутов для asyncpg
-        "command_timeout": 60,
+        # Enhanced timeout settings for asyncpg
+        "command_timeout": 60,  # Individual command timeout
     }
 )
 
-# Create async session factory
+# Create async session factory with enhanced settings
 AsyncSessionLocal = sessionmaker(
     bind=engine,
     class_=AsyncSession,
-    expire_on_commit=False
+    expire_on_commit=False,
+    # Enhanced session settings to prevent connection leaks
+    autoflush=True,
+    autocommit=False
 )
 
 # Base class for models
@@ -127,3 +134,31 @@ async def get_db():
             yield session
         finally:
             await session.close()
+
+
+async def close_db_engine():
+    """Properly close database engine and all connections."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # Close all connections in the pool
+        await engine.dispose()
+        logger.info("✅ Database engine disposed and all connections closed")
+    except Exception as e:
+        logger.error(f"❌ Error closing database engine: {e}")
+
+
+async def get_db_pool_status():
+    """Get current database pool status for monitoring."""
+    try:
+        return {
+            "pool_status": engine.pool.status(),
+            "pool_size": engine.pool.size(),
+            "checked_in": engine.pool.checkedin(),
+            "checked_out": engine.pool.checkedout(),
+            "overflow": engine.pool.overflow(),
+            "invalidated": engine.pool.invalidated()
+        }
+    except Exception as e:
+        return {"error": str(e)}

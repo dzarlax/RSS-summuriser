@@ -216,53 +216,45 @@ class DatabaseQueueManager:
             logger.debug(f"⚠️ Task {task.task_id} was cancelled before processing")
             return
         
-        session = None
         try:
             # Acquire connection semaphore
             async with semaphore:
-                # Execute database operation
-                session = AsyncSessionLocal()
-                try:
-                    result = await task.operation(session)
-                    
-                    # Double-check task wasn't cancelled during operation
-                    if not task.result_future.cancelled() and not task.result_future.done():
-                        task.result_future.set_result(result)
-                        
-                        # Update stats
-                        if task.operation_type == OperationType.READ:
-                            self.stats['read_operations'] += 1
-                        else:
-                            self.stats['write_operations'] += 1
-                            
-                        self.stats['total_processed'] += 1
-                        
-                        duration = (datetime.now() - start_time).total_seconds()
-                        logger.debug(f"✅ {worker_name} completed {task.task_id} in {duration:.3f}s")
-                    else:
-                        logger.debug(f"⚠️ Task {task.task_id} was cancelled during processing")
-                        
-                except Exception as e:
-                    # Ensure transaction is rolled back for safety
+                # Execute database operation using proper context manager
+                async with AsyncSessionLocal() as session:
                     try:
-                        await session.rollback()
-                    except Exception:
-                        pass
-                    if not task.result_future.cancelled() and not task.result_future.done():
-                        task.result_future.set_exception(e)
+                        result = await task.operation(session)
                         
-                        # Update error stats
-                        if task.operation_type == OperationType.READ:
-                            self.stats['read_errors'] += 1
-                        else:
-                            self.stats['write_errors'] += 1
+                        # Double-check task wasn't cancelled during operation
+                        if not task.result_future.cancelled() and not task.result_future.done():
+                            task.result_future.set_result(result)
                             
-                        logger.error(f"❌ {worker_name} failed {task.task_id}: {e}")
-                    else:
-                        logger.debug(f"⚠️ Task {task.task_id} failed but was already cancelled: {e}")
-                finally:
-                    if session:
-                        await session.close()
+                            # Update stats
+                            if task.operation_type == OperationType.READ:
+                                self.stats['read_operations'] += 1
+                            else:
+                                self.stats['write_operations'] += 1
+                                
+                            self.stats['total_processed'] += 1
+                            
+                            duration = (datetime.now() - start_time).total_seconds()
+                            logger.debug(f"✅ {worker_name} completed {task.task_id} in {duration:.3f}s")
+                        else:
+                            logger.debug(f"⚠️ Task {task.task_id} was cancelled during processing")
+                            
+                    except Exception as e:
+                        # Session rollback and close will be handled by the context manager
+                        if not task.result_future.cancelled() and not task.result_future.done():
+                            task.result_future.set_exception(e)
+                            
+                            # Update error stats
+                            if task.operation_type == OperationType.READ:
+                                self.stats['read_errors'] += 1
+                            else:
+                                self.stats['write_errors'] += 1
+                                
+                            logger.error(f"❌ {worker_name} failed {task.task_id}: {e}")
+                        else:
+                            logger.debug(f"⚠️ Task {task.task_id} failed but was already cancelled: {e}")
                         
         except Exception as e:
             # This shouldn't happen, but just in case
