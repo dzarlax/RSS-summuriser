@@ -177,7 +177,7 @@ class NewsOrchestrator:
                     return {'digest_content': digest_content, 'split': False}
             
             # Send digest via Telegram
-            digest_result = await self.db_queue_manager.execute_read_operation(digest_operation)
+            digest_result = await self.db_queue_manager.execute_read(digest_operation)
             
             if digest_result.get('split'):
                 # Send multiple parts
