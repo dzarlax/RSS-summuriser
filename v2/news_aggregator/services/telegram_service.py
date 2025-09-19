@@ -51,7 +51,7 @@ class TelegramService:
                 digest = digest[:3900] + "..."
             
             # Send message
-            success = await self._send_message(digest)
+            success = await self.send_message(digest)
             
             if success:
                 part_info = f" (part {message_part})" if message_part else ""
@@ -78,7 +78,7 @@ class TelegramService:
         """
         try:
             alert_text = f"🚨 <b>{title}</b>\n\n{message}"
-            return await self._send_message(alert_text)
+            return await self.send_message(alert_text)
             
         except Exception as e:
             logging.error(f"Error sending alert to Telegram: {e}")
@@ -112,13 +112,13 @@ class TelegramService:
                 summary += f"📱 Дайджест: {stats.get('telegram_digest_length', 0)} символов\n"
                 summary += f"📂 Категории: {stats.get('telegram_categories', 0)}\n"
             
-            return await self._send_message(summary)
+            return await self.send_message(summary)
             
         except Exception as e:
             logging.error(f"Error sending processing summary to Telegram: {e}")
             return False
     
-    async def _send_message(self, text: str) -> bool:
+    async def send_message(self, text: str) -> bool:
         """
         Send message to Telegram using Bot API.
         
@@ -162,7 +162,7 @@ class TelegramService:
         """
         try:
             test_message = f"🧪 Test message from RSS Summarizer v2\n⏰ {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC"
-            return await self._send_message(test_message)
+            return await self.send_message(test_message)
             
         except Exception as e:
             logging.error(f"Telegram connection test failed: {e}")

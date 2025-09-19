@@ -24,8 +24,10 @@ async def send_telegram_digest():
         
         await orchestrator.stop()
         
+        success = result.get('success', False)
         return {
-            "message": "Telegram digest sent successfully" if result.get('digest_sent') else "Digest generation failed",
+            "success": success,
+            "message": "Telegram digest sent successfully" if success else "Digest generation failed",
             "result": result,
             "timestamp": datetime.utcnow().isoformat()
         }
