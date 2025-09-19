@@ -15,14 +15,14 @@ engine = create_async_engine(
     pool_size=settings.db_pool_size,
     max_overflow=settings.db_max_overflow,
     pool_timeout=settings.db_pool_timeout,
-    pool_pre_ping=True,  # Проверка соединений перед использованием
-    pool_recycle=3600,   # Переиспользование соединений каждый час
+    pool_pre_ping=settings.db_pool_pre_ping,
+    pool_recycle=settings.db_pool_recycle,
     # Enhanced pool cleanup settings - force cleanup of connections
-    pool_reset_on_return='commit',  # Always reset connections on return
+    pool_reset_on_return='rollback',  # More aggressive cleanup on return
     connect_args={
         "server_settings": {
             "application_name": "RSS_Aggregator_V2",
-            "statement_timeout": "300000",  # 5 minutes for long operations
+            "statement_timeout": str(settings.db_statement_timeout),  # Configurable timeout
         },
         # Enhanced timeout settings for asyncpg
         "command_timeout": 60,  # Individual command timeout
@@ -117,7 +117,7 @@ async def init_db():
 
 
 async def get_db():
-    """Dependency to get database session."""
+    """Dependency to get database session with proper cleanup."""
     import logging
     logger = logging.getLogger(__name__)
     
@@ -128,11 +128,24 @@ async def get_db():
     except:
         pass
     
-    async with AsyncSessionLocal() as session:
+    session = AsyncSessionLocal()
+    try:
+        yield session
+    except Exception as e:
+        logger.error(f"Database session error: {e}")
+        await session.rollback()
+        raise
+    finally:
         try:
-            yield session
-        finally:
             await session.close()
+            logger.debug("🔒 Session closed successfully")
+        except Exception as e:
+            logger.warning(f"Error closing session: {e}")
+            # Force cleanup if regular close fails
+            try:
+                await session.get_bind().dispose()
+            except:
+                pass
 
 
 async def close_db_engine():
@@ -161,3 +174,31 @@ async def get_db_pool_status():
         }
     except Exception as e:
         return {"error": str(e)}
+
+
+async def force_pool_cleanup():
+    """Force cleanup of database connection pool."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # Get current status
+        status_before = await get_db_pool_status()
+        logger.info(f"🧹 Pool status before cleanup: {status_before}")
+        
+        # Invalidate all connections in pool
+        engine.pool.invalidate()
+        
+        # Get status after cleanup
+        status_after = await get_db_pool_status()
+        logger.info(f"✅ Pool status after cleanup: {status_after}")
+        
+        return {
+            "status": "success",
+            "before": status_before,
+            "after": status_after
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Pool cleanup failed: {e}")
+        return {"status": "failed", "error": str(e)}

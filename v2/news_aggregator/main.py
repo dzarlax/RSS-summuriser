@@ -27,6 +27,10 @@ migration_manager = create_migration_manager(AsyncSessionLocal, "RSS Summarizer 
 
 # Category migrations removed - already executed and managed via web interface
 
+# Register performance optimization migration
+from .migrations.feed_performance_optimization import FeedPerformanceOptimization
+migration_manager.register_migration(FeedPerformanceOptimization())
+
 
 
 
@@ -89,10 +93,33 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"❌ Process monitor startup error: {e}")
     
+    # Start pool cleanup task to prevent connection leaks
+    import asyncio
+    async def pool_cleanup_task():
+        """Periodic pool cleanup to prevent connection leaks."""
+        while True:
+            await asyncio.sleep(300)  # Every 5 minutes
+            try:
+                from .database import force_pool_cleanup
+                await force_pool_cleanup()
+            except Exception as e:
+                print(f"🧹 Pool cleanup error: {e}")
+    
+    # Start cleanup task in background
+    cleanup_task = asyncio.create_task(pool_cleanup_task())
+    app.state.cleanup_task = cleanup_task
     
     yield
     
     # Shutdown
+    # Cancel pool cleanup task
+    if hasattr(app.state, 'cleanup_task'):
+        app.state.cleanup_task.cancel()
+        try:
+            await app.state.cleanup_task
+        except asyncio.CancelledError:
+            pass
+    
     from .services.scheduler import stop_scheduler
     await stop_scheduler()
     
@@ -199,11 +226,14 @@ async def auth_status():
 @app.get("/test-db")
 async def test_db():
     """Test database connection."""
-    from .database import AsyncSessionLocal
+    from .database import AsyncSessionLocal, get_db_pool_status
     from .models import Article
     from sqlalchemy import select, func
     
     try:
+        # Get pool status before test
+        pool_status_before = await get_db_pool_status()
+        
         async with AsyncSessionLocal() as session:
             # Count articles
             count_result = await session.execute(select(func.count(Article.id)))
@@ -215,9 +245,14 @@ async def test_db():
             )
             articles = result.scalars().all()
             
+            # Get pool status after test
+            pool_status_after = await get_db_pool_status()
+            
             return {
                 "status": "success",
                 "total_articles": count,
+                "pool_before": pool_status_before,
+                "pool_after": pool_status_after,
                 "latest_articles": [
                     {
                         "id": a.id,
@@ -233,6 +268,20 @@ async def test_db():
             "status": "error",
             "error": str(e)
         }
+
+
+@app.get("/db-pool-status")
+async def db_pool_status():
+    """Get current database pool status for monitoring."""
+    from .database import get_db_pool_status
+    return await get_db_pool_status()
+
+
+@app.post("/db-pool-cleanup")
+async def db_pool_cleanup():
+    """Force cleanup of database connection pool."""
+    from .database import force_pool_cleanup
+    return await force_pool_cleanup()
 
 
 if __name__ == "__main__":

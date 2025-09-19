@@ -145,11 +145,23 @@ async def get_main_feed(
     category: Optional[str] = Query(None, description="Filter by category"),
     db: AsyncSession = Depends(get_db)
 ):
-    """Get main news feed in JSON format."""
-    # Build query for articles with categories
-    query = select(Article).options(
-        selectinload(Article.source),
-        selectinload(Article.article_categories).selectinload(ArticleCategory.category)
+    """Get main news feed in JSON format - optimized for performance."""
+    # Build optimized query - select only needed fields for better performance
+    query = select(
+        Article.id,
+        Article.title,
+        Article.summary, 
+        Article.content,
+        Article.url,
+        Article.image_url,
+        Article.media_files,
+        Article.published_at,
+        Article.fetched_at,
+        Article.is_advertisement,
+        Article.ad_confidence,
+        Article.ad_type,
+        Article.ad_reasoning,
+        Article.source_id
     ).order_by(desc(Article.fetched_at))
     
     # Apply time filter
@@ -173,56 +185,83 @@ async def get_main_feed(
     
     # Execute query
     result = await db.execute(query)
-    articles = result.scalars().all()
+    article_rows = result.all()
     
-    # Format response
+    # Separate queries for categories to avoid N+1 problem
+    categories_by_article = {}
+    sources_by_article = {}
+    
+    if article_rows:
+        article_ids = [row.id for row in article_rows]
+        
+        # Get categories for all articles in one query
+        categories_result = await db.execute(
+            select(
+                ArticleCategory.article_id,
+                ArticleCategory.ai_category,
+                ArticleCategory.confidence,
+                Category.name.label('category_name'),
+                Category.display_name
+            ).join(Category)
+            .where(ArticleCategory.article_id.in_(article_ids))
+        )
+        for row in categories_result.all():
+            if row.article_id not in categories_by_article:
+                categories_by_article[row.article_id] = []
+            categories_by_article[row.article_id].append({
+                'ai_category': row.ai_category or 'Other',
+                'confidence': row.confidence or 1.0,
+                'name': row.category_name,
+                'display_name': row.display_name
+            })
+        
+        # Get sources for all articles in one query  
+        sources_result = await db.execute(
+            select(
+                Article.id,
+                Article.source_id
+            ).where(Article.id.in_(article_ids))
+        )
+        sources_by_article = {row.id: row.source_id for row in sources_result.all()}
+    
+    # Format response - optimized processing
     feed_items = []
-    # Get category display service for mapping AI categories to display categories
-    from ..services.category_display_service import get_category_display_service
-    category_display_service = await get_category_display_service(db)
     
-    for article in articles:
-        domain = extract_domain(article.url) if article.url else "unknown"
+    for article_row in article_rows:
+        domain = extract_domain(article_row.url) if article_row.url else "unknown"
         
         # Clean summary from service text
-        cleaned_summary = clean_summary_text(article.summary) if article.summary else None
+        cleaned_summary = clean_summary_text(article_row.summary) if article_row.summary else None
         
-        # Map AI categories to display categories
-        ai_categories = [
-            {
-                'ai_category': ac.ai_category or 'Other',
-                'confidence': ac.confidence or 1.0
-            }
-            for ac in article.article_categories
-        ]
+        # Get categories for this article
+        article_categories = categories_by_article.get(article_row.id, [])
         
-        display_categories = await category_display_service.get_article_display_categories(ai_categories)
-        primary_display_category = display_categories[0]['name'] if display_categories else 'Other'
+        # Simple category mapping - get first category or default
+        primary_category = article_categories[0]['display_name'] if article_categories else 'Other'
+        
+        # Extract media files safely
+        media_files = article_row.media_files if hasattr(article_row, 'media_files') and article_row.media_files else []
         
         feed_items.append({
-            "article_id": article.id,
-            "title": clean_html_entities(article.title) if article.title else None,
+            "article_id": article_row.id,
+            "title": clean_html_entities(article_row.title) if article_row.title else None,
             "summary": clean_html_entities(cleaned_summary) if cleaned_summary else None,
-            "content": clean_html_entities(article.content[:500] + "..." if article.content and len(article.content) > 500 else article.content) if article.content else None,
-            "image_url": article.image_url,  # Legacy single image field for backward compatibility
-            "media_files": article.media_files or [],  # New multiple media files
-            "images": article.images,  # Convenience property for images only
-            "videos": article.videos,  # Convenience property for videos only
-            "documents": article.documents,  # Convenience property for documents only
-            "primary_image": article.primary_image,  # Primary image URL (first image or legacy image_url)
-            "url": article.url,
+            "content": clean_html_entities(article_row.content[:500] + "..." if article_row.content and len(article_row.content) > 500 else article_row.content) if article_row.content else None,
+            "image_url": article_row.image_url,  # Legacy single image field for backward compatibility
+            "media_files": media_files,  # New multiple media files
+            "url": article_row.url,
             "domain": domain,
-            "category": primary_display_category,  # Primary mapped category for backward compatibility
-            "categories": display_categories,  # Mapped display categories
-            "ai_categories": ai_categories,  # Original AI categories for reference
-            "published_at": article.published_at.isoformat() if article.published_at else None,
-            "fetched_at": article.fetched_at.isoformat() if article.fetched_at else None,
+            "category": primary_category,  # Primary mapped category for backward compatibility
+            "categories": [{'name': cat['name'], 'display_name': cat['display_name']} for cat in article_categories],
+            "ai_categories": [{'ai_category': cat['ai_category'], 'confidence': cat['confidence']} for cat in article_categories],
+            "published_at": article_row.published_at.isoformat() if article_row.published_at else None,
+            "fetched_at": article_row.fetched_at.isoformat() if article_row.fetched_at else None,
             # Advertising detection data
-            "is_advertisement": bool(getattr(article, 'is_advertisement', False)),
-            "ad_confidence": float(getattr(article, 'ad_confidence', 0.0)),
-            "ad_type": getattr(article, 'ad_type', None),
-            "ad_reasoning": getattr(article, 'ad_reasoning', None),
-            "ad_markers": getattr(article, 'ad_markers', [])
+            "is_advertisement": bool(article_row.is_advertisement or False),
+            "ad_confidence": float(article_row.ad_confidence or 0.0),
+            "ad_type": article_row.ad_type,
+            "ad_reasoning": article_row.ad_reasoning,
+            "source_id": article_row.source_id
         })
     
     return {

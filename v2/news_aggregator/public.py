@@ -17,10 +17,11 @@ except ImportError:
     MAGIC_AVAILABLE = False
     print("⚠️ python-magic not available - MIME type detection disabled")
 
-from .database import get_db, AsyncSessionLocal
+from .database import get_db
 from .database_helpers import fetch_raw_all, count_query, execute_custom_read
 from .models import Article, Category, ArticleCategory
 from .config import get_settings
+from .services.data_service import DataService, get_data_service
 
 router = APIRouter()
 templates = Jinja2Templates(directory="web/templates")
@@ -104,114 +105,20 @@ async def get_public_feed(
     offset: int = Query(0, ge=0),
     since_hours: Optional[int] = Query(None, ge=1, le=168),
     category: Optional[str] = Query(None),
-    hide_ads: bool = Query(True, description="Hide advertisements from feed")
+    hide_ads: bool = Query(True, description="Hide advertisements from feed"),
+    data_service: DataService = Depends(get_data_service)
 ):
-    """Public feed endpoint without authentication (for main page)."""
-    from .database import AsyncSessionLocal
-    
+    """Public feed endpoint using unified DataService."""
     
     try:
-        # Import required models
-        from .models import Source, ArticleCategory, Category
-        from sqlalchemy.orm import selectinload
-        
-        # Build query for articles with source and categories information
-        query = select(Article).options(
-            selectinload(Article.source),
-            selectinload(Article.article_categories).selectinload(ArticleCategory.category)
+        # Use DataService for clean database access
+        articles_data = await data_service.get_articles_feed(
+            limit=limit,
+            offset=offset,
+            since_hours=since_hours,
+            category=category,
+            hide_ads=hide_ads
         )
-        
-        # Apply time filter
-        if since_hours:
-            since_time = datetime.utcnow() - timedelta(hours=since_hours)
-            query = query.where(Article.published_at >= since_time)
-        
-        # Apply category filter (support multiple, comma-separated)
-        if category and category.lower() != 'all':
-            cats = [c.strip().lower() for c in category.split(',') if c.strip()]
-            if len(cats) == 1 and cats[0] == 'advertisements':
-                query = query.where(Article.is_advertisement == True)
-            elif cats:
-                subquery_new = (
-                    select(Article.id)
-                    .join(ArticleCategory)
-                    .join(Category)
-                    .where(func.lower(Category.name).in_(cats))
-                )
-                query = query.where(Article.id.in_(subquery_new))
-        
-        # Hide advertisements if requested (default: true)
-        if hide_ads:
-            query = query.where(Article.is_advertisement != True)
-
-        # Order: newest first (without advertisement bias)
-        query = query.order_by(desc(Article.published_at))
-        
-        # Apply pagination
-        query = query.offset(offset).limit(limit)
-        
-        # Execute query through direct session
-        async with AsyncSessionLocal() as session:
-            result = await session.execute(query)
-            articles = result.scalars().all()
-        
-        # Convert to dict format
-        articles_data = []
-        for article in articles:
-            # Process cached media URLs first
-            processed_image_url, processed_media_files = article.image_url, article.media_files or []
-            
-            # Extract images from content using shared function
-            content_images = extract_images_from_content(article.content or '')
-            all_media_files = list(processed_media_files) + content_images
-            all_images = [m for m in all_media_files if m.get('type') == 'image']
-            
-            # Determine primary image (prefer cached URL)
-            primary_image = processed_image_url
-            if not primary_image and all_images:
-                primary_image = all_images[0].get('cached_url') or all_images[0]['url']
-            
-            # Get mapped categories for display
-            from .services.category_display_service import get_category_display_service
-            category_display_service = await get_category_display_service(session)
-            
-            # Map AI categories to display categories
-            ai_categories = [
-                {
-                    'ai_category': ac.ai_category or 'Other',
-                    'confidence': ac.confidence or 1.0
-                }
-                for ac in article.article_categories
-            ]
-            
-            display_categories = await category_display_service.get_article_display_categories(ai_categories)
-            primary_display_category = display_categories[0]['name'] if display_categories else 'Other'
-            
-            article_dict = {
-                "id": article.id,
-                "title": article.title,
-                "summary": article.summary,
-                "url": article.url,
-                "image_url": processed_image_url,
-                "source_id": article.source_id,
-                "source_name": article.source.name if article.source else "Unknown",
-                "category": primary_display_category,  # Primary mapped category
-                "categories": display_categories,  # Mapped display categories
-                "published_at": (article.published_at or article.fetched_at).isoformat(),
-                "fetched_at": article.fetched_at.isoformat() if article.fetched_at else None,
-                "is_advertisement": article.is_advertisement or False,
-                "ad_confidence": article.ad_confidence or 0.0,
-                "ad_type": article.ad_type,
-                "ad_reasoning": getattr(article, 'ad_reasoning', None),
-                "ad_markers": getattr(article, 'ad_markers', []),
-                # Add media fields with extracted images
-                "media_files": all_media_files,
-                "images": all_images,
-                "videos": [m for m in all_media_files if m.get('type') == 'video'],
-                "documents": [m for m in all_media_files if m.get('type') == 'document'],
-                "primary_image": primary_image
-            }
-            articles_data.append(article_dict)
         
         return {
             "articles": articles_data,
@@ -248,8 +155,11 @@ async def get_public_feed(
 
 
 @router.get("/api/public/article/{article_id}")
-async def get_public_article(article_id: int):
-    """Get full article content for modal display."""
+async def get_public_article(
+    article_id: int, 
+    data_service: DataService = Depends(get_data_service)
+):
+    """Get full article content using unified DataService."""
     try:
         # Handle mock data case (when database is not available)
         if article_id == 1:
@@ -281,110 +191,12 @@ async def get_public_article(article_id: int):
                 ]
             }
         
-        # Use direct session like in other endpoints
-        async with AsyncSessionLocal() as session:
-            # Simple query without complex joins to avoid issues
-            query = select(Article).where(Article.id == article_id)
-            result = await session.execute(query)
-            article = result.scalar_one_or_none()
-            
-            if not article:
-                raise HTTPException(status_code=404, detail="Article not found")
-            
-            # Get source separately if needed
-            source_name = "Unknown"
-            if article.source_id:
-                from .models import Source
-                source_query = select(Source).where(Source.id == article.source_id)
-                source_result = await session.execute(source_query)
-                source = source_result.scalar_one_or_none()
-                if source:
-                    source_name = source.name
-            
-            # Get all data within session to avoid lazy loading issues
-            article_data = {
-                "id": article.id,
-                "title": article.title,
-                "summary": article.summary,
-                "content": article.content,
-                "url": article.url,
-                "image_url": article.image_url,
-                "source_name": source_name,
-                "published_at": (article.published_at or article.fetched_at).isoformat(),
-                "fetched_at": article.fetched_at.isoformat() if article.fetched_at else None,
-                "is_advertisement": article.is_advertisement or False,
-                "ad_confidence": article.ad_confidence or 0.0,
-                "ad_type": article.ad_type,
-                "ad_reasoning": getattr(article, 'ad_reasoning', None),
-                "ad_markers": getattr(article, 'ad_markers', []),
-            }
-            
-            # Get AI categories and map them to display categories
-            from .models import ArticleCategory
-            from .services.category_display_service import get_category_display_service
-            
-            # Get AI categories from database
-            ai_categories_query = (
-                select(ArticleCategory.ai_category, ArticleCategory.confidence)
-                .where(ArticleCategory.article_id == article_id)
-                .order_by(ArticleCategory.confidence.desc())
-            )
-            ai_categories_result = await session.execute(ai_categories_query)
-            ai_categories_data = ai_categories_result.fetchall()
-            
-            # Map AI categories to display categories
-            category_display_service = await get_category_display_service(session)
-            
-            ai_categories = [
-                {
-                    'ai_category': row.ai_category or 'Other',
-                    'confidence': row.confidence or 1.0
-                }
-                for row in ai_categories_data
-            ]
-            
-            # Filter out empty AI categories for cleaner display
-            filtered_ai_categories = [
-                cat for cat in ai_categories 
-                if cat['ai_category'] and cat['ai_category'] != 'Other' and cat['ai_category'].strip()
-            ]
-            
-            display_categories = await category_display_service.get_article_display_categories(ai_categories)
-            primary_display_category = display_categories[0]['name'] if display_categories else 'Other'
-                    
-            article_data["category"] = primary_display_category
-            article_data["categories"] = display_categories
-            article_data["ai_categories"] = filtered_ai_categories  # Only meaningful AI categories
-            
-            # Use original image URL (media caching removed)
-            article_data["image_url"] = article_data["image_url"]
-            
-            # Add content images
-            content_images = extract_images_from_content(article.content or '')
-            all_media_files = content_images
-            
-            images = [m for m in all_media_files if m.get('type') == 'image'] if all_media_files else []
-            videos = [m for m in all_media_files if m.get('type') == 'video'] if all_media_files else []
-            documents = [m for m in all_media_files if m.get('type') == 'document'] if all_media_files else []
-            
-            # Primary image fallback
-            primary_image = None
-            if images:
-                primary_image = images[0].get('url')
-            elif article.image_url:
-                primary_image = article.image_url
-            
-            # AI categories were filtered above
-            
-            article_data.update({
-                "media_files": all_media_files,
-                "images": images,
-                "videos": videos,
-                "documents": documents,
-                "primary_image": primary_image
-            })
+        # Use DataService for clean database access
+        article_data = await data_service.get_article_by_id(article_id)
         
-        # Return data (session is now closed)
+        if not article_data:
+            raise HTTPException(status_code=404, detail="Article not found")
+        
         return article_data
         
     except HTTPException:
@@ -422,33 +234,11 @@ async def get_public_article(article_id: int):
 
 
 @router.get("/api/public/categories/config")
-async def get_public_categories_config():
-    """Get categories configuration with colors and display names for UI."""
-    from .database import AsyncSessionLocal
-    from .models import Category
+async def get_public_categories_config(data_service: DataService = Depends(get_data_service)):
+    """Get categories configuration using unified DataService."""
     
     try:
-        async with AsyncSessionLocal() as session:
-            # Get all categories with their UI properties
-            query = select(Category.name, Category.display_name, Category.color)
-            result = await session.execute(query)
-            categories = result.fetchall()
-            
-            # Build category config object
-            category_config = {}
-            for cat in categories:
-                category_config[cat.name.lower()] = {
-                    "name": cat.display_name or cat.name,
-                    "color": cat.color or "#6c757d"
-                }
-            
-            # Add special 'all' category
-            category_config["all"] = {
-                "name": "Все",
-                "color": "#17a2b8"
-            }
-            
-            return {"categories": category_config}
+        return await data_service.get_categories_config()
             
     except Exception as e:
         print(f"Categories config error: {e}")
@@ -464,49 +254,16 @@ async def get_public_categories_config():
 @router.get("/api/public/categories")
 async def get_public_categories(
     since_hours: Optional[int] = Query(None, ge=1, le=168),
-    hide_ads: bool = Query(True)
+    hide_ads: bool = Query(True),
+    data_service: DataService = Depends(get_data_service)
 ):
-    """Get category statistics for public feed.
-    Supports optional time window and ads visibility to match the feed.
-    """
-    from .database import AsyncSessionLocal
+    """Get category statistics using unified DataService."""
     
     try:
-        # Base filter conditions
-        conditions = []
-        if hide_ads:
-            conditions.append(Article.is_advertisement != True)
-        if since_hours:
-            since_time = datetime.utcnow() - timedelta(hours=since_hours)
-            conditions.append(Article.published_at >= since_time)
-
-        # Count total articles (respect filters)
-        total_query = select(func.count(Article.id))
-        if conditions:
-            for cond in conditions:
-                total_query = total_query.where(cond)
-        total_count = await count_query(total_query)
-        
-        # Count by category using new system
-        category_query = select(
-            Category.name, 
-            func.count(ArticleCategory.article_id).label('count')
-        ).join(ArticleCategory).join(Article)
-        if conditions:
-            for cond in conditions:
-                category_query = category_query.where(cond)
-        category_query = category_query.group_by(Category.name)
-        
-        categories = await fetch_raw_all(category_query)
-        
-        # Build category stats (advertisements are excluded, shown as badges)
-        category_stats = {"all": total_count}
-        
-        for category_name, count in categories:
-            if category_name:
-                category_stats[category_name.lower()] = count
-        
-        return {"categories": category_stats}
+        return await data_service.get_categories_stats(
+            since_hours=since_hours,
+            hide_ads=hide_ads
+        )
             
     except Exception as e:
         print(f"Categories error: {e}")
@@ -521,7 +278,8 @@ async def search_articles(
     category: Optional[str] = Query(None, description="Filter by category"),
     since_hours: Optional[int] = Query(None, ge=1, le=8760, description="Filter articles from last N hours"),
     sort: str = Query("relevance", regex="^(relevance|date|title)$", description="Sort by: relevance, date, title"),
-    hide_ads: bool = Query(True, description="Hide advertisements from results")
+    hide_ads: bool = Query(True, description="Hide advertisements from results"),
+    db: AsyncSession = Depends(get_db)
 ):
     """
     Search articles by content, title, and summary.
@@ -619,20 +377,19 @@ async def search_articles(
         # Apply pagination
         query = query.offset(offset).limit(limit)
         
-        # Execute queries
-        async with AsyncSessionLocal() as session:
-            # Get articles
-            result = await session.execute(query)
-            articles = result.scalars().all()
-            
-            # Get total count
-            try:
-                count_result = await session.execute(count_query_stmt)
-                total_count = count_result.scalar()
-            except Exception as count_error:
-                logging.warning(f"Count query failed, using fallback: {count_error}")
-                # Fallback: count current results
-                total_count = len(articles) + offset
+        # Execute queries using dependency injection
+        # Get articles
+        result = await db.execute(query)
+        articles = result.scalars().all()
+        
+        # Get total count
+        try:
+            count_result = await db.execute(count_query_stmt)
+            total_count = count_result.scalar()
+        except Exception as count_error:
+            logging.warning(f"Count query failed, using fallback: {count_error}")
+            # Fallback: count current results
+            total_count = len(articles) + offset
         
         # Convert to dict format (reuse logic from get_public_feed)
         articles_data = []

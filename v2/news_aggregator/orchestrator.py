@@ -9,6 +9,7 @@ from typing import List, Dict, Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text
 
+from .database import get_db
 from .database import AsyncSessionLocal
 from .models import Source, Article, ProcessingStat, DailySummary
 from .services.source_manager import SourceManager
@@ -80,13 +81,16 @@ class NewsOrchestrator:
             print("📥 Step 1: Syncing sources and fetching articles...")
             sync_start = time.time()
             
-            async with AsyncSessionLocal() as db:
-                sync_result = await self.source_manager.fetch_from_all_sources(db)
-                total_articles = sum(len(articles) for articles in sync_result.values())
-                stats.update({
-                    'sources_synced': len(sync_result),
-                    'articles_fetched': total_articles
-                })
+            # Use database queue for sync operation
+            async def sync_operation(db):
+                return await self.source_manager.fetch_from_all_sources(db)
+            
+            sync_result = await self.db_queue_manager.execute_write(sync_operation)
+            total_articles = sum(len(articles) for articles in sync_result.values())
+            stats.update({
+                'sources_synced': len(sync_result),
+                'articles_fetched': total_articles
+            })
             
             sync_duration = time.time() - sync_start
             stats['performance']['sync_duration'] = sync_duration
@@ -197,8 +201,8 @@ class NewsOrchestrator:
     async def _process_unprocessed_articles(self, stats: Dict[str, Any]) -> Dict[str, Any]:
         """Process unprocessed articles using specialized processors."""
         try:
-            # Use a single session for the entire operation to avoid session issues
-            async with AsyncSessionLocal() as db:
+            # Use database queue for processing operation
+            async def processing_operation(db):
                 # Get unprocessed articles with eager loading of source relationship
                 from sqlalchemy.orm import selectinload
                 unprocessed_query = select(Article).options(
@@ -287,14 +291,14 @@ class NewsOrchestrator:
                         print(f"  ⚠️ Error processing article {article.id}: {e}")
                         stats['errors'].append(f"Article {article.id}: {str(e)}")
                 
-                # Commit all changes in the same session
-                await db.commit()
-                
+                # Commit will be handled by database queue
                 return {
                     'articles_processed': processed_count,
                     'articles_summarized': summarized_count,
                     'articles_categorized': categorized_count
                 }
+            
+            return await self.db_queue_manager.execute_write(processing_operation)
             
         except Exception as e:
             error_msg = f"Error processing unprocessed articles: {e}"
@@ -307,8 +311,8 @@ class NewsOrchestrator:
         try:
             today = datetime.utcnow().date()
             
-            # Group articles by category
-            async with AsyncSessionLocal() as db:
+            # Use database queue for summary generation
+            async def summary_operation(db):
                 # Get today's articles grouped by category
                 from .models import ArticleCategory, Category
                 
@@ -331,6 +335,8 @@ class NewsOrchestrator:
                 await self.digest_builder.generate_and_save_daily_summaries(db, today, categories)
                 
                 return {'summaries_generated': len(categories)}
+            
+            return await self.db_queue_manager.execute_write(summary_operation)
                 
         except Exception as e:
             error_msg = f"Error generating daily summaries: {e}"
@@ -373,9 +379,11 @@ class NewsOrchestrator:
     async def _save_article_categories(self, article_id: int, categories: List[Dict[str, Any]]):
         """Save article categories using new system (creates own session for backwards compatibility)."""
         try:
-            async with AsyncSessionLocal() as db:
+            async def category_operation(db):
                 await self._save_article_categories_in_session(db, article_id, categories)
-                await db.commit()
+                return {'success': True}
+            
+            await self.db_queue_manager.execute_write(category_operation)
                 
         except Exception as e:
             print(f"  ⚠️ Error saving article categories: {e}")
