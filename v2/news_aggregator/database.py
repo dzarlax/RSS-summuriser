@@ -170,7 +170,7 @@ async def get_db_pool_status():
             "checked_in": engine.pool.checkedin(),
             "checked_out": engine.pool.checkedout(),
             "overflow": engine.pool.overflow(),
-            "invalidated": engine.pool.invalidated()
+            "invalidated_time": getattr(engine.pool, '_invalidated_time', 'unknown')
         }
     except Exception as e:
         return {"error": str(e)}
@@ -186,8 +186,8 @@ async def force_pool_cleanup():
         status_before = await get_db_pool_status()
         logger.info(f"🧹 Pool status before cleanup: {status_before}")
         
-        # Invalidate all connections in pool
-        engine.pool.invalidate()
+        # Dispose of all connections in pool
+        await engine.dispose()
         
         # Get status after cleanup
         status_after = await get_db_pool_status()
