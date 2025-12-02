@@ -39,7 +39,7 @@ class UpdateSourceRequest(BaseModel):
 # Sources Endpoints
 # ============================================================================
 
-@router.get("/")
+@router.get("")
 async def get_sources_api(
     db: AsyncSession = Depends(get_db)
 ):
@@ -74,7 +74,7 @@ async def get_sources_api(
     }
 
 
-@router.post("/")
+@router.post("")
 async def create_source(
     source_data: CreateSourceRequest,
     db: AsyncSession = Depends(get_db)

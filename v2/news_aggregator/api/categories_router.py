@@ -81,10 +81,10 @@ class CategoryMappingUpdateResponse(BaseModel):
 # Categories Endpoints
 # ============================================================================
 
-@router.get("/")
+@router.get("")
 async def get_categories(db: AsyncSession = Depends(get_db)):
     """Get all available categories with article counts."""
-    
+
     # Get categories from new table with article counts
     result = await db.execute(
         select(

@@ -153,12 +153,20 @@ app = FastAPI(
     title="RSS Summarizer v2",
     description="Modern news aggregator with deduplication and web management",
     version="2.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    redirect_slashes=False,  # Disable automatic slash redirects that can break HTTPS
+    root_path="",  # Empty root path for proper URL generation behind proxy
+    # Tell FastAPI we're behind a proxy
+    servers=[
+        {"url": "https://news.dzarlax.dev", "description": "Production server"},
+        {"url": "http://localhost:8000", "description": "Local development"},
+    ]
 )
 
 # Add ProxyHeadersMiddleware to handle HTTPS behind reverse proxy
 # This ensures FastAPI respects X-Forwarded-Proto, X-Forwarded-For, etc.
-app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
+# Note: ProxyHeadersMiddleware trusts ALL X-Forwarded-* headers by default
+app.add_middleware(ProxyHeadersMiddleware)
 
 # Статические файлы
 app.mount("/static", StaticFiles(directory="web/static"), name="static")

@@ -38,7 +38,7 @@ class BackupScheduleSettings(BaseModel):
 # Backup Endpoints
 # ============================================================================
 
-@router.get("/")
+@router.get("")
 async def list_backups():
     """List all available backups."""
     try:
@@ -93,7 +93,7 @@ async def download_backup(filename: str):
         raise HTTPException(status_code=500, detail=f"Failed to download backup: {str(e)}")
 
 
-@router.post("/")
+@router.post("")
 async def create_backup(db: AsyncSession = Depends(get_db)):
     """Create a new backup."""
     try:
