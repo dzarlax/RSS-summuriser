@@ -405,9 +405,70 @@ class DomainStabilityTracker:
                     'average_time_ms': stats.average_extraction_time_ms,
                     'last_failure': stats.last_failure_timestamp
                 })
-        
+
         domains.sort(key=lambda x: (x['success_rate'], -x['total_attempts']))
         return domains[:limit]
+
+    def get_optimal_timeout(self, domain: str, base_timeout_ms: int = 25000) -> int:
+        """Calculate optimal timeout based on domain history.
+
+        Returns timeout in milliseconds, adjusted based on:
+        - Average extraction time for this domain
+        - Success rate (lower success = longer timeout)
+        - Number of previous attempts
+        """
+        if domain not in self.domain_stats:
+            return base_timeout_ms  # Unknown domain, use default
+
+        stats = self.domain_stats[domain]
+
+        if stats.total_attempts == 0:
+            return base_timeout_ms
+
+        # Start with average time + 50% buffer
+        avg_time = stats.average_extraction_time_ms
+        if avg_time > 0:
+            optimal = int(avg_time * 1.5)
+        else:
+            optimal = base_timeout_ms
+
+        # Adjust based on success rate
+        # Low success rate = increase timeout to give more time
+        if stats.success_rate < 0.3:
+            optimal = int(optimal * 1.5)  # Very problematic domain
+        elif stats.success_rate < 0.5:
+            optimal = int(optimal * 1.25)  # Somewhat problematic
+
+        # For stable, fast domains, reduce timeout
+        if stats.is_stable() and avg_time < 5000:
+            optimal = max(int(avg_time * 2), 10000)  # At least 10s
+
+        # Clamp to reasonable bounds
+        min_timeout = 10000  # 10 seconds minimum
+        max_timeout = 60000  # 60 seconds maximum
+        optimal = max(min_timeout, min(optimal, max_timeout))
+
+        return optimal
+
+    def get_method_timeout(self, domain: str, method: str, base_timeout_ms: int = 25000) -> int:
+        """Get timeout optimized for specific extraction method on this domain."""
+        if domain not in self.domain_stats:
+            return base_timeout_ms
+
+        stats = self.domain_stats[domain]
+        method_avg_time = stats.method_avg_times.get(method, 0)
+
+        if method_avg_time > 0:
+            # Use method-specific average + buffer
+            optimal = int(method_avg_time * 1.5)
+        else:
+            # Fall back to domain-level timeout
+            return self.get_optimal_timeout(domain, base_timeout_ms)
+
+        # Clamp to reasonable bounds
+        min_timeout = 10000
+        max_timeout = 60000
+        return max(min_timeout, min(optimal, max_timeout))
     
     def _calculate_overall_success_rate(self) -> float:
         """Calculate overall success rate across all domains."""

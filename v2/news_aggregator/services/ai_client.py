@@ -655,14 +655,15 @@ class AIClient:
                         continue
                     return self._get_fallback_analysis()
                 
-                # Parse JSON response
+                # Parse JSON response - extract from markdown code block if needed
                 try:
-                    result = json.loads(response.strip())
+                    json_str = self._extract_json_from_response(response)
+                    result = json.loads(json_str)
                     print(f"  ✅ Combined analysis successful")
-                    
+
                     # Validate and clean results
                     return self._validate_analysis_result(result, title, content)
-                    
+
                 except json.JSONDecodeError as e:
                     print(f"  ⚠️ JSON parsing error: {e}")
                     print(f"  📄 Raw response: {response[:200]}...")
@@ -752,7 +753,30 @@ class AIClient:
             'content_quality': 0.2,
             'confidence': 0.1  # Legacy field
         }
-    
+
+    def _extract_json_from_response(self, response: str) -> str:
+        """Extract JSON from AI response, handling markdown code blocks."""
+        if not response:
+            return '{}'
+
+        text = response.strip()
+
+        # Handle markdown code block: ```json ... ``` or ``` ... ```
+        import re
+        code_block_match = re.search(r'```(?:json)?\s*\n?([\s\S]*?)\n?```', text)
+        if code_block_match:
+            text = code_block_match.group(1).strip()
+
+        # Try to find JSON object boundaries if not clean
+        if not text.startswith('{'):
+            # Find first { and last }
+            start_idx = text.find('{')
+            end_idx = text.rfind('}')
+            if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                text = text[start_idx:end_idx + 1]
+
+        return text
+
     def _parse_fallback_response(self, response: str) -> Dict[str, Any]:
         """Try to parse non-JSON response as fallback."""
         result = self._get_fallback_analysis()

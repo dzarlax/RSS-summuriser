@@ -1,10 +1,13 @@
-"""Simple extraction memory service without complex database operations."""
+"""Extraction memory service with database persistence."""
 
-import json
 import asyncio
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
+from decimal import Decimal
+
+from sqlalchemy import text
+from ..database import AsyncSessionLocal
 
 
 @dataclass
@@ -47,19 +50,165 @@ class ExtractionAttempt:
 
 
 class ExtractionMemoryService:
-    """Simple in-memory extraction learning service."""
-    
+    """Extraction learning service with database persistence and in-memory cache."""
+
     def __init__(self):
-        # In-memory storage for now
+        # In-memory cache for fast lookups
         self._patterns: Dict[str, List[ExtractionMemoryEntry]] = {}
         self._attempts: List[ExtractionAttempt] = []
         self._domain_stats: Dict[str, Dict] = {}
+        self._initialized = False
+        self._init_lock = asyncio.Lock()
+
+    async def _ensure_initialized(self):
+        """Load patterns from database on first access."""
+        if self._initialized:
+            return
+
+        async with self._init_lock:
+            if self._initialized:
+                return
+
+            try:
+                await self._load_patterns_from_db()
+                self._initialized = True
+                print(f"  ✅ Loaded {sum(len(p) for p in self._patterns.values())} patterns from database")
+            except Exception as e:
+                print(f"  ⚠️ Failed to load patterns from DB, using empty cache: {e}")
+                self._initialized = True
+
+    async def _load_patterns_from_db(self):
+        """Load all patterns from database into memory cache."""
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(text("""
+                SELECT domain, selector_pattern, extraction_strategy,
+                       success_count, failure_count, quality_score_avg,
+                       content_length_avg, discovered_by, is_stable,
+                       consecutive_successes, consecutive_failures,
+                       first_success_at, last_success_at, created_at, updated_at
+                FROM extraction_patterns
+                WHERE success_count > 0 OR failure_count < 5
+                ORDER BY domain, success_count DESC
+            """))
+
+            for row in result.fetchall():
+                domain = row[0]
+                if domain not in self._patterns:
+                    self._patterns[domain] = []
+
+                entry = ExtractionMemoryEntry(
+                    domain=domain,
+                    selector_pattern=row[1],
+                    extraction_strategy=row[2],
+                    success_count=row[3] or 0,
+                    failure_count=row[4] or 0,
+                    success_rate=self._calc_success_rate(row[3] or 0, row[4] or 0),
+                    quality_score_avg=float(row[5] or 0),
+                    content_length_avg=row[6] or 0,
+                    discovered_by=row[7] or 'manual',
+                    is_stable=row[8] or False,
+                    consecutive_successes=row[9] or 0,
+                    consecutive_failures=row[10] or 0,
+                    first_success_at=row[11],
+                    last_success_at=row[12],
+                    created_at=row[13],
+                    updated_at=row[14]
+                )
+                self._patterns[domain].append(entry)
+
+    def _calc_success_rate(self, success_count: int, failure_count: int) -> float:
+        """Calculate success rate percentage."""
+        total = success_count + failure_count
+        return (success_count / total * 100) if total > 0 else 0.0
+
+    async def _save_pattern_to_db(self, entry: ExtractionMemoryEntry):
+        """Save or update a pattern in the database."""
+        try:
+            async with AsyncSessionLocal() as session:
+                await session.execute(text("""
+                    INSERT INTO extraction_patterns
+                        (domain, selector_pattern, extraction_strategy,
+                         success_count, failure_count, quality_score_avg,
+                         content_length_avg, discovered_by, is_stable,
+                         consecutive_successes, consecutive_failures,
+                         first_success_at, last_success_at)
+                    VALUES
+                        (:domain, :selector, :strategy,
+                         :success_count, :failure_count, :quality_avg,
+                         :length_avg, :discovered_by, :is_stable,
+                         :consec_success, :consec_failure,
+                         :first_success, :last_success)
+                    ON CONFLICT (domain, selector_pattern, extraction_strategy)
+                    DO UPDATE SET
+                        success_count = EXCLUDED.success_count,
+                        failure_count = EXCLUDED.failure_count,
+                        quality_score_avg = EXCLUDED.quality_score_avg,
+                        content_length_avg = EXCLUDED.content_length_avg,
+                        is_stable = EXCLUDED.is_stable,
+                        consecutive_successes = EXCLUDED.consecutive_successes,
+                        consecutive_failures = EXCLUDED.consecutive_failures,
+                        last_success_at = EXCLUDED.last_success_at,
+                        updated_at = NOW()
+                """), {
+                    'domain': entry.domain,
+                    'selector': entry.selector_pattern,
+                    'strategy': entry.extraction_strategy,
+                    'success_count': entry.success_count,
+                    'failure_count': entry.failure_count,
+                    'quality_avg': Decimal(str(entry.quality_score_avg)),
+                    'length_avg': entry.content_length_avg,
+                    'discovered_by': entry.discovered_by,
+                    'is_stable': entry.is_stable,
+                    'consec_success': entry.consecutive_successes,
+                    'consec_failure': entry.consecutive_failures,
+                    'first_success': entry.first_success_at,
+                    'last_success': entry.last_success_at
+                })
+                await session.commit()
+        except Exception as e:
+            print(f"  ⚠️ Failed to save pattern to DB: {e}")
+
+    async def _save_attempt_to_db(self, attempt: ExtractionAttempt):
+        """Save extraction attempt to database for analytics."""
+        try:
+            async with AsyncSessionLocal() as session:
+                await session.execute(text("""
+                    INSERT INTO extraction_attempts
+                        (article_url, domain, extraction_strategy, selector_used,
+                         success, content_length, quality_score, extraction_time_ms,
+                         error_message, ai_analysis_triggered, user_agent, http_status_code)
+                    VALUES
+                        (:url, :domain, :strategy, :selector,
+                         :success, :length, :quality, :time_ms,
+                         :error, :ai_triggered, :user_agent, :status_code)
+                """), {
+                    'url': attempt.article_url,
+                    'domain': attempt.domain,
+                    'strategy': attempt.extraction_strategy,
+                    'selector': attempt.selector_used,
+                    'success': attempt.success,
+                    'length': attempt.content_length,
+                    'quality': Decimal(str(attempt.quality_score)) if attempt.quality_score else None,
+                    'time_ms': attempt.extraction_time_ms,
+                    'error': attempt.error_message,
+                    'ai_triggered': attempt.ai_analysis_triggered,
+                    'user_agent': attempt.user_agent,
+                    'status_code': attempt.http_status_code
+                })
+                await session.commit()
+        except Exception as e:
+            print(f"  ⚠️ Failed to save attempt to DB: {e}")
     
     async def record_extraction_attempt(self, attempt: ExtractionAttempt) -> bool:
         """Record an extraction attempt."""
         try:
+            await self._ensure_initialized()
+
             self._attempts.append(attempt)
-            
+
+            # Save to database asynchronously
+            asyncio.create_task(self._save_attempt_to_db(attempt))
+
             # Update in-memory stats
             domain = attempt.domain
             if domain not in self._domain_stats:
@@ -68,21 +217,21 @@ class ExtractionMemoryService:
                     'successful_attempts': 0,
                     'methods': {}
                 }
-            
+
             stats = self._domain_stats[domain]
             stats['total_attempts'] += 1
-            
+
             if attempt.success:
                 stats['successful_attempts'] += 1
-                
+
                 # Update method stats
                 method = attempt.extraction_strategy
                 if method not in stats['methods']:
                     stats['methods'][method] = {'attempts': 0, 'successes': 0}
-                
+
                 stats['methods'][method]['attempts'] += 1
                 stats['methods'][method]['successes'] += 1
-                
+
                 # Add pattern if selector was used
                 if attempt.selector_used:
                     await self._add_successful_pattern(
@@ -94,12 +243,12 @@ class ExtractionMemoryService:
                 method = attempt.extraction_strategy
                 if method not in stats['methods']:
                     stats['methods'][method] = {'attempts': 0, 'successes': 0}
-                
+
                 stats['methods'][method]['attempts'] += 1
-            
+
             print(f"  📝 Recorded {attempt.extraction_strategy} {'success' if attempt.success else 'failure'} for {domain}")
             return True
-            
+
         except Exception as e:
             print(f"❌ Error recording extraction attempt: {e}")
             return False
@@ -124,24 +273,28 @@ class ExtractionMemoryService:
             existing.success_count += 1
             existing.consecutive_successes += 1
             existing.consecutive_failures = 0
-            
+
             # Update averages
             total_successes = existing.success_count
             existing.quality_score_avg = (
-                (existing.quality_score_avg * (total_successes - 1) + quality_score) / 
+                (existing.quality_score_avg * (total_successes - 1) + quality_score) /
                 total_successes
             )
             existing.content_length_avg = int(
-                (existing.content_length_avg * (total_successes - 1) + content_length) / 
+                (existing.content_length_avg * (total_successes - 1) + content_length) /
                 total_successes
             )
-            
+
             # Recalculate success rate
             total_attempts = existing.success_count + existing.failure_count
             existing.success_rate = (existing.success_count / total_attempts) * 100 if total_attempts > 0 else 0
-            
+
             existing.is_stable = existing.consecutive_successes >= 3
             existing.last_success_at = datetime.utcnow()
+            existing.updated_at = datetime.utcnow()
+
+            # Save to database
+            asyncio.create_task(self._save_pattern_to_db(existing))
         else:
             # Create new pattern
             pattern = ExtractionMemoryEntry(
@@ -162,6 +315,9 @@ class ExtractionMemoryService:
                 updated_at=datetime.utcnow()
             )
             self._patterns[domain].append(pattern)
+
+            # Save to database
+            asyncio.create_task(self._save_pattern_to_db(pattern))
         
         print(f"  🎯 Updated pattern: {selector[:40]}... for {domain}")
 
@@ -173,12 +329,14 @@ class ExtractionMemoryService:
             return
         if domain not in self._patterns:
             self._patterns[domain] = []
+
         # Find existing pattern or create a new failed one
         existing = None
         for pattern in self._patterns[domain]:
             if pattern.selector_pattern == selector and pattern.extraction_strategy == strategy:
                 existing = pattern
                 break
+
         if existing:
             existing.failure_count += 1
             existing.consecutive_failures += 1
@@ -187,21 +345,26 @@ class ExtractionMemoryService:
             existing.success_rate = (existing.success_count / total_attempts) * 100 if total_attempts > 0 else 0
             existing.is_stable = False
             existing.updated_at = datetime.utcnow()
+
+            # Save to database
+            asyncio.create_task(self._save_pattern_to_db(existing))
         else:
             # Create a new record with one failure to track negatives
-            self._patterns[domain].append(
-                ExtractionMemoryEntry(
-                    domain=domain,
-                    selector_pattern=selector,
-                    extraction_strategy=strategy,
-                    success_count=0,
-                    failure_count=1,
-                    success_rate=0.0,
-                    is_stable=False,
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow(),
-                )
+            new_pattern = ExtractionMemoryEntry(
+                domain=domain,
+                selector_pattern=selector,
+                extraction_strategy=strategy,
+                success_count=0,
+                failure_count=1,
+                success_rate=0.0,
+                is_stable=False,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
             )
+            self._patterns[domain].append(new_pattern)
+
+            # Save to database
+            asyncio.create_task(self._save_pattern_to_db(new_pattern))
 
     async def degrade_pattern(self, domain: str, selector: str, strategy: str) -> None:
         """Public API to decrease a selector's weight after poor result."""
@@ -227,21 +390,23 @@ class ExtractionMemoryService:
         self, domain: str, strategy: Optional[str] = None, limit: int = 5
     ) -> List[ExtractionMemoryEntry]:
         """Get best extraction patterns for a domain."""
+        await self._ensure_initialized()
+
         if domain not in self._patterns:
             return []
-        
+
         patterns = self._patterns[domain]
-        
+
         if strategy:
             patterns = [p for p in patterns if p.extraction_strategy == strategy]
-        
+
         # Sort by success rate, then by consecutive successes
         patterns = sorted(
             patterns,
             key=lambda p: (p.success_rate, p.consecutive_successes, p.success_count),
             reverse=True
         )
-        
+
         return patterns[:limit]
     
     async def get_domain_extraction_stats(self, domain: str) -> Dict:
@@ -378,27 +543,35 @@ class ExtractionMemoryService:
             'ai_cost_effectiveness': 0  # Not tracked in simple version
         }
     
-    async def get_successful_pattern(self, domain: str) -> Optional[ExtractionMemoryEntry]:
-        """Get the most successful pattern for a domain."""
+    async def get_successful_pattern(self, domain: str) -> Optional[Dict]:
+        """Get the most successful pattern for a domain as dict."""
+        await self._ensure_initialized()
+
         if domain not in self._patterns:
             return None
-        
+
         # Find patterns with success rate > 50% and success count > 0
         successful_patterns = [
             pattern for pattern in self._patterns[domain]
             if pattern.success_count > 0 and pattern.success_rate > 50.0
         ]
-        
+
         if not successful_patterns:
             return None
-        
+
         # Sort by success rate, then by success count
         successful_patterns.sort(
-            key=lambda p: (p.success_rate, p.success_count), 
+            key=lambda p: (p.success_rate, p.success_count),
             reverse=True
         )
-        
-        return successful_patterns[0]
+
+        best = successful_patterns[0]
+        return {
+            'selector': best.selector_pattern,
+            'method': best.extraction_strategy,
+            'success_rate': best.success_rate,
+            'success_count': best.success_count
+        }
 
 
 # Global instance

@@ -170,26 +170,32 @@ class ExtractionStrategies:
                         if not self.browser:
                             playwright = await async_playwright().start()
                             self.browser = await playwright.chromium.launch(headless=True)
-                        
-                        context = await self.browser.new_context()
-                        page = await context.new_page()
-                        await page.goto(url, timeout=PLAYWRIGHT_TIMEOUT_FIRST_MS)
-                        
-                        # Extract metadata through browser
-                        title = await page.title()
-                        if title:
-                            result['title'] = title
-                        
-                        # Get HTML for further metadata extraction
-                        html_content = await page.content()
-                        if html_content:
-                            soup = BeautifulSoup(html_content, 'html.parser')
-                            result['publication_date'] = self.date_extractor.extract_publication_date(soup)
-                            result['author'] = self.metadata_extractor.extract_author_info(soup)
-                            result['description'] = self.metadata_extractor.extract_meta_description(soup)
-                        
-                        await context.close()
-                        
+
+                        context = None
+                        try:
+                            context = await self.browser.new_context()
+                            page = await context.new_page()
+                            await page.goto(url, timeout=PLAYWRIGHT_TIMEOUT_FIRST_MS)
+
+                            # Extract metadata through browser
+                            title = await page.title()
+                            if title:
+                                result['title'] = title
+
+                            # Get HTML for further metadata extraction
+                            html_content = await page.content()
+                            if html_content:
+                                soup = BeautifulSoup(html_content, 'html.parser')
+                                result['publication_date'] = self.date_extractor.extract_publication_date(soup)
+                                result['author'] = self.metadata_extractor.extract_author_info(soup)
+                                result['description'] = self.metadata_extractor.extract_meta_description(soup)
+                        finally:
+                            if context:
+                                try:
+                                    await context.close()
+                                except Exception:
+                                    pass
+
                 except Exception as e:
                     print(f"    ⚠️ Browser metadata extraction failed: {e}")
                 
@@ -292,14 +298,21 @@ class ExtractionStrategies:
         """Extract content using a learned CSS selector pattern."""
         if not pattern or 'selector' not in pattern:
             return None
-        
+
         try:
             html = await self.fetch_html_content(url)
             if not html:
                 return None
-            
+
+            # Use fetched HTML directly instead of re-fetching in extract_with_css_selector
             soup = BeautifulSoup(html, 'html.parser')
-            return await self.extract_with_css_selector(url, pattern['selector'])
+            elements = soup.select(pattern['selector'])
+
+            if elements:
+                content = elements[0].get_text(separator=' ', strip=True)
+                return self.html_processor.clean_text(content)
+
+            return None
         except Exception as e:
             raise ContentExtractionError(f"Learned pattern extraction failed: {e}")
     
@@ -325,51 +338,54 @@ class ExtractionStrategies:
     async def extract_with_playwright_selector(self, url: str, selector: str) -> Optional[str]:
         """Extract content using Playwright with CSS selector."""
         async with self._browser_semaphore:
+            context = None
             try:
                 if not self.browser:
                     playwright = await async_playwright().start()
                     self.browser = await playwright.chromium.launch(headless=True)
-                
+
                 context = await self.browser.new_context()
                 page = await context.new_page()
-                
+
                 await page.goto(url, timeout=PLAYWRIGHT_TIMEOUT_FIRST_MS)
-                
+
                 # Wait for selector and extract content
                 await page.wait_for_selector(selector, timeout=5000)
                 element = await page.query_selector(selector)
-                
+
                 if element:
                     content = await element.inner_text()
                     return self.html_processor.clean_text(content) if content else None
-                
-                await context.close()
-                
+
+                return None
+
             except Exception as e:
                 raise ContentExtractionError(f"Playwright extraction failed: {e}")
-        
-        return None
+            finally:
+                if context:
+                    try:
+                        await context.close()
+                    except Exception:
+                        pass  # Ignore cleanup errors
     
     async def extract_with_encoding_detection(self, url: str) -> Optional[str]:
         """Extract content using automatic encoding detection for international sites."""
         try:
-            import aiohttp
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=self.utils.get_headers()) as response:
+            async with get_http_client() as client:
+                async with await client.get(url, headers=self.utils.get_headers()) as response:
                     if response.status != 200:
                         return None
-                    
+
                     # Get raw bytes
                     content_bytes = await response.read()
-                    
+
                     # Detect encoding
                     encoding_info = chardet.detect(content_bytes)
                     encoding = encoding_info.get('encoding', 'utf-8')
                     confidence = encoding_info.get('confidence', 0)
-                    
+
                     print(f"    🔤 Detected encoding: {encoding} (confidence: {confidence:.2f})")
-                    
+
                     # Decode with detected or fallback encoding
                     html = None
                     if confidence < 0.7:  # Low confidence, try common encodings
@@ -386,7 +402,7 @@ class ExtractionStrategies:
                             html = content_bytes.decode(encoding)
                         except UnicodeDecodeError:
                             html = content_bytes.decode('utf-8', errors='ignore')
-                    
+
                     # Parse and extract
                     soup = BeautifulSoup(html, 'html.parser')
                     content = (
@@ -437,8 +453,21 @@ class ExtractionStrategies:
         """Extract content using browser rendering for JavaScript-heavy sites."""
         print(f"      🎭 Starting browser extraction for: {url[:80]}...")
         budget_start = time.time()
-        
+
+        # Get domain for adaptive timeout
+        from urllib.parse import urlparse
+        domain = urlparse(url).netloc
+
+        # Get adaptive timeout based on domain history
+        stability_tracker = await get_stability_tracker()
+        adaptive_timeout = stability_tracker.get_method_timeout(
+            domain, 'browser_rendering', PLAYWRIGHT_TIMEOUT_FIRST_MS
+        )
+        adaptive_total_budget = min(adaptive_timeout * 3, PLAYWRIGHT_TOTAL_BUDGET_MS)
+        print(f"      ⏱️ Adaptive timeout: {adaptive_timeout}ms (budget: {adaptive_total_budget}ms)")
+
         async with self._browser_semaphore:
+            context = None
             try:
                 if not self.browser:
                     print(f"      🚀 Launching Playwright browser...")
@@ -448,28 +477,28 @@ class ExtractionStrategies:
                         args=['--no-sandbox', '--disable-setuid-sandbox']  # Docker compatibility
                     )
                     print(f"      ✅ Browser launched successfully")
-                
+
                 context = await self.browser.new_context(
                     user_agent='Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
                 )
                 page = await context.new_page()
-                
+
                 # Set up route handler for resource blocking
                 async def route_handler(route):
                     if route.request.resource_type in ["image", "media", "font"]:
                         await route.abort()
                     else:
                         await route.continue_()
-                
+
                 await page.route("**/*", route_handler)
-                
-                # Navigate with timeout
+
+                # Navigate with adaptive timeout
                 def remaining_ms() -> int:
                     elapsed_s = time.time() - budget_start
-                    remaining_s = max(0, PLAYWRIGHT_TOTAL_BUDGET_MS / 1000 - elapsed_s)
+                    remaining_s = max(0, adaptive_total_budget / 1000 - elapsed_s)
                     return int(remaining_s * 1000)
-                
-                timeout_ms = min(PLAYWRIGHT_TIMEOUT_FIRST_MS, remaining_ms())
+
+                timeout_ms = min(adaptive_timeout, remaining_ms())
                 print(f"      🌐 Navigating to URL (timeout: {timeout_ms}ms)...")
                 await page.goto(url, timeout=timeout_ms)
                 print(f"      ✅ Page loaded successfully")
@@ -606,12 +635,17 @@ class ExtractionStrategies:
                     except Exception as e:
                         print(f"        ❌ Body extraction failed: {e}")
                 
-                await context.close()
                 return content
-                
+
             except Exception as e:
                 raise ContentExtractionError(f"Browser extraction failed: {e}")
-    
+            finally:
+                if context:
+                    try:
+                        await context.close()
+                    except Exception:
+                        pass  # Ignore cleanup errors
+
     async def extract_simple_direct(self, url: str) -> Optional[str]:
         """Simple direct extraction as last resort."""
         try:
@@ -632,19 +666,16 @@ class ExtractionStrategies:
             raise ContentExtractionError(f"Simple extraction failed: {e}")
     
     async def fetch_html_content(self, url: str) -> Optional[str]:
-        """Fetch HTML content using HTTP client."""
+        """Fetch HTML content using shared HTTP client."""
         try:
-            # Use aiohttp directly to avoid async generator issues
-            import aiohttp
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=self.utils.get_headers()) as response:
+            async with get_http_client() as client:
+                async with await client.get(url, headers=self.utils.get_headers()) as response:
                     if response.status == 200:
                         return await response.text()
                     else:
                         print(f"    ⚠️ HTTP {response.status} for {url}")
                         return None
-                    
+
         except Exception as e:
             print(f"    ❌ HTML fetch failed: {e}")
             return None

@@ -6,6 +6,7 @@ from .html_processor import HTMLProcessor
 from .date_extractor import DateExtractor
 from .metadata_extractor import MetadataExtractor
 from .extraction_utils import ExtractionUtils
+from .extraction_logger import ExtractionLogger, get_extraction_logger
 
 
 class ContentExtractor:
@@ -63,14 +64,16 @@ async def cleanup_content_extractor():
 
 
 __all__ = [
-    'ContentExtractor', 
-    'get_content_extractor', 
+    'ContentExtractor',
+    'get_content_extractor',
     'cleanup_content_extractor',
     'CoreExtractor',
-    'ExtractionStrategies', 
+    'ExtractionStrategies',
     'HTMLProcessor',
     'DateExtractor',
-    'MetadataExtractor', 
-    'ExtractionUtils'
+    'MetadataExtractor',
+    'ExtractionUtils',
+    'ExtractionLogger',
+    'get_extraction_logger'
 ]
 
