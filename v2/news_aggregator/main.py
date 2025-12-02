@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.middleware.cors import CORSMiddleware
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from .config import settings
@@ -161,6 +162,16 @@ app = FastAPI(
         {"url": "https://news.dzarlax.dev", "description": "Production server"},
         {"url": "http://localhost:8000", "description": "Local development"},
     ]
+)
+
+# Add CORS middleware to allow cross-origin requests
+# This is needed for JavaScript fetch from same origin but with cookies/auth
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, specify exact origins
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Add ProxyHeadersMiddleware to handle HTTPS behind reverse proxy
