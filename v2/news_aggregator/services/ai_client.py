@@ -451,8 +451,8 @@ class AIClient:
             async with response:
                 if response.status == 200:
                     data = await response.json()
-                    # Track AI usage
-                    await self._track_ai_usage(data, analysis_type, domain)
+                    # Track AI usage (fire-and-forget, non-blocking)
+                    self._track_ai_usage(data, analysis_type, domain)
                     return data
                 elif response.status == 429:
                     raise APIError("Rate limit exceeded", status_code=429)
@@ -464,41 +464,47 @@ class AIClient:
                         response_text=error_text
                     )
 
-    async def _track_ai_usage(self, response_data: dict, analysis_type: str, domain: str):
-        """Track AI API usage to database."""
-        try:
-            # Extract token usage from response
-            usage = response_data.get('usage', {})
-            tokens_used = usage.get('total_tokens', 0)
-            prompt_tokens = usage.get('prompt_tokens', 0)
-            completion_tokens = usage.get('completion_tokens', 0)
+    def _track_ai_usage(self, response_data: dict, analysis_type: str, domain: str):
+        """Track AI API usage to database (fire-and-forget)."""
+        import asyncio
 
-            # Estimate cost (approximate pricing)
-            # GPT-4o-mini: ~$0.15/1M input, ~$0.60/1M output
-            cost = (prompt_tokens * 0.00000015) + (completion_tokens * 0.0000006)
+        async def _do_track():
+            try:
+                # Extract token usage from response
+                usage = response_data.get('usage', {})
+                tokens_used = usage.get('total_tokens', 0)
+                prompt_tokens = usage.get('prompt_tokens', 0)
+                completion_tokens = usage.get('completion_tokens', 0)
 
-            from ..database import AsyncSessionLocal
-            from sqlalchemy import text
+                # Estimate cost (approximate pricing)
+                # GPT-4o-mini: ~$0.15/1M input, ~$0.60/1M output
+                cost = (prompt_tokens * 0.00000015) + (completion_tokens * 0.0000006)
 
-            async with AsyncSessionLocal() as session:
-                await session.execute(
-                    text("""
-                        INSERT INTO ai_usage_tracking
-                        (domain, analysis_type, tokens_used, credits_cost, analysis_result)
-                        VALUES (:domain, :analysis_type, :tokens_used, :cost, :result)
-                    """),
-                    {
-                        "domain": domain,
-                        "analysis_type": analysis_type,
-                        "tokens_used": tokens_used,
-                        "cost": cost,
-                        "result": json.dumps({"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens})
-                    }
-                )
-                await session.commit()
-        except Exception as e:
-            # Don't fail the request if tracking fails
-            print(f"  ⚠️ Failed to track AI usage: {e}")
+                from ..database import AsyncSessionLocal
+                from sqlalchemy import text
+
+                async with AsyncSessionLocal() as session:
+                    await session.execute(
+                        text("""
+                            INSERT INTO ai_usage_tracking
+                            (domain, analysis_type, tokens_used, credits_cost, analysis_result)
+                            VALUES (:domain, :analysis_type, :tokens_used, :cost, :result)
+                        """),
+                        {
+                            "domain": domain,
+                            "analysis_type": analysis_type,
+                            "tokens_used": tokens_used,
+                            "cost": cost,
+                            "result": json.dumps({"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens})
+                        }
+                    )
+                    await session.commit()
+            except Exception as e:
+                # Don't fail the request if tracking fails
+                print(f"  ⚠️ Failed to track AI usage: {e}")
+
+        # Fire and forget - don't block the main request
+        asyncio.create_task(_do_track())
     
     # ============================================================================
     # REMOVED: detect_advertising() - Replaced by unified analysis
