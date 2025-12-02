@@ -7,6 +7,8 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from .config import settings
 from .database import init_db, AsyncSessionLocal
@@ -153,6 +155,10 @@ app = FastAPI(
     version="2.0.0",
     lifespan=lifespan
 )
+
+# Add ProxyHeadersMiddleware to handle HTTPS behind reverse proxy
+# This ensures FastAPI respects X-Forwarded-Proto, X-Forwarded-For, etc.
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
 # Статические файлы
 app.mount("/static", StaticFiles(directory="web/static"), name="static")
