@@ -441,7 +441,16 @@ class AIClient:
             'X-KM-AccessKey': self.api_key
         }
 
+        # Log request details
+        print(f"  🌐 API endpoint: {self.endpoint}")
+        print(f"  🤖 Model: {model}")
+        print(f"  📊 Analysis type: {analysis_type}")
+        print(f"  🏷️ Domain: {domain}")
+        print(f"  📝 Prompt length: {len(prompt)} chars")
+        print(f"  🔑 API key present: {'Yes' if self.api_key else 'No'} (length: {len(self.api_key) if self.api_key else 0})")
+
         async with get_http_client() as client:
+            print(f"  📤 Sending request to API...")
             response = await client.post(
                 str(self.endpoint),
                 json=payload,
@@ -450,7 +459,56 @@ class AIClient:
 
             async with response:
                 if response.status == 200:
-                    data = await response.json()
+                    # Log response headers for debugging
+                    content_type = response.headers.get('content-type', '')
+                    print(f"  📋 Response content-type: {content_type}")
+
+                    # Get raw response text first
+                    response_text = await response.text()
+                    print(f"  📄 Response length: {len(response_text)} chars")
+                    print(f"  📝 Response preview: {response_text[:200]}...")
+
+                    # Check if response is empty
+                    if not response_text or not response_text.strip():
+                        print(f"  ⚠️ Empty response from API")
+                        raise APIError("Empty response from API", status_code=200, response_text="")
+
+                    # Try to parse JSON - support both raw JSON and markdown-wrapped JSON
+                    data = None
+                    last_error = None
+
+                    # Strategy 1: Try parsing as-is (raw JSON)
+                    try:
+                        print(f"  🔍 Attempt 1: Parsing as raw JSON...")
+                        data = json.loads(response_text)
+                        print(f"  ✅ Raw JSON parsed successfully")
+                    except json.JSONDecodeError as e:
+                        print(f"  ⚠️ Raw JSON parsing failed: {e}")
+                        last_error = e
+
+                    # Strategy 2: Extract from markdown code block and parse
+                    if data is None:
+                        try:
+                            print(f"  🔍 Attempt 2: Extracting from markdown code block...")
+                            json_str = self._extract_json_from_response(response_text)
+                            print(f"  📝 Extracted JSON length: {len(json_str)} chars")
+
+                            data = json.loads(json_str)
+                            print(f"  ✅ Markdown-wrapped JSON parsed successfully")
+                        except json.JSONDecodeError as e:
+                            print(f"  ⚠️ Markdown extraction parsing failed: {e}")
+                            last_error = e
+
+                    # If both strategies failed, raise error
+                    if data is None:
+                        print(f"  ❌ All JSON parsing strategies failed")
+                        print(f"  📄 Response preview: {response_text[:500]}...")
+                        raise APIError(
+                            f"Invalid JSON response from API (tried both raw and markdown): {last_error}",
+                            status_code=200,
+                            response_text=response_text
+                        )
+
                     # Track AI usage (fire-and-forget, non-blocking)
                     self._track_ai_usage(data, analysis_type, domain)
                     return data
@@ -458,6 +516,7 @@ class AIClient:
                     raise APIError("Rate limit exceeded", status_code=429)
                 else:
                     error_text = await response.text()
+                    print(f"  ❌ API error {response.status}: {error_text[:500]}...")
                     raise APIError(
                         f"AI API error: {response.status}",
                         status_code=response.status,
