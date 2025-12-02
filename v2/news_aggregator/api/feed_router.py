@@ -110,7 +110,7 @@ def clean_summary_text(raw_summary: str) -> str:
     return cleaned_summary.strip()
 
 
-@router.get("")
+@router.get("/")
 async def api_root():
     """API root endpoint with available endpoints."""
     return {
