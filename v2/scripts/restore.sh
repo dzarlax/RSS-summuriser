@@ -83,40 +83,59 @@ if [ -d "$BACKUP_DIR/logs" ]; then
     echo "✅ Logs restored"
 fi
 
-# 3. Start Database Container
-echo "🐳 Starting PostgreSQL container..."
-docker-compose -f "$COMPOSE_FILE" up -d postgres
-echo "⏳ Waiting for PostgreSQL to be ready..."
-sleep 15
+# 3. Start Application Container (Database is external MariaDB)
+echo "🐳 Starting application container..."
+docker-compose -f "$COMPOSE_FILE" up -d app
+echo "⏳ Waiting for application to be ready..."
+sleep 10
 
-# Проверяем что PostgreSQL запустился
+# MariaDB connection settings (from docker-compose.yml)
+DB_HOST="192.168.50.5"
+DB_PORT="3306"
+DB_USER="dzarlax"
+DB_PASS=""
+
+# Determine which database to restore to
+CONTAINER_NAME="v2-app-1"
+if docker exec $CONTAINER_NAME printenv DATABASE_URL | grep -q "newsdbdev"; then
+    DB_NAME="newsdbdev"
+    echo "📊 Restoring to MariaDB database (DEV): $DB_NAME"
+else
+    DB_NAME="newsdb"
+    echo "📊 Restoring to MariaDB database (PROD): $DB_NAME"
+fi
+
+# Проверяем что MariaDB доступна
 RETRIES=0
 MAX_RETRIES=30
-while ! docker exec v2-postgres-1 pg_isready -U newsuser -d newsdb > /dev/null 2>&1; do
+while ! docker exec $CONTAINER_NAME mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p"$DB_PASS" -e "SELECT 1" > /dev/null 2>&1; do
     RETRIES=$((RETRIES + 1))
     if [ $RETRIES -eq $MAX_RETRIES ]; then
-        echo "❌ PostgreSQL failed to start after $MAX_RETRIES attempts"
+        echo "❌ MariaDB failed to connect after $MAX_RETRIES attempts"
         exit 1
     fi
-    echo "⏳ Waiting for PostgreSQL... ($RETRIES/$MAX_RETRIES)"
+    echo "⏳ Waiting for MariaDB... ($RETRIES/$MAX_RETRIES)"
     sleep 2
 done
 
 # 4. Restore Database
 echo "📊 Restoring database..."
 if [ -f "$BACKUP_DIR/database.sql" ]; then
-    echo "🧹 Clearing existing data..."
-    docker exec v2-postgres-1 psql -U newsuser -d newsdb -c "
-        TRUNCATE TABLE articles CASCADE;
-        TRUNCATE TABLE daily_summaries CASCADE;
-        TRUNCATE TABLE processing_stats CASCADE;
-        TRUNCATE TABLE task_queue CASCADE;
-        TRUNCATE TABLE sources CASCADE;
-        TRUNCATE TABLE settings CASCADE;
-        TRUNCATE TABLE schedule_settings CASCADE;
-    "
+    echo "⚠️  Warning: This will overwrite all data in $DB_NAME database"
+    read -p "Continue? (y/N): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        echo "❌ Restore cancelled"
+        exit 1
+    fi
+
     echo "📥 Importing database dump..."
-    docker exec -i v2-postgres-1 psql -U newsuser -d newsdb < "$BACKUP_DIR/database.sql"
+    docker exec -i $CONTAINER_NAME mysql \
+        -h "$DB_HOST" \
+        -P "$DB_PORT" \
+        -u "$DB_USER" \
+        -p"$DB_PASS" \
+        "$DB_NAME" < "$BACKUP_DIR/database.sql"
     echo "✅ Database restored"
 else
     echo "⚠️ database.sql not found, starting with fresh database"

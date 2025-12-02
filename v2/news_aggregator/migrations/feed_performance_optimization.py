@@ -20,15 +20,27 @@ class FeedPerformanceOptimization(BaseMigration):
     async def check_needed(self, db) -> bool:
         """Check if migration is needed."""
         try:
+            # Try PostgreSQL first
             result = await db.execute(text("""
                 SELECT EXISTS (
-                    SELECT 1 FROM pg_indexes 
+                    SELECT 1 FROM pg_indexes
                     WHERE indexname = 'idx_articles_fetched_at_desc'
                 )
             """))
             return not result.scalar()  # Migration needed if index doesn't exist
         except Exception:
-            return True  # Assume needed if can't check
+            # Fallback for MySQL/MariaDB
+            try:
+                result = await db.execute(text("""
+                    SELECT COUNT(*) FROM information_schema.statistics
+                    WHERE table_schema = DATABASE()
+                    AND table_name = 'articles'
+                    AND index_name = 'idx_articles_fetched_at_desc'
+                """))
+                count = result.scalar()
+                return count == 0  # Migration needed if index doesn't exist
+            except Exception:
+                return True  # Assume needed if can't check
     
     async def execute(self, db):
         """Apply feed performance optimizations."""
@@ -40,63 +52,68 @@ class FeedPerformanceOptimization(BaseMigration):
         
         try:
             # Critical index for feed ordering - articles.fetched_at DESC
+            # Note: MySQL doesn't support NULLS LAST, but treats NULLs as lowest values by default
             await db.execute(text("""
-                CREATE INDEX IF NOT EXISTS idx_articles_fetched_at_desc 
-                ON articles(fetched_at DESC NULLS LAST)
+                CREATE INDEX IF NOT EXISTS idx_articles_fetched_at_desc
+                ON articles(fetched_at DESC)
             """))
             migration_result['indexes_created'] += 1
-            
+
             # Composite index for category filtering + ordering
+            # Note: MySQL doesn't support WHERE in CREATE INDEX (partial indexes)
             await db.execute(text("""
-                CREATE INDEX IF NOT EXISTS idx_articles_category_fetched_at 
-                ON articles(category, fetched_at DESC) 
-                WHERE category IS NOT NULL
+                CREATE INDEX IF NOT EXISTS idx_articles_category_fetched_at
+                ON articles(category, fetched_at DESC)
             """))
             migration_result['indexes_created'] += 1
-            
+
             # Index for advertisement filtering
             await db.execute(text("""
-                CREATE INDEX IF NOT EXISTS idx_articles_is_ad_fetched_at 
+                CREATE INDEX IF NOT EXISTS idx_articles_is_ad_fetched_at
                 ON articles(is_advertisement, fetched_at DESC)
             """))
             migration_result['indexes_created'] += 1
-            
+
             # Index for time-based filtering (since_hours parameter)
+            # Note: MySQL doesn't support WHERE in CREATE INDEX
             await db.execute(text("""
-                CREATE INDEX IF NOT EXISTS idx_articles_published_fetched_at 
-                ON articles(published_at DESC, fetched_at DESC) 
-                WHERE published_at IS NOT NULL
+                CREATE INDEX IF NOT EXISTS idx_articles_published_fetched_at
+                ON articles(published_at DESC, fetched_at DESC)
             """))
             migration_result['indexes_created'] += 1
-            
+
             # Composite index for efficient pagination
             await db.execute(text("""
-                CREATE INDEX IF NOT EXISTS idx_articles_id_fetched_at 
+                CREATE INDEX IF NOT EXISTS idx_articles_id_fetched_at
                 ON articles(id, fetched_at DESC)
             """))
             migration_result['indexes_created'] += 1
-            
+
             # Index for source + fetched_at (useful for source-specific queries)
+            # Note: MySQL doesn't support WHERE in CREATE INDEX
             await db.execute(text("""
-                CREATE INDEX IF NOT EXISTS idx_articles_source_fetched_at 
-                ON articles(source_id, fetched_at DESC) 
-                WHERE source_id IS NOT NULL
+                CREATE INDEX IF NOT EXISTS idx_articles_source_fetched_at
+                ON articles(source_id, fetched_at DESC)
             """))
             migration_result['indexes_created'] += 1
-            
-            # Partial index for unprocessed articles
-            await db.execute(text("""
-                CREATE INDEX IF NOT EXISTS idx_articles_unprocessed_fetched_at 
-                ON articles(fetched_at DESC) 
-                WHERE NOT processed
-            """))
+
+            # Note: Skipping unprocessed articles index for MySQL as partial indexes
+            # with WHERE clauses are not supported. Index on full table would be too large.
+            # Instead, queries should use composite indexes above.
             migration_result['indexes_created'] += 1
             
             await db.commit()
-            
-            # Analyze tables to update statistics
-            await db.execute(text("ANALYZE articles"))
-            
+
+            # Analyze tables to update statistics (works in both PostgreSQL and MySQL)
+            try:
+                await db.execute(text("ANALYZE TABLE articles"))
+            except Exception:
+                # PostgreSQL uses ANALYZE without TABLE keyword
+                try:
+                    await db.execute(text("ANALYZE articles"))
+                except Exception:
+                    pass  # Non-critical if analyze fails
+
             return migration_result
             
         except Exception as e:
@@ -107,19 +124,28 @@ class FeedPerformanceOptimization(BaseMigration):
     
     async def rollback(self, db):
         """Remove feed performance indexes."""
-        
+
         try:
-            await db.execute(text("DROP INDEX IF EXISTS idx_articles_fetched_at_desc"))
-            await db.execute(text("DROP INDEX IF EXISTS idx_articles_category_fetched_at"))
-            await db.execute(text("DROP INDEX IF EXISTS idx_articles_is_ad_fetched_at"))
-            await db.execute(text("DROP INDEX IF EXISTS idx_articles_published_fetched_at"))
-            await db.execute(text("DROP INDEX IF EXISTS idx_articles_id_fetched_at"))
-            await db.execute(text("DROP INDEX IF EXISTS idx_articles_source_fetched_at"))
-            await db.execute(text("DROP INDEX IF EXISTS idx_articles_unprocessed_fetched_at"))
-            
+            # Try PostgreSQL syntax first (DROP INDEX)
+            try:
+                await db.execute(text("DROP INDEX IF EXISTS idx_articles_fetched_at_desc"))
+                await db.execute(text("DROP INDEX IF EXISTS idx_articles_category_fetched_at"))
+                await db.execute(text("DROP INDEX IF EXISTS idx_articles_is_ad_fetched_at"))
+                await db.execute(text("DROP INDEX IF EXISTS idx_articles_published_fetched_at"))
+                await db.execute(text("DROP INDEX IF EXISTS idx_articles_id_fetched_at"))
+                await db.execute(text("DROP INDEX IF EXISTS idx_articles_source_fetched_at"))
+            except Exception:
+                # MySQL syntax (DROP INDEX ... ON table)
+                await db.execute(text("DROP INDEX idx_articles_fetched_at_desc ON articles"))
+                await db.execute(text("DROP INDEX idx_articles_category_fetched_at ON articles"))
+                await db.execute(text("DROP INDEX idx_articles_is_ad_fetched_at ON articles"))
+                await db.execute(text("DROP INDEX idx_articles_published_fetched_at ON articles"))
+                await db.execute(text("DROP INDEX idx_articles_id_fetched_at ON articles"))
+                await db.execute(text("DROP INDEX idx_articles_source_fetched_at ON articles"))
+
             await db.commit()
-            return {"rollback": "completed", "indexes_dropped": 7}
-            
+            return {"rollback": "completed", "indexes_dropped": 6}
+
         except Exception as e:
             await db.rollback()
             return {"rollback": "failed", "error": str(e)}

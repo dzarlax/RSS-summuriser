@@ -57,14 +57,14 @@ class CategoryMappingResponse(BaseModel):
     id: int
     ai_category: str
     fixed_category: str
-    confidence_threshold: float
-    description: Optional[str]
-    created_by: str
-    usage_count: int
-    last_used: Optional[datetime]
-    is_active: bool
-    created_at: datetime
-    updated_at: datetime
+    confidence_threshold: Optional[float] = 0.0
+    description: Optional[str] = None
+    created_by: Optional[str] = 'system'
+    usage_count: Optional[int] = 0
+    last_used: Optional[datetime] = None
+    is_active: Optional[bool] = True
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 
 class CategoryMappingUpdateResponse(BaseModel):

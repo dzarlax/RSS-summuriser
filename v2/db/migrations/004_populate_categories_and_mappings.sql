@@ -1,22 +1,23 @@
 -- Migration: 004_populate_categories_and_mappings
 -- Description: Populate categories table and create category_mapping table with default mappings
 -- Date: 2024-12-02
+-- Compatibility: PostgreSQL and MySQL/MariaDB
 
 -- ============================================================================
 -- 1. Create category_mapping table if not exists
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS category_mapping (
-    id SERIAL PRIMARY KEY,
+    id INT AUTO_INCREMENT PRIMARY KEY,  -- Changed from SERIAL for MySQL compatibility
     ai_category VARCHAR(100) NOT NULL UNIQUE,
     fixed_category VARCHAR(50) NOT NULL,
     confidence_threshold FLOAT DEFAULT 0.0,
     description TEXT,
     created_by VARCHAR(100) DEFAULT 'system',
     usage_count INTEGER DEFAULT 0,
-    last_used TIMESTAMP,
+    last_used TIMESTAMP NULL,  -- Changed to allow NULL for MySQL
     is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,  -- Changed from NOW() for MySQL
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP  -- MySQL auto-update
 );
 
 CREATE INDEX IF NOT EXISTS idx_category_mapping_ai_category ON category_mapping(ai_category);
@@ -26,6 +27,7 @@ CREATE INDEX IF NOT EXISTS idx_category_mapping_is_active ON category_mapping(is
 -- ============================================================================
 -- 2. Populate 7 fixed categories
 -- ============================================================================
+-- MySQL syntax: ON DUPLICATE KEY UPDATE (PostgreSQL uses ON CONFLICT)
 INSERT INTO categories (name, display_name, color) VALUES
   ('Serbia', 'Сербия', '#dc3545'),
   ('Tech', 'Технологии', '#0d6efd'),
@@ -34,9 +36,9 @@ INSERT INTO categories (name, display_name, color) VALUES
   ('Politics', 'Политика', '#fd7e14'),
   ('International', 'Международные', '#20c997'),
   ('Other', 'Прочее', '#6c757d')
-ON CONFLICT (name) DO UPDATE SET
-  display_name = EXCLUDED.display_name,
-  color = EXCLUDED.color;
+ON DUPLICATE KEY UPDATE
+  display_name = VALUES(display_name),
+  color = VALUES(color);
 
 -- ============================================================================
 -- 3. Populate category mappings (AI category -> Fixed category)
@@ -48,10 +50,10 @@ INSERT INTO category_mapping (ai_category, fixed_category, description, created_
   ('Defense', 'Politics', 'Defense news maps to Politics', 'system'),
   ('War', 'Politics', 'War news maps to Politics', 'system'),
   ('Armed Forces', 'Politics', 'Armed Forces maps to Politics', 'system')
-ON CONFLICT (ai_category) DO UPDATE SET
-  fixed_category = EXCLUDED.fixed_category,
-  description = EXCLUDED.description,
-  updated_at = NOW();
+ON DUPLICATE KEY UPDATE
+  fixed_category = VALUES(fixed_category),
+  description = VALUES(description),
+  updated_at = CURRENT_TIMESTAMP;
 
 -- International Relations -> International
 INSERT INTO category_mapping (ai_category, fixed_category, description, created_by) VALUES
@@ -64,10 +66,10 @@ INSERT INTO category_mapping (ai_category, fixed_category, description, created_
   ('Europe', 'International', 'Europe news maps to International', 'system'),
   ('USA', 'International', 'USA news maps to International', 'system'),
   ('China', 'International', 'China news maps to International', 'system')
-ON CONFLICT (ai_category) DO UPDATE SET
-  fixed_category = EXCLUDED.fixed_category,
-  description = EXCLUDED.description,
-  updated_at = NOW();
+ON DUPLICATE KEY UPDATE
+  fixed_category = VALUES(fixed_category),
+  description = VALUES(description),
+  updated_at = CURRENT_TIMESTAMP;
 
 -- Health/Medical -> Science
 INSERT INTO category_mapping (ai_category, fixed_category, description, created_by) VALUES
@@ -76,10 +78,10 @@ INSERT INTO category_mapping (ai_category, fixed_category, description, created_
   ('Medicine', 'Science', 'Medicine news maps to Science', 'system'),
   ('Healthcare', 'Science', 'Healthcare news maps to Science', 'system'),
   ('Research', 'Science', 'Research news maps to Science', 'system')
-ON CONFLICT (ai_category) DO UPDATE SET
-  fixed_category = EXCLUDED.fixed_category,
-  description = EXCLUDED.description,
-  updated_at = NOW();
+ON DUPLICATE KEY UPDATE
+  fixed_category = VALUES(fixed_category),
+  description = VALUES(description),
+  updated_at = CURRENT_TIMESTAMP;
 
 -- Technology -> Tech
 INSERT INTO category_mapping (ai_category, fixed_category, description, created_by) VALUES
@@ -90,10 +92,10 @@ INSERT INTO category_mapping (ai_category, fixed_category, description, created_
   ('Hardware', 'Tech', 'Hardware news maps to Tech', 'system'),
   ('Cybersecurity', 'Tech', 'Cybersecurity maps to Tech', 'system'),
   ('Internet', 'Tech', 'Internet news maps to Tech', 'system')
-ON CONFLICT (ai_category) DO UPDATE SET
-  fixed_category = EXCLUDED.fixed_category,
-  description = EXCLUDED.description,
-  updated_at = NOW();
+ON DUPLICATE KEY UPDATE
+  fixed_category = VALUES(fixed_category),
+  description = VALUES(description),
+  updated_at = CURRENT_TIMESTAMP;
 
 -- Economy/Finance -> Business
 INSERT INTO category_mapping (ai_category, fixed_category, description, created_by) VALUES
@@ -104,10 +106,10 @@ INSERT INTO category_mapping (ai_category, fixed_category, description, created_
   ('Banking', 'Business', 'Banking news maps to Business', 'system'),
   ('Crypto', 'Business', 'Crypto news maps to Business', 'system'),
   ('Cryptocurrency', 'Business', 'Cryptocurrency news maps to Business', 'system')
-ON CONFLICT (ai_category) DO UPDATE SET
-  fixed_category = EXCLUDED.fixed_category,
-  description = EXCLUDED.description,
-  updated_at = NOW();
+ON DUPLICATE KEY UPDATE
+  fixed_category = VALUES(fixed_category),
+  description = VALUES(description),
+  updated_at = CURRENT_TIMESTAMP;
 
 -- Government/Law -> Politics
 INSERT INTO category_mapping (ai_category, fixed_category, description, created_by) VALUES
@@ -117,10 +119,10 @@ INSERT INTO category_mapping (ai_category, fixed_category, description, created_
   ('Elections', 'Politics', 'Elections news maps to Politics', 'system'),
   ('Security', 'Politics', 'Security news maps to Politics', 'system'),
   ('Human Rights', 'Politics', 'Human Rights maps to Politics', 'system')
-ON CONFLICT (ai_category) DO UPDATE SET
-  fixed_category = EXCLUDED.fixed_category,
-  description = EXCLUDED.description,
-  updated_at = NOW();
+ON DUPLICATE KEY UPDATE
+  fixed_category = VALUES(fixed_category),
+  description = VALUES(description),
+  updated_at = CURRENT_TIMESTAMP;
 
 -- Environment -> Science
 INSERT INTO category_mapping (ai_category, fixed_category, description, created_by) VALUES
@@ -129,10 +131,10 @@ INSERT INTO category_mapping (ai_category, fixed_category, description, created_
   ('Nature', 'Science', 'Nature news maps to Science', 'system'),
   ('Ecology', 'Science', 'Ecology news maps to Science', 'system'),
   ('Space', 'Science', 'Space news maps to Science', 'system')
-ON CONFLICT (ai_category) DO UPDATE SET
-  fixed_category = EXCLUDED.fixed_category,
-  description = EXCLUDED.description,
-  updated_at = NOW();
+ON DUPLICATE KEY UPDATE
+  fixed_category = VALUES(fixed_category),
+  description = VALUES(description),
+  updated_at = CURRENT_TIMESTAMP;
 
 -- Lifestyle/Culture -> Other
 INSERT INTO category_mapping (ai_category, fixed_category, description, created_by) VALUES
@@ -143,10 +145,10 @@ INSERT INTO category_mapping (ai_category, fixed_category, description, created_
   ('Society', 'Other', 'Society news maps to Other', 'system'),
   ('Events', 'Other', 'Events news maps to Other', 'system'),
   ('News', 'Other', 'General news maps to Other', 'system')
-ON CONFLICT (ai_category) DO UPDATE SET
-  fixed_category = EXCLUDED.fixed_category,
-  description = EXCLUDED.description,
-  updated_at = NOW();
+ON DUPLICATE KEY UPDATE
+  fixed_category = VALUES(fixed_category),
+  description = VALUES(description),
+  updated_at = CURRENT_TIMESTAMP;
 
 -- ============================================================================
 -- 4. Verification queries (optional - for manual check)

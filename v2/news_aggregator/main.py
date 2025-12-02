@@ -201,8 +201,15 @@ except ImportError as e:
 
 # Admin routes (optional - only if auth dependencies are available)
 try:
+    from fastapi.responses import RedirectResponse
     from .admin import router as admin_router
     app.include_router(admin_router, prefix="/admin")
+
+    # Add redirect from /admin to /admin/ (needed because redirect_slashes=False)
+    @app.get("/admin")
+    async def redirect_to_admin():
+        return RedirectResponse(url="/admin/", status_code=307)
+
     print("✅ Admin interface enabled")
 except ImportError as e:
     print(f"⚠️ Admin interface disabled (missing dependency): {e}")

@@ -62,3 +62,5 @@ backups/
 .claude/
 SOURCES_FROM_BACKUPS.md
 # media_cache/ - removed, media caching disabled
+scripts/backup.sh
+scripts/restore.sh

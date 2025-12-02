@@ -11,3 +11,5 @@ venv_news
 __pycache__
 v2/docker-compose.dev.yml
 v2/PUBLIC_API_DOCS.md
+v2/scripts/backup.sh
+v2/scripts/restore.sh

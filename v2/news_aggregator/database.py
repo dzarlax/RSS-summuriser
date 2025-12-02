@@ -8,8 +8,30 @@ from sqlalchemy import text
 from .config import settings
 
 # Create async engine with enhanced connection pool settings
+# Detect database type and set appropriate driver
+db_url = settings.database_url
+if db_url.startswith("postgresql://"):
+    db_url = db_url.replace("postgresql://", "postgresql+asyncpg://")
+    connect_args = {
+        "server_settings": {
+            "application_name": "RSS_Aggregator_V2",
+            "statement_timeout": str(settings.db_statement_timeout),
+        },
+        "command_timeout": 60,
+    }
+elif db_url.startswith("mysql://") and "+aiomysql" not in db_url:
+    db_url = db_url.replace("mysql://", "mysql+aiomysql://")
+    connect_args = {
+        "charset": "utf8mb4",
+    }
+else:
+    # Already has driver specified or is mysql+aiomysql
+    connect_args = {
+        "charset": "utf8mb4",
+    }
+
 engine = create_async_engine(
-    settings.database_url.replace("postgresql://", "postgresql+asyncpg://"),
+    db_url,
     echo=False,  # Disabled SQL logging for cleaner logs
     future=True,
     pool_size=settings.db_pool_size,
@@ -17,16 +39,8 @@ engine = create_async_engine(
     pool_timeout=settings.db_pool_timeout,
     pool_pre_ping=settings.db_pool_pre_ping,
     pool_recycle=settings.db_pool_recycle,
-    # Enhanced pool cleanup settings - force cleanup of connections
-    pool_reset_on_return='rollback',  # More aggressive cleanup on return
-    connect_args={
-        "server_settings": {
-            "application_name": "RSS_Aggregator_V2",
-            "statement_timeout": str(settings.db_statement_timeout),  # Configurable timeout
-        },
-        # Enhanced timeout settings for asyncpg
-        "command_timeout": 60,  # Individual command timeout
-    }
+    pool_reset_on_return='rollback',
+    connect_args=connect_args
 )
 
 # Create async session factory with enhanced settings
@@ -44,76 +58,31 @@ Base = declarative_base()
 
 
 async def init_db():
-    """Initialize database."""
-    import os
+    """Initialize database using SQLAlchemy models."""
     import logging
-    from pathlib import Path
-    
+
     logger = logging.getLogger(__name__)
     logger.info("🔧 Checking database initialization...")
-    
-    try:
-        # Check if database is already initialized
-        async with AsyncSessionLocal() as session:
-            await session.execute(text("SELECT 1 FROM articles LIMIT 1"))
-            logger.info("✅ Database already initialized")
-            return
-    except Exception:
-        # База не инициализирована, выполняем init.sql
-        logger.info("🚀 Initializing database from init.sql...")
-        
-        # Путь к init.sql
-        init_sql_path = Path(__file__).parent.parent / "db" / "init.sql"
-        
-        if not init_sql_path.exists():
-            logger.error(f"❌ init.sql not found at {init_sql_path}")
-            raise FileNotFoundError(f"init.sql not found at {init_sql_path}")
-        
-        # Читаем и выполняем init.sql
-        with open(init_sql_path, 'r', encoding='utf-8') as f:
-            init_sql = f.read()
-        
-        # Используем psql для выполнения сложного SQL с функциями  
-        import subprocess
-        import tempfile
-        
-        # Создаем временный файл с SQL
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.sql', delete=False) as tmp_file:
-            tmp_file.write(init_sql)
-            tmp_sql_path = tmp_file.name
-        
-        try:
-            # Execute via psql using parsed settings from database_url
-            from urllib.parse import urlparse
-            parsed = urlparse(settings.database_url)
-            host = parsed.hostname or 'localhost'
-            port = str(parsed.port or 5432)
-            user = parsed.username or 'postgres'
-            password = parsed.password or ''
-            dbname = (parsed.path or '/postgres').lstrip('/')
 
-            env = os.environ.copy()
-            if password:
-                env['PGPASSWORD'] = password
-            
-            result = subprocess.run([
-                'psql',
-                '-h', host,
-                '-p', port,
-                '-U', user,
-                '-d', dbname,
-                '-f', tmp_sql_path
-            ], env=env, capture_output=True, text=True)
-            
-            if result.returncode != 0:
-                logger.error(f"❌ psql failed: {result.stderr}")
-                raise RuntimeError(f"Database initialization failed: {result.stderr}")
-                
-        finally:
-            # Удаляем временный файл
-            os.unlink(tmp_sql_path)
-        
-        logger.info("✅ Database initialization completed")
+    try:
+        # Import all models to ensure they're registered
+        from . import models  # noqa
+
+        # Always run create_all - it's idempotent and only creates missing tables
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+
+        # Verify database is accessible
+        async with AsyncSessionLocal() as session:
+            await session.execute(text("SELECT 1"))
+            logger.info("✅ Database initialized and all tables created")
+
+        # Migrations will be run by the migration manager in main.py
+        logger.info("ℹ️  Migrations will be run by the universal migration manager")
+
+    except Exception as init_error:
+        logger.error(f"❌ Database initialization failed: {init_error}")
+        raise RuntimeError(f"Database initialization failed: {init_error}")
 
 
 async def get_db():

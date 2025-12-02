@@ -1,10 +1,14 @@
 """Backup service for managing backup schedules and operations."""
 
+import asyncio
 import json
 import logging
+import re
+import tarfile
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, Tuple
+from urllib.parse import urlparse
 
 import pytz
 from sqlalchemy import select
@@ -12,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import AsyncSessionLocal
 from ..models import ScheduleSettings
+from ..config import settings
 
 
 logger = logging.getLogger(__name__)
@@ -19,10 +24,178 @@ logger = logging.getLogger(__name__)
 
 class BackupService:
     """Service for managing backup schedules and operations."""
-    
+
     def __init__(self):
         self.project_root = Path(__file__).parent.parent.parent
         self.config_file = self.project_root / "backup_schedule.json"
+        self.backups_dir = self.project_root / "backups"
+        self.container_name = "v2-app-1"
+
+    def _parse_database_url(self) -> Tuple[str, str, str, str, str]:
+        """Parse DATABASE_URL to extract connection details."""
+        db_url = settings.database_url
+
+        # Parse URL
+        parsed = urlparse(db_url)
+
+        # Extract components
+        host = parsed.hostname or "localhost"
+        port = str(parsed.port or 3306)
+        username = parsed.username or "root"
+        password = parsed.password or ""
+        database = parsed.path.lstrip('/') or "newsdb"
+
+        return host, port, username, password, database
+
+    async def _run_mysqldump(self, backup_file: Path) -> bool:
+        """Run mysqldump via Docker container to create database backup."""
+        try:
+            host, port, username, password, database = self._parse_database_url()
+
+            logger.info(f"Creating database backup: {database} @ {host}:{port}")
+
+            # Build mysqldump command
+            cmd = [
+                "docker", "exec", self.container_name,
+                "mysqldump",
+                "-h", host,
+                "-P", port,
+                "-u", username,
+                f"-p{password}",
+                "--single-transaction",
+                "--routines",
+                "--triggers",
+                "--events",
+                database
+            ]
+
+            # Run mysqldump and redirect output to file
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            stdout, stderr = await process.communicate()
+
+            if process.returncode != 0:
+                error_msg = stderr.decode() if stderr else "Unknown error"
+                logger.error(f"mysqldump failed: {error_msg}")
+                return False
+
+            # Write dump to file
+            backup_file.write_bytes(stdout)
+            logger.info(f"Database dump saved: {backup_file} ({backup_file.stat().st_size / 1024 / 1024:.2f} MB)")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Error running mysqldump: {e}")
+            return False
+
+    async def create_backup(self) -> Path:
+        """Create a complete backup including database, config, and data.
+
+        Returns:
+            Path to the created backup archive.
+
+        Raises:
+            RuntimeError: If backup creation fails.
+        """
+        try:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_name = f"backup_{timestamp}"
+            backup_dir = self.backups_dir / backup_name
+
+            # Create backup directory
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Created backup directory: {backup_dir}")
+
+            # 1. Database Backup
+            logger.info("Creating database backup...")
+            db_dump_file = backup_dir / "database.sql"
+            if not await self._run_mysqldump(db_dump_file):
+                raise RuntimeError("Database backup failed")
+
+            # 2. Configuration Backup
+            logger.info("Backing up configuration files...")
+            env_file = self.project_root / ".env"
+            if env_file.exists():
+                import shutil
+                shutil.copy2(env_file, backup_dir / ".env")
+                logger.info("✅ .env copied")
+
+            compose_file = self.project_root / "docker-compose.yml"
+            if compose_file.exists():
+                import shutil
+                shutil.copy2(compose_file, backup_dir / "docker-compose.yml")
+                logger.info("✅ docker-compose.yml copied")
+
+            # 3. Application Data Backup
+            logger.info("Backing up application data...")
+            data_dir = self.project_root / "data"
+            if data_dir.exists():
+                import shutil
+                shutil.copytree(data_dir, backup_dir / "data")
+                logger.info("✅ Application data copied")
+
+            logs_dir = self.project_root / "logs"
+            if logs_dir.exists():
+                import shutil
+                shutil.copytree(logs_dir, backup_dir / "logs")
+                logger.info("✅ Logs copied")
+
+            # 4. Create backup metadata
+            logger.info("Creating backup metadata...")
+            _, _, _, _, database = self._parse_database_url()
+            metadata = {
+                "backup_date": datetime.utcnow().isoformat(),
+                "database": database,
+                "database_type": "MariaDB",
+                "version": "v2.0",
+                "host": "internal_hostname",
+                "contents": [
+                    "database.sql - Full MariaDB dump",
+                    ".env - Environment configuration",
+                    "docker-compose.yml - Docker configuration",
+                    "data/ - Application data files",
+                    "logs/ - Application logs"
+                ]
+            }
+
+            metadata_file = backup_dir / "backup_info.json"
+            metadata_file.write_text(json.dumps(metadata, indent=2))
+            logger.info("✅ Backup metadata created")
+
+            # 5. Create archive
+            logger.info("Creating backup archive...")
+            archive_name = f"news_aggregator_backup_{timestamp}.tar.gz"
+            archive_path = self.backups_dir / archive_name
+
+            with tarfile.open(archive_path, "w:gz") as tar:
+                tar.add(backup_dir, arcname=backup_name)
+
+            logger.info(f"✅ Archive created: {archive_path} ({archive_path.stat().st_size / 1024 / 1024:.2f} MB)")
+
+            # 6. Cleanup temporary backup directory
+            import shutil
+            shutil.rmtree(backup_dir)
+            logger.info("✅ Temporary backup directory cleaned up")
+
+            # 7. Update last backup timestamp in config
+            config = await self.get_schedule_config()
+            config["last_backup"] = datetime.utcnow().isoformat()
+            with open(self.config_file, 'w') as f:
+                json.dump(config, f, indent=2)
+
+            logger.info(f"🎉 Backup completed successfully: {archive_path}")
+            return archive_path
+
+        except Exception as e:
+            logger.error(f"Backup creation failed: {e}")
+            import traceback
+            traceback.print_exc()
+            raise RuntimeError(f"Backup creation failed: {e}")
     
     async def get_schedule_config(self) -> Dict[str, Any]:
         """Get backup schedule configuration."""

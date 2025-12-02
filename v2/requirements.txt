@@ -3,9 +3,10 @@ fastapi>=0.104.1
 uvicorn[standard]>=0.24.0
 
 # Database
-asyncpg>=0.29.0
+aiomysql>=0.2.0  # Async MySQL/MariaDB driver
 alembic>=1.13.0
 sqlalchemy[asyncio]>=2.0.23
+PyMySQL>=1.1.0  # Fallback sync driver
 
 # HTTP clients
 aiohttp>=3.9.1
@@ -65,9 +66,6 @@ rich>=13.7.0
 
 # Telegraph integration
 telegraph>=2.2.0
-
-# PostgreSQL для backup
-psycopg2-binary>=2.9.7
 
 # Process monitoring
 psutil>=5.9.6                 # System and process monitoring

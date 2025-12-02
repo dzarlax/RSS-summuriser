@@ -5,7 +5,7 @@ from typing import List, Optional
 
 from sqlalchemy import (
     Boolean, Column, DateTime, Date, Float, ForeignKey, Integer,
-    String, Text, JSON, ARRAY, DECIMAL, UniqueConstraint
+    String, Text, JSON, DECIMAL, UniqueConstraint
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -174,7 +174,7 @@ class NewsCluster(Base):
     canonical_title = Column(Text, nullable=False)
     canonical_summary = Column(Text)
     canonical_image = Column(Text)
-    topics = Column(ARRAY(String))
+    topics = Column(JSON)  # Changed from ARRAY(String) for MySQL compatibility
     similarity_threshold = Column(Float, default=0.8)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())

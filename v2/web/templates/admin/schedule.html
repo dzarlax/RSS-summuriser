@@ -9,14 +9,98 @@
     <div class="admin-main">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
             <h1>Расписание задач</h1>
-            <div class="schedule-status" id="schedule-status">
-                <span class="status-indicator" id="status-indicator"></span>
-                <span id="status-text">Загрузка...</span>
+            <div style="display: flex; gap: 15px; align-items: center;">
+                <button class="btn-create" onclick="showCreateModal()">
+                    ➕ Создать расписание
+                </button>
+                <div class="schedule-status" id="schedule-status">
+                    <span class="status-indicator" id="status-indicator"></span>
+                    <span id="status-text">Загрузка...</span>
+                </div>
             </div>
         </div>
 
         <div id="schedule-container" class="schedule-grid">
             <div class="loading">Загрузка настроек расписания...</div>
+        </div>
+
+        <!-- Create Schedule Modal -->
+        <div id="createModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Создать новое расписание</h2>
+                    <span class="close" onclick="closeCreateModal()">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>Тип задачи *</label>
+                        <select id="new-task-type" onchange="updateTaskTypeDescription()">
+                            <option value="">-- Выберите тип задачи --</option>
+                            <option value="news_digest">📰 Новостной дайджест (полный цикл)</option>
+                            <option value="news_processing">🔄 Синхронизация новостей (без отправки)</option>
+                            <option value="backup">💾 Автоматический бэкап</option>
+                            <option value="custom">✏️ Своя задача (ввести вручную)</option>
+                        </select>
+                    </div>
+                    <div id="task-description" class="task-info" style="display:none; margin-bottom: 15px; padding: 10px; background: #f8f9fa; border-radius: 4px; font-size: 13px; color: #666;"></div>
+                    <div class="form-group" id="custom-task-name-group" style="display:none">
+                        <label>Название задачи *</label>
+                        <input type="text" id="new-task-name" placeholder="Например: custom_backup">
+                        <small style="color: #666; font-size: 12px;">Используйте только латиницу, цифры и подчёркивание</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Тип расписания</label>
+                        <select id="new-schedule-type" onchange="updateCreateForm()">
+                            <option value="daily">Ежедневно</option>
+                            <option value="hourly">Каждый час</option>
+                            <option value="interval">Каждые N минут</option>
+                        </select>
+                    </div>
+                    <div class="form-group" id="new-hour-group">
+                        <label>Час (0-23)</label>
+                        <input type="number" id="new-hour" min="0" max="23" value="0">
+                    </div>
+                    <div class="form-group" id="new-minute-group">
+                        <label>Минута (0-59)</label>
+                        <input type="number" id="new-minute" min="0" max="59" value="0">
+                    </div>
+                    <div class="form-group" id="new-interval-group" style="display:none">
+                        <label>Интервал (минуты)</label>
+                        <input type="number" id="new-interval" min="1" max="1440" value="30">
+                    </div>
+                    <div class="form-group" id="new-weekdays-group">
+                        <label>Дни недели</label>
+                        <div class="weekdays-selector" id="new-weekdays">
+                            <button type="button" class="weekday-btn active" data-day="1">Пн</button>
+                            <button type="button" class="weekday-btn active" data-day="2">Вт</button>
+                            <button type="button" class="weekday-btn active" data-day="3">Ср</button>
+                            <button type="button" class="weekday-btn active" data-day="4">Чт</button>
+                            <button type="button" class="weekday-btn active" data-day="5">Пт</button>
+                            <button type="button" class="weekday-btn active" data-day="6">Сб</button>
+                            <button type="button" class="weekday-btn active" data-day="7">Вс</button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Часовой пояс</label>
+                        <select id="new-timezone">
+                            <option value="Europe/Belgrade" selected>Europe/Belgrade</option>
+                            <option value="Europe/Moscow">Europe/Moscow</option>
+                            <option value="Europe/London">Europe/London</option>
+                            <option value="UTC">UTC</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>
+                            <input type="checkbox" id="new-enabled" checked>
+                            Включено
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-cancel" onclick="closeCreateModal()">Отмена</button>
+                    <button class="btn-submit" onclick="createSchedule()">Создать</button>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -256,6 +340,115 @@ input:checked + .slider:before {
 .news_processing { border-left: 4px solid #28a745; }
 .telegram_digest { border-left: 4px solid #0088cc; opacity: 0.7; }
 .daily_summaries { border-left: 4px solid #fd7e14; opacity: 0.7; }
+
+/* Create Button */
+.btn-create {
+    background: #28a745;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: background 0.3s ease;
+}
+
+.btn-create:hover {
+    background: #218838;
+}
+
+/* Modal Styles */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    overflow: auto;
+    background-color: rgba(0,0,0,0.5);
+}
+
+.modal-content {
+    background-color: #fefefe;
+    margin: 5% auto;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 600px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px;
+    border-bottom: 1px solid #e1e5e9;
+}
+
+.modal-header h2 {
+    margin: 0;
+    font-size: 20px;
+}
+
+.close {
+    color: #aaa;
+    font-size: 28px;
+    font-weight: bold;
+    cursor: pointer;
+    line-height: 20px;
+}
+
+.close:hover,
+.close:focus {
+    color: #000;
+}
+
+.modal-body {
+    padding: 20px;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 20px;
+    border-top: 1px solid #e1e5e9;
+}
+
+.btn-cancel {
+    background: #6c757d;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.btn-cancel:hover {
+    background: #5a6268;
+}
+
+.btn-submit {
+    background: #007bff;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.btn-submit:hover {
+    background: #0056b3;
+}
 </style>
 
 <script>
@@ -528,10 +721,10 @@ async function saveScheduleSetting(taskName) {
 function updateScheduleStatus() {
     const enabledTasks = Object.values(scheduleSettings).filter(s => s.enabled).length;
     const totalTasks = Object.keys(scheduleSettings).length;
-    
+
     const indicator = document.getElementById('status-indicator');
     const statusText = document.getElementById('status-text');
-    
+
     if (enabledTasks === 0) {
         indicator.className = 'status-indicator stopped';
         statusText.textContent = 'Все задачи отключены';
@@ -541,6 +734,183 @@ function updateScheduleStatus() {
     } else {
         indicator.className = 'status-indicator running';
         statusText.textContent = `${enabledTasks} из ${totalTasks} задач активны`;
+    }
+}
+
+// Modal functions
+function showCreateModal() {
+    document.getElementById('createModal').style.display = 'block';
+    // Add click handlers for weekday buttons
+    document.querySelectorAll('#new-weekdays .weekday-btn').forEach(btn => {
+        btn.onclick = function() {
+            this.classList.toggle('active');
+        };
+    });
+}
+
+function closeCreateModal() {
+    document.getElementById('createModal').style.display = 'none';
+    // Reset form
+    document.getElementById('new-task-type').value = '';
+    document.getElementById('new-task-name').value = '';
+    document.getElementById('task-description').style.display = 'none';
+    document.getElementById('custom-task-name-group').style.display = 'none';
+    document.getElementById('new-schedule-type').value = 'daily';
+    document.getElementById('new-hour').value = 0;
+    document.getElementById('new-minute').value = 0;
+    document.getElementById('new-interval').value = 30;
+    document.getElementById('new-timezone').value = 'Europe/Belgrade';
+    document.getElementById('new-enabled').checked = true;
+    document.querySelectorAll('#new-weekdays .weekday-btn').forEach(btn => {
+        btn.classList.add('active');
+    });
+    updateCreateForm();
+}
+
+function updateTaskTypeDescription() {
+    const taskType = document.getElementById('new-task-type').value;
+    const descriptionDiv = document.getElementById('task-description');
+    const customNameGroup = document.getElementById('custom-task-name-group');
+
+    const descriptions = {
+        'news_digest': '🔄 Полный цикл обработки новостей:<br>• Синхронизация всех источников<br>• AI категоризация и суммаризация<br>• Генерация дневных сводок<br>• Отправка дайджеста в Telegram',
+        'news_processing': '📥 Только синхронизация и обработка:<br>• Получение новых статей из источников<br>• AI категоризация и суммаризация<br>• БЕЗ отправки в Telegram<br>• Используется для фоновой обработки',
+        'backup': '💾 Автоматическое резервное копирование:<br>• Создание дампа базы данных (MariaDB)<br>• Сохранение конфигурационных файлов<br>• Архивирование данных приложения<br>• Создание tar.gz архива',
+        'custom': '✏️ Своя задача:<br>• Введите уникальное название задачи<br>• Задача должна быть реализована в коде<br>• Используйте только латиницу, цифры и _'
+    };
+
+    if (taskType && descriptions[taskType]) {
+        descriptionDiv.innerHTML = descriptions[taskType];
+        descriptionDiv.style.display = 'block';
+    } else {
+        descriptionDiv.style.display = 'none';
+    }
+
+    // Show/hide custom name input
+    if (taskType === 'custom') {
+        customNameGroup.style.display = 'block';
+    } else {
+        customNameGroup.style.display = 'none';
+    }
+}
+
+function updateCreateForm() {
+    const scheduleType = document.getElementById('new-schedule-type').value;
+    const hourGroup = document.getElementById('new-hour-group');
+    const minuteGroup = document.getElementById('new-minute-group');
+    const intervalGroup = document.getElementById('new-interval-group');
+    const weekdaysGroup = document.getElementById('new-weekdays-group');
+
+    if (scheduleType === 'hourly') {
+        hourGroup.style.display = 'none';
+        minuteGroup.style.display = 'block';
+        intervalGroup.style.display = 'none';
+        weekdaysGroup.style.display = 'block';
+    } else if (scheduleType === 'interval') {
+        hourGroup.style.display = 'none';
+        minuteGroup.style.display = 'none';
+        intervalGroup.style.display = 'block';
+        weekdaysGroup.style.display = 'none';
+    } else { // daily
+        hourGroup.style.display = 'block';
+        minuteGroup.style.display = 'block';
+        intervalGroup.style.display = 'none';
+        weekdaysGroup.style.display = 'block';
+    }
+}
+
+async function createSchedule() {
+    const taskType = document.getElementById('new-task-type').value;
+
+    if (!taskType) {
+        alert('Пожалуйста, выберите тип задачи');
+        return;
+    }
+
+    let taskName;
+    if (taskType === 'custom') {
+        taskName = document.getElementById('new-task-name').value.trim();
+        if (!taskName) {
+            alert('Пожалуйста, введите название задачи');
+            return;
+        }
+        // Validate custom task name
+        if (!/^[a-zA-Z0-9_]+$/.test(taskName)) {
+            alert('Название задачи должно содержать только латинские буквы, цифры и подчёркивание');
+            return;
+        }
+    } else {
+        taskName = taskType;
+    }
+
+    const enabled = document.getElementById('new-enabled').checked;
+    const scheduleType = document.getElementById('new-schedule-type').value;
+    const hour = parseInt(document.getElementById('new-hour').value);
+    const minute = parseInt(document.getElementById('new-minute').value);
+    const timezone = document.getElementById('new-timezone').value;
+
+    // Get selected weekdays
+    const weekdays = [];
+    document.querySelectorAll('#new-weekdays .weekday-btn.active').forEach(btn => {
+        weekdays.push(parseInt(btn.dataset.day));
+    });
+
+    let taskConfig = {};
+    if (scheduleType === 'interval') {
+        const intervalMinutes = parseInt(document.getElementById('new-interval').value) || 30;
+        taskConfig = { interval_minutes: intervalMinutes };
+    }
+
+    const scheduleData = {
+        task_name: taskName,
+        enabled,
+        schedule_type: scheduleType,
+        hour,
+        minute,
+        weekdays,
+        timezone,
+        task_config: taskConfig
+    };
+
+    try {
+        const submitBtn = document.querySelector('.btn-submit');
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Создание...';
+
+        const response = await fetch('/api/v1/schedule/settings', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(scheduleData)
+        });
+
+        const result = await response.json();
+
+        if (response.ok && result.success) {
+            closeCreateModal();
+            // Reload schedule settings
+            await loadScheduleSettings();
+            alert('Расписание успешно создано!');
+        } else {
+            throw new Error(result.detail || result.message || 'Ошибка создания расписания');
+        }
+
+    } catch (error) {
+        console.error('Error creating schedule:', error);
+        alert(`Ошибка: ${error.message}`);
+
+        const submitBtn = document.querySelector('.btn-submit');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Создать';
+    }
+}
+
+// Close modal when clicking outside
+window.onclick = function(event) {
+    const modal = document.getElementById('createModal');
+    if (event.target == modal) {
+        closeCreateModal();
     }
 }
 </script>

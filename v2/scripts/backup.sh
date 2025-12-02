@@ -1,12 +1,20 @@
 #!/bin/bash
 
-# RSS Summarizer v2 - Backup Script
+# RSS Summarizer v2 - Backup Script (MariaDB version)
 # Создает полное резервное копирование всех данных для переноса сервиса
 
 set -e
 
 BACKUP_DIR="./backups/$(date +%Y%m%d_%H%M%S)"
-CONTAINER_NAME="v2-postgres-1"
+CONTAINER_NAME="v2-app-1"
+
+# MariaDB connection settings (from docker-compose.yml)
+DB_HOST="192.168.50.5"
+DB_PORT="3306"
+DB_USER="dzarlax"
+DB_PASS=""
+DB_NAME_PROD="newsdb"
+DB_NAME_DEV="newsdbdev"
 
 echo "🗄️ RSS Summarizer v2 - Backup Starting..."
 echo "📁 Backup directory: $BACKUP_DIR"
@@ -14,13 +22,30 @@ echo "📁 Backup directory: $BACKUP_DIR"
 # Создаем директорию для бэкапа
 mkdir -p "$BACKUP_DIR"
 
-# 1. Database Backup
-echo "📊 Backing up PostgreSQL database..."
+# Determine which database to backup
+if docker exec $CONTAINER_NAME printenv DATABASE_URL | grep -q "newsdbdev"; then
+    DB_NAME="$DB_NAME_DEV"
+    echo "📊 Backing up MariaDB database (DEV): $DB_NAME"
+else
+    DB_NAME="$DB_NAME_PROD"
+    echo "📊 Backing up MariaDB database (PROD): $DB_NAME"
+fi
+
+# 1. Database Backup using mysqldump from container
 if docker ps --format 'table {{.Names}}' | grep -q "$CONTAINER_NAME"; then
-    docker exec $CONTAINER_NAME pg_dump -U newsuser -d newsdb --data-only --column-inserts --rows-per-insert=1 > "$BACKUP_DIR/database.sql"
+    docker exec $CONTAINER_NAME mysqldump \
+        -h "$DB_HOST" \
+        -P "$DB_PORT" \
+        -u "$DB_USER" \
+        -p"$DB_PASS" \
+        --single-transaction \
+        --routines \
+        --triggers \
+        --events \
+        "$DB_NAME" > "$BACKUP_DIR/database.sql"
     echo "✅ Database backup completed"
 else
-    echo "⚠️ Warning: PostgreSQL container not running, skipping database backup"
+    echo "⚠️ Warning: Application container not running, skipping database backup"
 fi
 
 # 2. Configuration Backup
@@ -59,13 +84,13 @@ cat > "$BACKUP_DIR/backup_info.txt" << EOF
 RSS Summarizer v2 - Backup Information
 ======================================
 Backup Date: $(date)
-Database: newsdb
+Database: $DB_NAME (MariaDB @ $DB_HOST:$DB_PORT)
 Container: $CONTAINER_NAME
-Version: v2.0
+Version: v2.0 (MariaDB)
 Host: $(hostname)
 
 Contents:
-- database.sql: Full PostgreSQL dump
+- database.sql: Full MariaDB dump (mysqldump format)
 - .env: Environment configuration
 - docker-compose.yml: Docker configuration
 - db/: Database migrations and init scripts
