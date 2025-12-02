@@ -18,9 +18,9 @@ LABEL org.opencontainers.image.created=$BUILDTIME \
 
 WORKDIR /app
 
-# Install additional system dependencies (PostgreSQL client, libmagic for MIME detection)
+# Install additional system dependencies (MariaDB client, libmagic for MIME detection)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    postgresql-client \
+    mariadb-client \
     curl \
     libmagic-dev \
     && rm -rf /var/lib/apt/lists/* \

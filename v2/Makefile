@@ -10,18 +10,18 @@ help: ## Show this help message
 
 check-data: ## Check existing data in volumes
 	@echo "🔍 Checking existing data..."
-	@echo "📦 PostgreSQL data volume:"
-	@docker run --rm -v v2_postgres_data:/data alpine sh -c "ls -la /data/ | head -10" 2>/dev/null || echo "No PostgreSQL data found"
-	@echo ""
 	@echo "💾 App cache volume:"
 	@docker run --rm -v v2_app_cache:/data alpine sh -c "ls -la /data/ | head -10" 2>/dev/null || echo "No cache data found"
+	@echo ""
+	@echo "📁 App data directories:"
+	@ls -la data/ logs/ backups/ 2>/dev/null || echo "No local data directories found"
 
 dev: ## Start development environment (with hot reload)
 	docker-compose -f docker-compose.dev.yml up -d
 	@echo "🚀 Development environment started!"
 	@echo "📱 Admin: http://localhost:8000/admin"
 	@echo "📚 API Docs: http://localhost:8000/docs"
-	@echo "🗄️ Database: localhost:5432"
+	@echo "🗄️ Database: MariaDB at 192.168.50.5:3306 (external)"
 	@echo "⚡ Hot reload enabled - code changes apply automatically!"
 
 stop: ## Stop all containers
@@ -39,14 +39,35 @@ logs: ## Show application logs
 shell: ## Open shell in app container
 	docker-compose -f docker-compose.dev.yml exec app /bin/bash
 
-db-shell: ## Open PostgreSQL shell
-	docker-compose -f docker-compose.dev.yml exec postgres psql -U newsuser -d newsdb
+db-shell: ## Open MariaDB shell (external database)
+	@echo "🗄️ Connecting to external MariaDB..."
+	docker run -it --rm mariadb:11 mysql -h 192.168.50.5 -u dzarlax -p newsdbdev
 
 ##@ Production
+
+build: ## Build Docker image
+	@echo "🏗️ Building Docker image..."
+	docker build -f docker/Dockerfile -t dzarlax/rss-summarizer:latest \
+		--build-arg BUILDTIME="$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+		--build-arg VERSION="$(shell git describe --tags --always 2>/dev/null || echo 'dev')" \
+		--build-arg REVISION="$(shell git rev-parse --short HEAD 2>/dev/null || echo 'unknown')" \
+		.
+	@echo "✅ Docker image built successfully!"
+
+push: build ## Build and push Docker image to registry
+	@echo "🚀 Pushing Docker image to registry..."
+	docker push dzarlax/rss-summarizer:latest
+	@echo "✅ Docker image pushed successfully!"
 
 prod: ## Start production environment
 	docker-compose up -d
 	@echo "🚀 Production environment started!"
+
+prod-update: ## Pull latest image and restart production
+	@echo "⬇️ Pulling latest Docker image..."
+	docker-compose pull
+	docker-compose up -d --force-recreate
+	@echo "✅ Production updated and restarted!"
 
 ##@ Application
 
@@ -79,8 +100,9 @@ format: ## Format code
 
 setup: ## Initial setup
 	@echo "🔧 Setting up RSS Summarizer v2..."
-	cp .env.example .env
+	cp .env.example .env 2>/dev/null || echo "⚠️ .env.example not found, create .env manually"
 	@echo "📝 Please edit .env file with your configuration"
+	@echo "🔗 Database: External MariaDB at 192.168.50.5:3306"
 	@echo "🐳 Run 'make dev' to start development environment"
 
 install: ## Install local dependencies (for IDE)
@@ -107,17 +129,17 @@ restore: ## Restore from backup (usage: make restore BACKUP=./backups/20241231_1
 export: ## Export current data for migration
 	@echo "📤 Exporting data for migration..."
 	@mkdir -p exports
-	docker exec v2-postgres-1 pg_dump -U newsuser -d newsdb > exports/migration_$(shell date +%Y%m%d_%H%M%S).sql
-	@echo "✅ Database exported to exports/"
+	@echo "🗄️ Using external MariaDB - run mysqldump manually:"
+	@echo "   mysqldump -h 192.168.50.5 -u dzarlax -p newsdb > exports/migration_$(shell date +%Y%m%d_%H%M%S).sql"
 
 import: ## Import data from migration file (usage: make import FILE=./exports/migration.sql)
 	@if [ -z "$(FILE)" ]; then \
 		echo "❌ Usage: make import FILE=./exports/migration.sql"; \
 		exit 1; \
 	fi
-	@echo "📥 Importing data..."
-	docker exec -i v2-postgres-1 psql -U newsuser -d newsdb < $(FILE)
-	@echo "✅ Data imported successfully"
+	@echo "📥 Importing data to external MariaDB..."
+	@echo "🗄️ Run manually:"
+	@echo "   mysql -h 192.168.50.5 -u dzarlax -p newsdb < $(FILE)"
 
 migration-prepare: ## Prepare for migration to new server
 	@echo "📦 Preparing migration package..."
@@ -142,9 +164,9 @@ cleanup-backups: ## Remove backups older than 30 days
 	@echo "✅ Cleanup completed"
 
 db-size: ## Show database size
-	@echo "📊 Database size information:"
-	@docker exec v2-postgres-1 psql -U newsuser -d newsdb -c "\l+"
-	@docker exec v2-postgres-1 psql -U newsuser -d newsdb -c "\dt+"
+	@echo "📊 Database size information (external MariaDB):"
+	@echo "🗄️ Run manually:"
+	@echo "   docker run -it --rm mariadb:11 mysql -h 192.168.50.5 -u dzarlax -p -e 'SELECT table_schema, SUM(data_length + index_length) / 1024 / 1024 AS size_mb FROM information_schema.tables WHERE table_schema = \"newsdb\" GROUP BY table_schema;'"
 
 volumes-list: ## List Docker volumes
 	@echo "📦 Docker volumes:"
@@ -156,6 +178,6 @@ volumes-list: ## List Docker volumes
 volumes-backup: ## Backup Docker volumes
 	@echo "💾 Backing up Docker volumes..."
 	@mkdir -p backups/volumes
-	@docker run --rm -v v2_postgres_data:/data -v $(PWD)/backups/volumes:/backup alpine tar czf /backup/postgres_data_$(shell date +%Y%m%d_%H%M%S).tar.gz -C /data .
 	@docker run --rm -v v2_app_cache:/data -v $(PWD)/backups/volumes:/backup alpine tar czf /backup/app_cache_$(shell date +%Y%m%d_%H%M%S).tar.gz -C /data . 2>/dev/null || true
+	@docker run --rm -v app_cache:/data -v $(PWD)/backups/volumes:/backup alpine tar czf /backup/app_cache_prod_$(shell date +%Y%m%d_%H%M%S).tar.gz -C /data . 2>/dev/null || true
 	@echo "✅ Volumes backed up to backups/volumes/"
