@@ -405,48 +405,54 @@ class AIClient:
             print(f"  ⚠️ Error generating digest: {e}")
             raise APIError(f"Failed to generate digest: {e}")
     
-    async def _make_raw_ai_request(self, prompt: str, model: str = None) -> dict:
+    async def _make_raw_ai_request(self, prompt: str, model: str = None,
+                                    analysis_type: str = "combined_analysis",
+                                    domain: str = "unknown") -> dict:
         """
         Make raw AI API request for custom analysis (like DOM structure analysis).
-        
+
         Args:
             prompt: Raw prompt text
             model: Model to use (defaults to summarization_model)
-            
+            analysis_type: Type of analysis for tracking
+            domain: Domain being analyzed for tracking
+
         Returns:
             Raw API response dict
         """
         if not model:
             model = self.summarization_model
-        
+
         payload = {
             "model": model,
             "messages": [
                 {
-                    "role": "user", 
+                    "role": "user",
                     "content": prompt
                 }
             ],
             "max_tokens": 2000,
             "temperature": 0.1  # Low temperature for consistent analysis
         }
-        
+
         headers = {
             'Content-Type': 'application/json',
             'Accept': 'application/json',
             'X-KM-AccessKey': self.api_key
         }
-        
+
         async with get_http_client() as client:
             response = await client.post(
                 str(self.endpoint),
                 json=payload,
                 headers=headers
             )
-            
+
             async with response:
                 if response.status == 200:
                     data = await response.json()
+                    # Track AI usage
+                    await self._track_ai_usage(data, analysis_type, domain)
                     return data
                 elif response.status == 429:
                     raise APIError("Rate limit exceeded", status_code=429)
@@ -457,6 +463,42 @@ class AIClient:
                         status_code=response.status,
                         response_text=error_text
                     )
+
+    async def _track_ai_usage(self, response_data: dict, analysis_type: str, domain: str):
+        """Track AI API usage to database."""
+        try:
+            # Extract token usage from response
+            usage = response_data.get('usage', {})
+            tokens_used = usage.get('total_tokens', 0)
+            prompt_tokens = usage.get('prompt_tokens', 0)
+            completion_tokens = usage.get('completion_tokens', 0)
+
+            # Estimate cost (approximate pricing)
+            # GPT-4o-mini: ~$0.15/1M input, ~$0.60/1M output
+            cost = (prompt_tokens * 0.00000015) + (completion_tokens * 0.0000006)
+
+            from ..database import AsyncSessionLocal
+            from sqlalchemy import text
+
+            async with AsyncSessionLocal() as session:
+                await session.execute(
+                    text("""
+                        INSERT INTO ai_usage_tracking
+                        (domain, analysis_type, tokens_used, credits_cost, analysis_result)
+                        VALUES (:domain, :analysis_type, :tokens_used, :cost, :result)
+                    """),
+                    {
+                        "domain": domain,
+                        "analysis_type": analysis_type,
+                        "tokens_used": tokens_used,
+                        "cost": cost,
+                        "result": json.dumps({"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens})
+                    }
+                )
+                await session.commit()
+        except Exception as e:
+            # Don't fail the request if tracking fails
+            print(f"  ⚠️ Failed to track AI usage: {e}")
     
     # ============================================================================
     # REMOVED: detect_advertising() - Replaced by unified analysis
@@ -640,9 +682,15 @@ class AIClient:
                 print(f"  🧠 Combined AI analysis for article{retry_text}...")
                 print(f"  📄 Content length: {len(content)} characters")
                 print(f"  📝 Title: {title[:100]}...")
-                
+
+                # Extract domain for tracking
+                from urllib.parse import urlparse
+                domain = urlparse(url).netloc if url else "unknown"
+
                 # Make API request
-                response_data = await self._make_raw_ai_request(prompt)
+                response_data = await self._make_raw_ai_request(
+                    prompt, analysis_type="combined_analysis", domain=domain
+                )
                 response = ''
                 if response_data and 'choices' in response_data and response_data['choices']:
                     response = response_data['choices'][0]['message']['content']

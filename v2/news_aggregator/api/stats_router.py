@@ -170,6 +170,155 @@ async def get_queue_stats():
         return {"error": str(e)}
 
 
+@router.get("/ai-usage")
+async def get_ai_usage_stats(
+    days: int = Query(30, ge=1, le=90),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get AI API usage statistics."""
+    try:
+        since_date = datetime.utcnow() - timedelta(days=days)
+
+        # Total usage stats
+        total_result = await db.execute(
+            text("""
+                SELECT
+                    COUNT(*) as total_requests,
+                    COALESCE(SUM(tokens_used), 0) as total_tokens,
+                    COALESCE(SUM(credits_cost), 0) as total_cost,
+                    COALESCE(SUM(patterns_discovered), 0) as patterns_discovered,
+                    COALESCE(SUM(patterns_successful), 0) as patterns_successful
+                FROM ai_usage_tracking
+                WHERE created_at >= :since_date
+            """),
+            {"since_date": since_date}
+        )
+        total_stats = total_result.first()
+
+        # Today's usage
+        today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_result = await db.execute(
+            text("""
+                SELECT
+                    COUNT(*) as requests,
+                    COALESCE(SUM(tokens_used), 0) as tokens,
+                    COALESCE(SUM(credits_cost), 0) as cost
+                FROM ai_usage_tracking
+                WHERE created_at >= :today
+            """),
+            {"today": today}
+        )
+        today_stats = today_result.first()
+
+        # Usage by analysis type
+        by_type_result = await db.execute(
+            text("""
+                SELECT
+                    analysis_type,
+                    COUNT(*) as requests,
+                    COALESCE(SUM(tokens_used), 0) as tokens,
+                    COALESCE(SUM(credits_cost), 0) as cost
+                FROM ai_usage_tracking
+                WHERE created_at >= :since_date
+                GROUP BY analysis_type
+                ORDER BY tokens DESC
+            """),
+            {"since_date": since_date}
+        )
+        by_type = [
+            {
+                "type": row.analysis_type,
+                "requests": row.requests,
+                "tokens": int(row.tokens),
+                "cost": float(row.cost)
+            }
+            for row in by_type_result.fetchall()
+        ]
+
+        # Daily usage for chart
+        daily_result = await db.execute(
+            text("""
+                SELECT
+                    DATE(created_at) as date,
+                    COUNT(*) as requests,
+                    COALESCE(SUM(tokens_used), 0) as tokens,
+                    COALESCE(SUM(credits_cost), 0) as cost
+                FROM ai_usage_tracking
+                WHERE created_at >= :since_date
+                GROUP BY DATE(created_at)
+                ORDER BY date ASC
+            """),
+            {"since_date": since_date}
+        )
+        daily = [
+            {
+                "date": row.date.isoformat() if row.date else None,
+                "requests": row.requests,
+                "tokens": int(row.tokens),
+                "cost": float(row.cost)
+            }
+            for row in daily_result.fetchall()
+        ]
+
+        # Top domains by usage
+        top_domains_result = await db.execute(
+            text("""
+                SELECT
+                    domain,
+                    COUNT(*) as requests,
+                    COALESCE(SUM(tokens_used), 0) as tokens,
+                    COALESCE(SUM(credits_cost), 0) as cost
+                FROM ai_usage_tracking
+                WHERE created_at >= :since_date
+                GROUP BY domain
+                ORDER BY tokens DESC
+                LIMIT 10
+            """),
+            {"since_date": since_date}
+        )
+        top_domains = [
+            {
+                "domain": row.domain,
+                "requests": row.requests,
+                "tokens": int(row.tokens),
+                "cost": float(row.cost)
+            }
+            for row in top_domains_result.fetchall()
+        ]
+
+        return {
+            "period_days": days,
+            "total": {
+                "requests": total_stats.total_requests if total_stats else 0,
+                "tokens": int(total_stats.total_tokens) if total_stats else 0,
+                "cost": float(total_stats.total_cost) if total_stats else 0,
+                "patterns_discovered": int(total_stats.patterns_discovered) if total_stats else 0,
+                "patterns_successful": int(total_stats.patterns_successful) if total_stats else 0
+            },
+            "today": {
+                "requests": today_stats.requests if today_stats else 0,
+                "tokens": int(today_stats.tokens) if today_stats else 0,
+                "cost": float(today_stats.cost) if today_stats else 0
+            },
+            "by_type": by_type,
+            "daily": daily,
+            "top_domains": top_domains,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+    except Exception as e:
+        return {
+            "error": str(e),
+            "period_days": days,
+            "total": {"requests": 0, "tokens": 0, "cost": 0},
+            "today": {"requests": 0, "tokens": 0, "cost": 0},
+            "by_type": [],
+            "daily": [],
+            "top_domains": [],
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+
 @router.get("/extractor")
 async def get_extractor_stats(db: AsyncSession = Depends(get_db)):
     """Get content extractor performance statistics."""
