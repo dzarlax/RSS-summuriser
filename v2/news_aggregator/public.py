@@ -99,17 +99,18 @@ async def public_search_view(request: Request):
     })
 
 
-@router.get("/api/public/feed") 
+@router.get("/api/public/feed")
 async def get_public_feed(
     limit: int = Query(20, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     since_hours: Optional[int] = Query(None, ge=1, le=168),
     category: Optional[str] = Query(None),
+    source: Optional[str] = Query(None, description="Filter by source ID(s), comma-separated"),
     hide_ads: bool = Query(True, description="Hide advertisements from feed"),
     data_service: DataService = Depends(get_data_service)
 ):
     """Public feed endpoint using unified DataService."""
-    
+
     try:
         # Use DataService for clean database access
         articles_data = await data_service.get_articles_feed(
@@ -117,6 +118,7 @@ async def get_public_feed(
             offset=offset,
             since_hours=since_hours,
             category=category,
+            source=source,
             hide_ads=hide_ads
         )
         
@@ -258,16 +260,35 @@ async def get_public_categories(
     data_service: DataService = Depends(get_data_service)
 ):
     """Get category statistics using unified DataService."""
-    
+
     try:
         return await data_service.get_categories_stats(
             since_hours=since_hours,
             hide_ads=hide_ads
         )
-            
+
     except Exception as e:
         print(f"Categories error: {e}")
         return {"categories": {"all": 0}}
+
+
+@router.get("/api/public/sources")
+async def get_public_sources(
+    since_hours: Optional[int] = Query(None, ge=1, le=168),
+    hide_ads: bool = Query(True),
+    data_service: DataService = Depends(get_data_service)
+):
+    """Get source statistics using unified DataService."""
+
+    try:
+        return await data_service.get_sources_stats(
+            since_hours=since_hours,
+            hide_ads=hide_ads
+        )
+
+    except Exception as e:
+        print(f"Sources error: {e}")
+        return {"sources": {}, "source_names": {}, "total": 0}
 
 
 @router.get("/api/public/search")

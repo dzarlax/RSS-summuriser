@@ -24,6 +24,10 @@
   let currentCategory = 'all';
   let selectedCategories = [];
   let allCategories = {};
+  let currentSource = 'all';
+  let selectedSources = [];
+  let allSources = {};
+  let sourceNames = {};
 
   // View prefs (make global for toolbar access)
   window.hideAds = true;
@@ -69,7 +73,7 @@
 
   function applyWideClass(){ const root=document.querySelector('.news-page'); if(!root) return; root.classList.add('wide'); }
 
-  function updateURLState(){ const p=new URLSearchParams(); if(selectedCategories.length>0) p.set('category', selectedCategories.join(',')); else if(currentCategory && currentCategory!=='all') p.set('category', currentCategory); if(currentSinceHours) p.set('since', String(currentSinceHours)); p.set('ads', hideAds?'off':'on'); const qs=p.toString(); history.replaceState(null,'', qs?`?${qs}`:location.pathname); }
+  function updateURLState(){ const p=new URLSearchParams(); if(selectedCategories.length>0) p.set('category', selectedCategories.join(',')); else if(currentCategory && currentCategory!=='all') p.set('category', currentCategory); if(selectedSources.length>0) p.set('source', selectedSources.join(',')); else if(currentSource && currentSource!=='all') p.set('source', currentSource); if(currentSinceHours) p.set('since', String(currentSinceHours)); p.set('ads', hideAds?'off':'on'); const qs=p.toString(); history.replaceState(null,'', qs?`?${qs}`:location.pathname); }
   function updateSinceControls(){ document.querySelectorAll('.since-btn').forEach(b=>{ const v=parseInt(b.getAttribute('data-since')); b.setAttribute('aria-pressed', String(v===currentSinceHours)); }); }
   function syncQuickToggles(){ const m=(id,on)=>{const b=document.getElementById(id); if(!b) return; b.setAttribute('aria-pressed', String(!!on)); b.classList.toggle('active', !!on);}; m('qt-hide-ads', hideAds); /* wide removed control */ }
 
@@ -124,12 +128,21 @@
     try{
       // Ensure category config is loaded first
       await loadCategoryConfig();
-      
+
       const params=new URLSearchParams(); if(currentSinceHours) params.set('since_hours',String(currentSinceHours)); params.set('hide_ads', hideAds?'true':'false');
       const r=await fetch(`/api/public/categories?${params.toString()}`); if(!r.ok) throw new Error('categories');
       const data=await r.json(); allCategories=data.categories||{all:0};
       updateAllCategoryFilters(); renderCategorySelectors();
     }catch(e){ allCategories={all:0}; updateAllCategoryFilters(); renderCategorySelectors(); }
+  }
+
+  async function loadSources(){
+    try{
+      const params=new URLSearchParams(); if(currentSinceHours) params.set('since_hours',String(currentSinceHours)); params.set('hide_ads', hideAds?'true':'false');
+      const r=await fetch(`/api/public/sources?${params.toString()}`); if(!r.ok) throw new Error('sources');
+      const data=await r.json(); allSources=data.sources||{}; sourceNames=data.source_names||{};
+      renderSourceSelectors();
+    }catch(e){ allSources={}; sourceNames={}; renderSourceSelectors(); }
   }
 
   // Top chips renderer (optional). In current UI it's hidden; keep graceful implementation.
@@ -149,7 +162,7 @@
 
   async function loadNews(reset=false){ if(isLoading) return; isLoading=true; if(reset){ currentPage=0; renderedImageCount=0; hasMore=true; if(container){ container.innerHTML=`<div class="loading-state"><div class="loading-spinner"></div><p>Загрузка новостей...</p></div>`; } }
     try{
-      const limit=20, offset=currentPage*limit; let url=`/api/public/feed?limit=${limit}&offset=${offset}&hide_ads=${hideAds?'true':'false'}`; if(currentSinceHours) url+=`&since_hours=${currentSinceHours}`; if(selectedCategories.length>0) url+=`&category=${encodeURIComponent(selectedCategories.join(','))}`; else if(currentCategory && currentCategory!=='all') url+=`&category=${encodeURIComponent(currentCategory)}`;
+      const limit=20, offset=currentPage*limit; let url=`/api/public/feed?limit=${limit}&offset=${offset}&hide_ads=${hideAds?'true':'false'}`; if(currentSinceHours) url+=`&since_hours=${currentSinceHours}`; if(selectedCategories.length>0) url+=`&category=${encodeURIComponent(selectedCategories.join(','))}`; else if(currentCategory && currentCategory!=='all') url+=`&category=${encodeURIComponent(currentCategory)}`; if(selectedSources.length>0) url+=`&source=${encodeURIComponent(selectedSources.join(','))}`; else if(currentSource && currentSource!=='all') url+=`&source=${encodeURIComponent(currentSource)}`;
       const r=await fetch(url); if(!r.ok) throw new Error('feed'); const data=await r.json(); let articles=data.articles||[];
       const html = articles.map(a=>{ const h=containerHtmlFor(a); if((a.primary_image||a.image_url)) renderedImageCount++; return h; }).join('');
       if (reset) container.innerHTML=html; else container.insertAdjacentHTML('beforeend', html);
@@ -165,28 +178,44 @@
       html+=entries.map(([name,count])=>{ const display=(categoryConfig[name]?.name)||(name.charAt(0).toUpperCase()+name.slice(1)); const active = selectedCategories.length>0? selectedCategories.includes(name) : (currentCategory===name); if(mobile){ return `<div class="cat-sheet-item ${active?'active':''}" onclick="selectSingleCategory('${name}'); closeCatSheet();"><span>${escapeHtml(display)}</span><span class="count">${count}</span></div>`; } return `<div class="sidebar-item ${active?'active':''}" onclick="selectSingleCategory('${name}')"><span>${escapeHtml(display)}</span><span class="sidebar-count">${count}</span></div>`; }).join(''); el.innerHTML=html; };
     build('cat-list', false); build('cat-list-mobile', true);
   }
-  window.selectSingleCategory = function(name){ 
-    selectedCategories=[]; 
-    currentCategory=name; 
-    updateURLState(); 
+  window.selectSingleCategory = function(name){
+    selectedCategories=[];
+    currentCategory=name;
+    updateURLState();
     // Ensure config is loaded before rendering
-    loadCategoryConfig().then(() => renderCategorySelectors()); 
-    loadNews(true); 
+    loadCategoryConfig().then(() => renderCategorySelectors());
+    loadNews(true);
   };
   window.openCatSheet = function(){ const s=document.getElementById('cat-sheet'); if(s) s.setAttribute('aria-hidden','false'); };
   window.closeCatSheet = function(){ const s=document.getElementById('cat-sheet'); if(s) s.setAttribute('aria-hidden','true'); };
 
+  function renderSourceSelectors(){
+    const build=(id,mobile)=>{ const el=document.getElementById(id); if(!el) return; const entries=Object.entries(allSources).sort((a,b)=>(b[1]||0)-(a[1]||0)); const totalCount=Object.values(allSources).reduce((sum,count)=>sum+(count||0),0); let html=''; if(mobile){ html+=`<div class="cat-sheet-item ${ (selectedSources.length===0 && currentSource==='all') ? 'active':'' }" onclick="selectSingleSource('all'); closeSourceSheet();"><span>Все источники</span><span class="count">${totalCount}</span></div>`; } else { html+=`<div class="sidebar-item sidebar-item-all ${ (selectedSources.length===0 && currentSource==='all') ? 'active':'' }" onclick="selectSingleSource('all')"><span>Все источники</span><span class="sidebar-count">${totalCount}</span></div>`; }
+      html+=entries.map(([sourceId,count])=>{ const display=sourceNames[sourceId]||`Source ${sourceId}`; const active = selectedSources.length>0? selectedSources.includes(sourceId) : (currentSource===sourceId); if(mobile){ return `<div class="cat-sheet-item ${active?'active':''}" onclick="selectSingleSource('${sourceId}'); closeSourceSheet();"><span>${escapeHtml(display)}</span><span class="count">${count}</span></div>`; } return `<div class="sidebar-item ${active?'active':''}" onclick="selectSingleSource('${sourceId}')"><span>${escapeHtml(display)}</span><span class="sidebar-count">${count}</span></div>`; }).join(''); el.innerHTML=html; };
+    build('source-list', false); build('source-list-mobile', true);
+  }
+  window.selectSingleSource = function(sourceId){
+    selectedSources=[];
+    currentSource=sourceId;
+    updateURLState();
+    renderSourceSelectors();
+    loadNews(true);
+  };
+  window.openSourceSheet = function(){ const s=document.getElementById('source-sheet'); if(s) s.setAttribute('aria-hidden','false'); };
+  window.closeSourceSheet = function(){ const s=document.getElementById('source-sheet'); if(s) s.setAttribute('aria-hidden','true'); };
+
   // Toolbar actions exposed
-  window.setSinceHours = function(h){ currentSinceHours=h; localStorage.setItem('view_since_hours', h?String(h):''); updateSinceControls(); updateURLState(); loadNews(true); loadCategories(); };
-  window.toggleHideAds = function(v){ hideAds=!!v; window.hideAds=hideAds; updateURLState(); loadNews(true); loadCategories(); syncQuickToggles(); };
+  window.setSinceHours = function(h){ currentSinceHours=h; localStorage.setItem('view_since_hours', h?String(h):''); updateSinceControls(); updateURLState(); loadNews(true); loadCategories(); loadSources(); };
+  window.toggleHideAds = function(v){ hideAds=!!v; window.hideAds=hideAds; updateURLState(); loadNews(true); loadCategories(); loadSources(); syncQuickToggles(); };
 
   // Init
   document.addEventListener('DOMContentLoaded',()=>{
     // Parse URL state
-    try{ const p=new URLSearchParams(location.search); const qCat=p.get('category'); const qSince=p.get('since'); const qAds=p.get('ads'); if(qCat){ const cats=qCat.split(',').map(s=>s.trim()).filter(Boolean); if(cats.length>1){ selectedCategories=cats; currentCategory='all'; } else currentCategory=cats[0].toLowerCase(); } if(qSince) currentSinceHours=parseInt(qSince,10)||null; if(qAds) hideAds=(qAds!=='on'); window.hideAds=hideAds; }catch{}
-    applyWideClass(); updateSinceControls(); syncQuickToggles(); 
-    // Load categories (which loads config first) and news
-    loadCategories(); 
+    try{ const p=new URLSearchParams(location.search); const qCat=p.get('category'); const qSrc=p.get('source'); const qSince=p.get('since'); const qAds=p.get('ads'); if(qCat){ const cats=qCat.split(',').map(s=>s.trim()).filter(Boolean); if(cats.length>1){ selectedCategories=cats; currentCategory='all'; } else currentCategory=cats[0].toLowerCase(); } if(qSrc){ const srcs=qSrc.split(',').map(s=>s.trim()).filter(Boolean); if(srcs.length>1){ selectedSources=srcs; currentSource='all'; } else currentSource=srcs[0]; } if(qSince) currentSinceHours=parseInt(qSince,10)||null; if(qAds) hideAds=(qAds!=='on'); window.hideAds=hideAds; }catch{}
+    applyWideClass(); updateSinceControls(); syncQuickToggles();
+    // Load categories, sources (which loads config first) and news
+    loadCategories();
+    loadSources();
     loadNews(true);
     // Infinite scroll
     try{ const io=new IntersectionObserver(([e])=>{ if(e.isIntersecting && hasMore) loadNews(false); }, {rootMargin:'600px 0px'}); const s=document.getElementById('feed-sentinel'); if(s) io.observe(s); }catch{}

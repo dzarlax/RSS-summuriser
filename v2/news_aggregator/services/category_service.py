@@ -82,7 +82,10 @@ class CategoryService:
         # Try database mapping first
         from ..models import CategoryMapping
         from sqlalchemy import select
-        
+
+        # Prepare lowercase version for comparisons (define early to avoid UnboundLocalError)
+        category_lower = category_name.lower().strip()
+
         try:
             # Look for exact match in database
             result = await self.db.execute(
@@ -92,18 +95,17 @@ class CategoryService:
                 )
             )
             db_mapping = result.scalar_one_or_none()
-            
+
             if db_mapping:
-                # Update usage statistics
-                db_mapping.usage_count += 1
+                # Update usage statistics (handle NULL)
+                db_mapping.usage_count = (db_mapping.usage_count or 0) + 1
                 db_mapping.last_used = func.now()
                 await self.db.commit()
-                
+
                 print(f"  🔄 DB Mapped '{category_name}' → '{db_mapping.fixed_category}'")
                 return db_mapping.fixed_category
-                
+
             # Look for case-insensitive match in database
-            category_lower = category_name.lower().strip()
             result = await self.db.execute(
                 select(CategoryMapping).where(
                     func.lower(CategoryMapping.ai_category) == category_lower,
@@ -113,11 +115,11 @@ class CategoryService:
             db_mapping = result.scalar_one_or_none()
             
             if db_mapping:
-                # Update usage statistics
-                db_mapping.usage_count += 1
+                # Update usage statistics (handle NULL)
+                db_mapping.usage_count = (db_mapping.usage_count or 0) + 1
                 db_mapping.last_used = func.now()
                 await self.db.commit()
-                
+
                 print(f"  🔄 DB Mapped '{category_name}' → '{db_mapping.fixed_category}' (case-insensitive)")
                 return db_mapping.fixed_category
                 

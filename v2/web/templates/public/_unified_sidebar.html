@@ -1,0 +1,71 @@
+<!-- Desktop Unified Sidebar with Tabs -->
+<aside class="unified-sidebar" id="unified-sidebar">
+    <!-- Tabs -->
+    <div class="sidebar-tabs">
+        <button class="sidebar-tab active" data-tab="categories" onclick="switchSidebarTab('categories')">
+            <span class="tab-icon">📂</span>
+            <span class="tab-label">Категории</span>
+        </button>
+        <button class="sidebar-tab" data-tab="sources" onclick="switchSidebarTab('sources')">
+            <span class="tab-icon">📡</span>
+            <span class="tab-label">Источники</span>
+        </button>
+    </div>
+
+    <!-- Tab Content -->
+    <div class="sidebar-tab-content active" id="tab-categories">
+        <div class="sidebar-list" id="cat-list">
+            <!-- filled dynamically -->
+        </div>
+    </div>
+
+    <div class="sidebar-tab-content" id="tab-sources">
+        <div class="sidebar-list" id="source-list">
+            <!-- filled dynamically -->
+        </div>
+    </div>
+</aside>
+
+<!-- Mobile Sheets (keep separate for mobile) -->
+<!-- Categories Sheet -->
+<div id="cat-sheet" class="cat-sheet" aria-hidden="true">
+    <div class="cat-sheet-content">
+        <div class="cat-sheet-header">
+            <h3>Категории</h3>
+            <button class="btn btn-ghost" onclick="closeCatSheet()">✕</button>
+        </div>
+        <div class="cat-sheet-list" id="cat-list-mobile"></div>
+        <div class="cat-sheet-footer">
+            <button class="btn btn-secondary" onclick="closeCatSheet()">Закрыть</button>
+        </div>
+    </div>
+</div>
+
+<!-- Sources Sheet -->
+<div id="source-sheet" class="source-sheet" aria-hidden="true">
+    <div class="source-sheet-content">
+        <div class="source-sheet-header">
+            <h3>Источники</h3>
+            <button class="btn btn-ghost" onclick="closeSourceSheet()">✕</button>
+        </div>
+        <div class="source-sheet-list" id="source-list-mobile"></div>
+        <div class="source-sheet-footer">
+            <button class="btn btn-secondary" onclick="closeSourceSheet()">Закрыть</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// Tab switching for unified sidebar
+window.switchSidebarTab = function(tabName) {
+    // Update tab buttons
+    document.querySelectorAll('.sidebar-tab').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tabName);
+    });
+
+    // Update tab content
+    document.querySelectorAll('.sidebar-tab-content').forEach(content => {
+        content.classList.toggle('active', content.id === `tab-${tabName}`);
+    });
+};
+</script>

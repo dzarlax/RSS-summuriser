@@ -3,12 +3,6 @@
   <div class="filters-inline">
     <div class="filter-buttons" id="filter-buttons" aria-live="polite" style="display:none;"></div>
 
-    <div class="toolbar-group view-switch" aria-label="Вид">
-      <button class="qt-btn" id="view-toggle-btn" onclick="switchViewToggle()" title="Переключить вид">
-        <!-- filled by script based on current page -->
-      </button>
-    </div>
-
     <div class="toolbar-group search-group" aria-label="Поиск">
       <div class="search-container" id="search-container">
         <!-- Collapsed state -->
@@ -54,6 +48,10 @@
       <button class="qt-btn qt-categories-mobile-only" id="qt-open-sheet" onclick="openCatSheet()" title="Выбрать категории">
         <span class="qt-ico">📂</span><span class="btn-label">Категории</span>
       </button>
+      <!-- Sources button: only show on mobile when sidebar is hidden -->
+      <button class="qt-btn qt-sources-mobile-only" id="qt-open-source-sheet" onclick="openSourceSheet()" title="Выбрать источники">
+        <span class="qt-ico">📡</span><span class="btn-label">Источники</span>
+      </button>
       <button class="qt-btn" id="qt-hide-ads" onclick="toggleHideAds(!window.hideAds)" aria-pressed="true" title="Скрывать рекламу">
         <span class="qt-ico">🧹</span><span class="btn-label">Без рекламы</span>
       </button>
@@ -93,33 +91,6 @@
 </script>
 
 <script>
-// Single toggle for view switch (list <-> cards)
-(function(){
-  try {
-    const btn = document.getElementById('view-toggle-btn');
-    const path = location.pathname;
-    const isCards = /\/(cards|feed)$/.test(path);
-    if (btn) {
-      if (isCards) {
-        btn.dataset.target = 'list';
-        btn.innerHTML = '<span class="qt-ico">≡</span><span class="btn-label">Лента</span>';
-        btn.title = 'Показать ленту';
-      } else {
-        btn.dataset.target = 'cards';
-        btn.innerHTML = '<span class="qt-ico">⊞</span><span class="btn-label">Карточки</span>';
-        btn.title = 'Показать карточки';
-      }
-    }
-  } catch {}
-})();
-
-function switchViewToggle(){
-  const btn = document.getElementById('view-toggle-btn');
-  const target = btn?.dataset.target;
-  if (target === 'cards') window.location.href = '/cards';
-  else window.location.href = '/';
-}
-
 // Search functionality
 let searchTimeout = null;
 let searchResults = [];

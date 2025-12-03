@@ -26,24 +26,25 @@ class DataService:
         offset: int = 0,
         since_hours: Optional[int] = None,
         category: Optional[str] = None,
+        source: Optional[str] = None,
         hide_ads: bool = True
     ) -> List[Dict[str, Any]]:
         """Get articles feed with filters."""
-        
+
         # Build base query
         query = select(Article).options(
             selectinload(Article.source),
             selectinload(Article.article_categories).selectinload(ArticleCategory.category)
         )
-        
+
         # Apply filters
         if since_hours:
             since_time = datetime.utcnow() - timedelta(hours=since_hours)
             query = query.where(Article.published_at >= since_time)
-        
+
         if hide_ads:
             query = query.where(Article.is_advertisement != True)
-        
+
         if category and category.lower() != 'all':
             if category.lower() == 'advertisements':
                 query = query.where(Article.is_advertisement == True)
@@ -51,7 +52,25 @@ class DataService:
                 query = query.join(ArticleCategory).join(Category).where(
                     func.lower(Category.name) == category.lower()
                 )
-        
+
+        # Apply source filter
+        if source and source.lower() != 'all':
+            # Support multiple sources (comma-separated)
+            sources = [s.strip() for s in source.split(',') if s.strip()]
+            if sources:
+                # Try matching by source ID or name
+                try:
+                    # If it's a number, filter by ID
+                    source_ids = [int(s) for s in sources if s.isdigit()]
+                    if source_ids:
+                        query = query.where(Article.source_id.in_(source_ids))
+                    else:
+                        # Filter by source name
+                        query = query.join(Source).where(Source.name.in_(sources))
+                except ValueError:
+                    # Filter by source name
+                    query = query.join(Source).where(Source.name.in_(sources))
+
         # Order and paginate
         query = query.order_by(desc(Article.published_at)).offset(offset).limit(limit)
         
@@ -147,7 +166,66 @@ class DataService:
                 "hide_ads": hide_ads
             }
         }
-    
+
+    async def get_sources_stats(
+        self,
+        since_hours: Optional[int] = None,
+        hide_ads: bool = True
+    ) -> Dict[str, Any]:
+        """Get source statistics."""
+
+        # Base conditions
+        conditions = []
+        if hide_ads:
+            conditions.append(Article.is_advertisement != True)
+
+        if since_hours:
+            since_time = datetime.utcnow() - timedelta(hours=since_hours)
+            conditions.append(Article.published_at >= since_time)
+
+        # Get total count
+        total_query = select(func.count(Article.id))
+        for condition in conditions:
+            total_query = total_query.where(condition)
+
+        total_result = await self.db.execute(total_query)
+        total_count = total_result.scalar()
+
+        # Get source stats
+        source_query = select(
+            Source.id,
+            Source.name,
+            func.count(Article.id).label('count')
+        ).join(Article, Source.id == Article.source_id
+        ).where(Source.enabled == True)
+
+        for condition in conditions:
+            source_query = source_query.where(condition)
+
+        source_query = source_query.group_by(Source.id, Source.name).order_by(desc(func.count(Article.id)))
+
+        source_result = await self.db.execute(source_query)
+        sources_data = source_result.fetchall()
+
+        # Build source stats
+        source_counts = {}
+        source_names = {}
+
+        for source_id, source_name, count in sources_data:
+            if source_id and source_name:
+                source_counts[str(source_id)] = count
+                source_names[str(source_id)] = source_name
+
+        return {
+            "sources": source_counts,
+            "source_names": source_names,
+            "total": total_count,
+            "filters": {
+                "since_hours": since_hours,
+                "hide_ads": hide_ads
+            }
+        }
+
     def _article_to_dict(self, article: Article, include_content: bool = False) -> Dict[str, Any]:
         """Convert article to dict format."""
         from ..api.feed_router import extract_domain, clean_html_entities, clean_summary_text

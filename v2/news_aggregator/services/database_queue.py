@@ -223,41 +223,84 @@ class DatabaseQueueManager:
             # Acquire connection semaphore
             async with semaphore:
                 # Execute database operation using proper context manager
-                async with AsyncSessionLocal() as session:
+                # Retry logic for deadlock and transient errors
+                max_retries = 3
+                retry_delay = 0.1  # Start with 100ms
+
+                for attempt in range(max_retries + 1):
                     try:
-                        result = await task.operation(session)
-                        
-                        # Double-check task wasn't cancelled during operation
+                        async with AsyncSessionLocal() as session:
+                            try:
+                                # Execute operation
+                                result = await task.operation(session)
+
+                                # Success! Double-check task wasn't cancelled
+                                if not task.result_future.cancelled() and not task.result_future.done():
+                                    task.result_future.set_result(result)
+
+                                    # Update stats
+                                    if task.operation_type == OperationType.READ:
+                                        self.stats['read_operations'] += 1
+                                    else:
+                                        self.stats['write_operations'] += 1
+
+                                    self.stats['total_processed'] += 1
+
+                                    duration = (datetime.now() - start_time).total_seconds()
+                                    retry_note = f" (after {attempt} retries)" if attempt > 0 else ""
+                                    logger.debug(f"✅ {worker_name} completed {task.task_id} in {duration:.3f}s{retry_note}")
+                                else:
+                                    logger.debug(f"⚠️ Task {task.task_id} was cancelled during processing")
+
+                                # Success - break retry loop
+                                break
+
+                            except Exception as e:
+                                # Check if this is a retryable error (deadlock or transaction rollback)
+                                is_deadlock = False
+                                is_rollback = False
+                                error_str = str(e).lower()
+
+                                # Detect deadlock errors
+                                if '1213' in error_str or 'deadlock' in error_str:
+                                    is_deadlock = True
+                                # Detect transaction rollback errors
+                                elif 'rolled back' in error_str or 'rollback' in error_str:
+                                    is_rollback = True
+
+                                # Retry deadlock and rollback errors
+                                if (is_deadlock or is_rollback) and attempt < max_retries:
+                                    logger.warning(f"🔄 {worker_name} retrying {task.task_id} (attempt {attempt + 1}/{max_retries + 1}) after {'deadlock' if is_deadlock else 'rollback'}: {e}")
+                                    await session.rollback()  # Ensure clean state
+                                    await asyncio.sleep(retry_delay)
+                                    retry_delay *= 2  # Exponential backoff
+                                    continue  # Retry
+
+                                # Non-retryable error or max retries exceeded
+                                if not task.result_future.cancelled() and not task.result_future.done():
+                                    await session.rollback()  # Clean rollback
+                                    task.result_future.set_exception(e)
+
+                                    # Update error stats
+                                    if task.operation_type == OperationType.READ:
+                                        self.stats['read_errors'] += 1
+                                    else:
+                                        self.stats['write_errors'] += 1
+
+                                    error_type = "Deadlock (max retries)" if is_deadlock else "Rollback (max retries)" if is_rollback else "Error"
+                                    logger.error(f"❌ {worker_name} failed {task.task_id}: {error_type}: {e}")
+                                else:
+                                    logger.debug(f"⚠️ Task {task.task_id} failed but was already cancelled: {e}")
+
+                                # Don't retry if future is cancelled or error is not retryable
+                                break
+
+                    except Exception as outer_e:
+                        # Session context manager error
+                        logger.error(f"💥 Session error for {task.task_id}: {outer_e}")
                         if not task.result_future.cancelled() and not task.result_future.done():
-                            task.result_future.set_result(result)
-                            
-                            # Update stats
-                            if task.operation_type == OperationType.READ:
-                                self.stats['read_operations'] += 1
-                            else:
-                                self.stats['write_operations'] += 1
-                                
-                            self.stats['total_processed'] += 1
-                            
-                            duration = (datetime.now() - start_time).total_seconds()
-                            logger.debug(f"✅ {worker_name} completed {task.task_id} in {duration:.3f}s")
-                        else:
-                            logger.debug(f"⚠️ Task {task.task_id} was cancelled during processing")
-                            
-                    except Exception as e:
-                        # Session rollback and close will be handled by the context manager
-                        if not task.result_future.cancelled() and not task.result_future.done():
-                            task.result_future.set_exception(e)
-                            
-                            # Update error stats
-                            if task.operation_type == OperationType.READ:
-                                self.stats['read_errors'] += 1
-                            else:
-                                self.stats['write_errors'] += 1
-                                
-                            logger.error(f"❌ {worker_name} failed {task.task_id}: {e}")
-                        else:
-                            logger.debug(f"⚠️ Task {task.task_id} failed but was already cancelled: {e}")
+                            task.result_future.set_exception(outer_e)
+                        break
                         
         except Exception as e:
             # This shouldn't happen, but just in case
