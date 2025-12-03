@@ -1012,7 +1012,7 @@ function showFinalCategories(categories) {
         return `
             <div class="modal-final-category" style="background: ${color}; color: ${textColor}; border-color: ${color};">
                 ${escapeHtml(cat.display_name || cat.name)}
-                <span class="confidence">${Math.round(cat.confidence * 100)}%</span>
+                <span class="confidence">${Math.round((cat.confidence || 0) * 100)}%</span>
             </div>
         `;
     }).join('');

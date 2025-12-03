@@ -477,7 +477,7 @@ class CategoryService:
             {
                 'name': ac.category.name,
                 'display_name': ac.category.display_name,
-                'confidence': ac.confidence,
+                'confidence': ac.confidence if ac.confidence is not None else 0.0,
                 'color': ac.category.color
             }
             for ac in article_categories

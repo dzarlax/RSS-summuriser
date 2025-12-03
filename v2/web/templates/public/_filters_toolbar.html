@@ -1,6 +1,58 @@
 {# Shared sticky filters toolbar for list and cards views #}
 <div class="filters-sticky" id="filters-sticky" role="toolbar" aria-label="Фильтры новостей">
-  <div class="filters-inline">
+  <!-- Mobile-first: Vertical Stack -->
+  <div class="filters-mobile-stack">
+
+    <!-- Row 1: Search Input (Full Width on Mobile) -->
+    <div class="search-row">
+      <div class="search-input-wrapper">
+        <span class="search-icon">🔍</span>
+        <input type="text"
+               class="search-input-mobile"
+               id="search-input-mobile"
+               placeholder="Поиск новостей..."
+               autocomplete="off"
+               spellcheck="false">
+      </div>
+    </div>
+
+    <!-- Row 1.5: Segmented Control (Categories | Sources) - Mobile only -->
+    <div class="segmented-control-row">
+      <div class="segmented-control">
+        <button class="segment segment-active" data-tab="categories" onclick="switchTab('categories')" aria-label="Фильтр по категориям">
+          Категории
+        </button>
+        <button class="segment" data-tab="sources" onclick="switchTab('sources')" aria-label="Фильтр по источникам">
+          Источники
+        </button>
+      </div>
+    </div>
+
+    <!-- Row 2: Horizontal Scrolling Chips (Dynamically changed based on active tab) -->
+    <div class="chips-row">
+      <div class="chips-container" id="chips-container">
+        <!-- Category chips (shown when Categories tab is active) -->
+        <div class="chips-group chips-categories" id="chips-categories" style="display: flex; gap: 8px;">
+          <button class="chip chip-active" data-category="all" onclick="filterByCategory('all')">
+            Все
+          </button>
+          <!-- More category chips will be injected here dynamically -->
+        </div>
+
+        <!-- Source chips (shown when Sources tab is active) -->
+        <div class="chips-group chips-sources" id="chips-sources" style="display: none; gap: 8px;">
+          <button class="chip chip-active" data-source="all" onclick="filterBySource('all')">
+            Все источники
+          </button>
+          <!-- Source chips will be injected here dynamically -->
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Desktop Fallback: Original horizontal layout (hidden on mobile) -->
+  <div class="filters-desktop-inline">
     <div class="filter-buttons" id="filter-buttons" aria-live="polite" style="display:none;"></div>
 
     <div class="toolbar-group search-group" aria-label="Поиск">
@@ -9,13 +61,13 @@
         <button class="qt-btn search-toggle" id="search-toggle" onclick="toggleSearch()" title="Поиск по новостям">
           <span class="qt-ico">🔍</span><span class="btn-label">Поиск</span>
         </button>
-        
+
         <!-- Expanded state -->
         <div class="search-expanded" id="search-expanded" style="display: none;">
-          <input type="text" 
-                 class="search-input" 
-                 id="search-input" 
-                 placeholder="Поиск по новостям..." 
+          <input type="text"
+                 class="search-input"
+                 id="search-input"
+                 placeholder="Поиск по новостям..."
                  autocomplete="off"
                  spellcheck="false">
           <button class="search-btn search-submit" onclick="performSearch()" title="Найти">
@@ -25,7 +77,7 @@
             <span class="qt-ico">✕</span>
           </button>
         </div>
-        
+
         <!-- Search results dropdown -->
         <div class="search-results" id="search-results" style="display: none;">
           <div class="search-results-content" id="search-results-content">
@@ -44,18 +96,9 @@
     </div>
 
     <div class="toolbar-group quick-toggles" aria-label="Быстрые настройки">
-      <!-- Categories button: only show on mobile when sidebar is hidden -->
-      <button class="qt-btn qt-categories-mobile-only" id="qt-open-sheet" onclick="openCatSheet()" title="Выбрать категории">
-        <span class="qt-ico">📂</span><span class="btn-label">Категории</span>
-      </button>
-      <!-- Sources button: only show on mobile when sidebar is hidden -->
-      <button class="qt-btn qt-sources-mobile-only" id="qt-open-source-sheet" onclick="openSourceSheet()" title="Выбрать источники">
-        <span class="qt-ico">📡</span><span class="btn-label">Источники</span>
-      </button>
-      <button class="qt-btn" id="qt-hide-ads" onclick="toggleHideAds(!window.hideAds)" aria-pressed="true" title="Скрывать рекламу">
+      <button class="qt-btn" id="qt-hide-ads-desktop" onclick="toggleHideAds(!window.hideAds)" aria-pressed="true" title="Скрывать рекламу">
         <span class="qt-ico">🧹</span><span class="btn-label">Без рекламы</span>
       </button>
-
     </div>
   </div>
 </div>
@@ -297,7 +340,179 @@ document.addEventListener('DOMContentLoaded', function() {
       closeSearch();
     }
   });
+
+  // Mobile search input
+  const mobileInput = document.getElementById('search-input-mobile');
+  if (mobileInput) {
+    mobileInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const query = e.target.value.trim();
+        if (query.length >= 2) {
+          window.location.href = `/search?q=${encodeURIComponent(query)}`;
+        }
+      }
+    });
+  }
+
+  // Time filter chips activation
+  document.querySelectorAll('.chip-time').forEach(chip => {
+    chip.addEventListener('click', function() {
+      // Remove active state from all time chips
+      document.querySelectorAll('.chip-time').forEach(c => {
+        c.setAttribute('aria-pressed', 'false');
+      });
+      // Set active state on clicked chip
+      this.setAttribute('aria-pressed', 'true');
+    });
+  });
+
+  // Initialize Hide Ads chip state
+  const hideAdsChip = document.getElementById('chip-hide-ads');
+  if (hideAdsChip && typeof window.hideAds !== 'undefined') {
+    hideAdsChip.setAttribute('aria-pressed', window.hideAds ? 'true' : 'false');
+  }
+
+  // Initialize category and source chips
+  populateCategoryChips();
+  populateSourceChips();
 });
+
+// Category filter function (for chips)
+function filterByCategory(category) {
+  // Remove active class from all category chips
+  document.querySelectorAll('.chip[data-category]').forEach(chip => {
+    chip.classList.remove('chip-active');
+  });
+
+  // Add active class to clicked chip
+  const activeChip = document.querySelector(`.chip[data-category="${category}"]`);
+  if (activeChip) {
+    activeChip.classList.add('chip-active');
+  }
+
+  // Apply filter (redirect with category param)
+  if (category === 'all') {
+    window.location.href = '/';
+  } else {
+    window.location.href = `/?category=${encodeURIComponent(category)}`;
+  }
+}
+
+// Source filter function (for chips)
+function filterBySource(source) {
+  // Remove active class from all source chips
+  document.querySelectorAll('.chip[data-source]').forEach(chip => {
+    chip.classList.remove('chip-active');
+  });
+
+  // Add active class to clicked chip
+  const activeChip = document.querySelector(`.chip[data-source="${source}"]`);
+  if (activeChip) {
+    activeChip.classList.add('chip-active');
+  }
+
+  // Apply filter (redirect with source param)
+  if (source === 'all') {
+    window.location.href = '/';
+  } else {
+    window.location.href = `/?source=${encodeURIComponent(source)}`;
+  }
+}
+
+// Tab switching function for segmented control
+function switchTab(tab) {
+  // Update segment buttons
+  document.querySelectorAll('.segment').forEach(segment => {
+    segment.classList.remove('segment-active');
+    if (segment.getAttribute('data-tab') === tab) {
+      segment.classList.add('segment-active');
+    }
+  });
+
+  // Show/hide chip groups
+  const categoriesGroup = document.getElementById('chips-categories');
+  const sourcesGroup = document.getElementById('chips-sources');
+
+  if (tab === 'categories') {
+    categoriesGroup.style.display = 'flex';
+    sourcesGroup.style.display = 'none';
+  } else if (tab === 'sources') {
+    categoriesGroup.style.display = 'none';
+    sourcesGroup.style.display = 'flex';
+  }
+}
+
+// Fetch and populate category chips
+async function populateCategoryChips() {
+  try {
+    const response = await fetch('/api/public/categories/config');
+    const data = await response.json();
+
+    const container = document.getElementById('chips-categories');
+    if (!container || !data.categories) return;
+
+    // Clear existing chips (keep "Все")
+    const allChip = container.querySelector('.chip[data-category="all"]');
+    container.innerHTML = '';
+    if (allChip) {
+      container.appendChild(allChip);
+    }
+
+    // Add category chips
+    Object.entries(data.categories).forEach(([key, value]) => {
+      if (key === 'all') return; // Skip "all" as it's already added
+
+      const chip = document.createElement('button');
+      chip.className = 'chip';
+      chip.setAttribute('data-category', key);
+      chip.onclick = () => filterByCategory(key);
+      chip.textContent = value.name || key;
+
+      container.appendChild(chip);
+    });
+  } catch (error) {
+    console.error('Failed to load categories:', error);
+  }
+}
+
+// Fetch and populate source chips
+async function populateSourceChips() {
+  try {
+    const response = await fetch('/api/public/sources');
+    const data = await response.json();
+
+    const container = document.getElementById('chips-sources');
+    if (!container || !data.source_names) return;
+
+    // Clear existing chips (keep "Все источники")
+    const allChip = container.querySelector('.chip[data-source="all"]');
+    container.innerHTML = '';
+    if (allChip) {
+      container.appendChild(allChip);
+    }
+
+    // Add source chips (sorted by count)
+    const sortedSources = Object.entries(data.sources)
+      .sort((a, b) => b[1] - a[1]) // Sort by count descending
+      .slice(0, 10); // Limit to top 10 sources
+
+    sortedSources.forEach(([sourceId, count]) => {
+      const sourceName = data.source_names[sourceId];
+      if (!sourceName) return;
+
+      const chip = document.createElement('button');
+      chip.className = 'chip';
+      chip.setAttribute('data-source', sourceId);
+      chip.onclick = () => filterBySource(sourceId);
+      chip.innerHTML = `${sourceName} <span style="opacity: 0.6; font-size: 12px; margin-left: 4px;">(${count})</span>`;
+
+      container.appendChild(chip);
+    });
+  } catch (error) {
+    console.error('Failed to load sources:', error);
+  }
+}
 </script>
 
 <style>
@@ -512,6 +727,226 @@ document.addEventListener('DOMContentLoaded', function() {
   
   .search-input {
     min-width: auto;
+  }
+}
+
+/* ========================================
+   MOBILE-FIRST REDESIGN
+   ======================================== */
+
+/* Hide desktop version on mobile, show mobile version */
+.filters-mobile-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 16px;
+  background: white;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.filters-desktop-inline {
+  display: none;
+}
+
+/* Row 1: Full-Width Search Input */
+.search-row {
+  width: 100%;
+}
+
+/* Row 1.5: Segmented Control (iOS-style) */
+.segmented-control-row {
+  width: 100%;
+}
+
+.segmented-control {
+  display: flex;
+  padding: 2px;
+  background: #f1f3f5;
+  border-radius: 10px;
+  gap: 4px;
+}
+
+.segment {
+  flex: 1;
+  padding: 8px 16px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.segment:active {
+  transform: scale(0.98);
+}
+
+.segment-active {
+  background: white;
+  color: #1e293b;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  font-weight: 600;
+}
+
+.search-input-wrapper {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.search-icon {
+  position: absolute;
+  left: 12px;
+  font-size: 16px;
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.search-input-mobile {
+  width: 100%;
+  padding: 10px 12px 10px 40px;
+  background: #f8f9fa;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  font-size: 15px;
+  color: #1e293b;
+  outline: none;
+  transition: all 0.2s;
+  -webkit-appearance: none;
+}
+
+.search-input-mobile:focus {
+  background: white;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.search-input-mobile::placeholder {
+  color: #94a3b8;
+}
+
+/* Row 2: Horizontal Scrolling Chips */
+.chips-row {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.chips-row::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
+}
+
+.chips-container {
+  display: flex;
+  gap: 8px;
+  padding-bottom: 4px;
+  white-space: nowrap;
+  width: 100%;
+}
+
+/* Chips groups (categories or sources) */
+.chips-group {
+  display: flex;
+  gap: 8px;
+  white-space: nowrap;
+  width: 100%;
+}
+
+/* Chip Styles (iOS-like) */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 16px;
+  background: white;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #64748b;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.chip:active {
+  transform: scale(0.95);
+}
+
+/* Active chip (selected category) */
+.chip-active {
+  background: #667eea;
+  color: white;
+  border-color: #667eea;
+}
+
+/* Time filter chips */
+.chip-time {
+  min-width: 50px;
+  justify-content: center;
+}
+
+.chip-time[aria-pressed="true"] {
+  background: #667eea;
+  color: white;
+  border-color: #667eea;
+}
+
+/* Toggle chip (Hide Ads) */
+.chip-toggle {
+  background: #f8f9fa;
+}
+
+.chip-toggle[aria-pressed="true"] {
+  background: #10b981;
+  color: white;
+  border-color: #10b981;
+}
+
+/* Separator */
+.chip-separator {
+  width: 1px;
+  height: 24px;
+  background: #e2e8f0;
+  align-self: center;
+  flex-shrink: 0;
+}
+
+/* Desktop: Show desktop layout, hide mobile */
+@media (min-width: 769px) {
+  .filters-mobile-stack {
+    display: none;
+  }
+
+  .segmented-control-row {
+    display: none;
+  }
+
+  .filters-desktop-inline {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+  }
+}
+
+/* Tablet: Keep mobile layout but with more breathing room */
+@media (min-width: 480px) and (max-width: 768px) {
+  .search-input-mobile {
+    padding: 12px 12px 12px 44px;
+    font-size: 16px;
+  }
+
+  .chip {
+    padding: 10px 18px;
+    font-size: 15px;
   }
 }
 </style>

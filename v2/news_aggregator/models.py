@@ -82,7 +82,7 @@ class Article(Base):
             {
                 'name': ac.ai_category or 'Other',  # Use AI category name
                 'display_name': ac.ai_category or 'Other',  # Will be mapped by display service
-                'confidence': ac.confidence,
+                'confidence': ac.confidence if ac.confidence is not None else 0.0,
                 'color': '#6c757d',  # Default color, will be mapped by display service
                 'ai_category': ac.ai_category  # Original AI category
             }

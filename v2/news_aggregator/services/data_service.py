@@ -248,7 +248,9 @@ class DataService:
                 try:
                     display_categories.append({
                         'name': ac.category.name,
-                        'display_name': ac.category.display_name or ac.category.name
+                        'display_name': ac.category.display_name or ac.category.name,
+                        'confidence': ac.confidence if ac.confidence is not None else 0.0,
+                        'color': ac.category.color if hasattr(ac.category, 'color') else '#6c757d'
                     })
                 except Exception:
                     # If category is not loaded, skip it

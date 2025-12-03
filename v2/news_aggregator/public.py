@@ -455,7 +455,7 @@ async def search_articles(
                         "name": ac.category.name,
                         "display_name": ac.category.display_name,
                         "color": ac.category.color,
-                        "confidence": ac.confidence
+                        "confidence": ac.confidence if ac.confidence is not None else 0.0
                     }
                     for ac in article.article_categories
                 ],
