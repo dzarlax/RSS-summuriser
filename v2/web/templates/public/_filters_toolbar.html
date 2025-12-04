@@ -919,8 +919,19 @@ async function populateSourceChips() {
   flex-shrink: 0;
 }
 
+/* Tablet: Keep mobile layout for better UX */
+@media (min-width: 769px) and (max-width: 992px) {
+  .filters-mobile-stack {
+    display: flex;
+  }
+
+  .filters-desktop-inline {
+    display: none;
+  }
+}
+
 /* Desktop: Show desktop layout, hide mobile */
-@media (min-width: 769px) {
+@media (min-width: 993px) {
   .filters-mobile-stack {
     display: none;
   }
@@ -947,6 +958,30 @@ async function populateSourceChips() {
   .chip {
     padding: 10px 18px;
     font-size: 15px;
+  }
+}
+
+/* МОБИЛЬНАЯ ВЕРСИЯ - ПОЛНАЯ ШИРИНА БЕЗ ОТСТУПОВ */
+@media (max-width: 768px) {
+  .filters-sticky {
+    padding: 0 !important;
+    margin: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    left: 0 !important;
+    right: 0 !important;
+  }
+
+  .filters-mobile-stack {
+    padding: 12px 0 !important; /* Убираем боковые отступы */
+    margin: 0 !important;
+    width: 100% !important;
+  }
+
+  .search-row,
+  .segmented-control-row,
+  .chips-row {
+    padding: 0 16px; /* Добавляем отступы только внутри элементов */
   }
 }
 </style>

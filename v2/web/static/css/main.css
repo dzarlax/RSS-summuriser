@@ -1676,3 +1676,73 @@ em, i {
     font-style: italic;
     color: inherit;
 }
+/* ============================================
+   ПЛАНШЕТНАЯ ВЕРСИЯ (iPad, Android tablets)
+   ============================================ */
+@media (min-width: 769px) and (max-width: 992px) {
+    /* Navbar с обычными отступами */
+    .navbar {
+        display: block !important;
+        visibility: visible !important;
+    }
+
+    .nav-container {
+        padding: 0 1.5rem !important;
+    }
+
+    /* Main content с отступами */
+    .main-content {
+        padding: 1rem !important;
+    }
+}
+
+/* ============================================
+   МОБИЛЬНАЯ ВЕРСИЯ - ПОЛНАЯ ШИРИНА БЕЗ ОТСТУПОВ
+   ============================================ */
+@media (max-width: 768px) {
+    /* Body без отступов */
+    * {
+        box-sizing: border-box !important;
+    }
+
+    html, body {
+        padding: 0 !important;
+        margin: 0 !important;
+        overflow-x: hidden !important;
+        width: 100vw !important;
+        max-width: 100vw !important;
+    }
+
+    /* Navbar на всю ширину */
+    .navbar {
+        padding: 0 !important;
+        margin: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        display: block !important;
+        visibility: visible !important;
+    }
+
+    .nav-container {
+        padding: 0 !important;
+        margin: 0 auto !important;
+        max-width: 100% !important;
+        width: 100% !important;
+    }
+
+    .nav-brand {
+        padding-left: 16px !important;
+    }
+
+    .nav-menu {
+        padding-right: 16px !important;
+    }
+
+    /* Main content без отступов */
+    .main-content {
+        padding: 0 !important;
+        margin: 0 !important;
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+}

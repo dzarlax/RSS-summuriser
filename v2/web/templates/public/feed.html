@@ -464,6 +464,17 @@
     50% { opacity: 0.8; }
 }
 
+/* Category badges - Desktop: above title, Mobile: inside image */
+.news-feed-badges-desktop {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.news-feed-badges-overlay {
+    display: none; /* Hidden on desktop */
+}
+
 .news-content {
     padding: 20px;
 }
@@ -982,54 +993,204 @@
     .news-header h1 {
         font-size: 2rem;
     }
-    
+
     .news-header p {
         font-size: 1rem;
     }
-    
+
+    /* Mobile: Full Width Feed (Twitter/Instagram style) - ПОЛНАЯ ШИРИНА */
+    body {
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+
+    .news-page {
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+
+    .container {
+        padding: 0 !important;
+        max-width: 100% !important;
+        margin: 0 !important;
+        width: 100% !important;
+    }
+
+    .news-layout {
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+
+    .news-main {
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+
     .news-feed {
         grid-template-columns: 1fr;
-        gap: 16px;
+        gap: 0;
+        margin-bottom: 0;
+        padding: 0;
+        width: 100%;
     }
-    
+
+    /* Transform cards into flat feed items - ПОЛНОСТЬЮ БЕЗ ОТСТУПОВ */
+    .news-item {
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        border: none !important;
+        border-bottom: 8px solid #f8f9fa !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        background: white;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .news-item:last-child {
+        border-bottom: none !important;
+    }
+
+    /* Image: Full width, 16:9 aspect ratio - РАСТЯГИВАЕМ НА ВСЮ ШИРИНУ */
+    .news-image {
+        width: 100vw !important;
+        height: 0;
+        padding-bottom: 56.25%; /* 16:9 aspect ratio */
+        position: relative;
+        border-radius: 0 !important;
+        margin-left: calc(-50vw + 50%) !important;
+        margin-right: calc(-50vw + 50%) !important;
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
+    }
+
+    .news-image img {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100% !important;
+        height: 100% !important;
+        object-fit: cover;
+        border-radius: 0 !important;
+    }
+
+    /* Show overlay badges (inside image), hide desktop badges */
+    .news-feed-badges-overlay {
+        display: flex;
+        position: absolute;
+        bottom: 12px;
+        left: 12px;
+        gap: 6px;
+        z-index: 2;
+    }
+
+    .news-feed-badges-desktop {
+        display: none;
+    }
+
+    /* Badge styling with backdrop blur */
+    .category-badge {
+        padding: 4px 10px;
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: 600;
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        background: rgba(255, 255, 255, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+    }
+
+    /* Content padding - ТОЛЬКО ВНУТРИ КОНТЕНТА */
+    .news-content {
+        padding: 16px;
+    }
+
+    /* Title: More compact */
+    .news-title {
+        font-size: 1.05rem;
+        font-weight: 600;
+        line-height: 1.35;
+        margin-bottom: 8px;
+        -webkit-line-clamp: 2;
+        max-height: 2.8rem;
+    }
+
+    /* Summary: More compact */
+    .news-summary {
+        font-size: 0.875rem;
+        line-height: 1.4;
+        margin-bottom: 12px;
+        -webkit-line-clamp: 2;
+        max-height: 2.8rem;
+        color: #6c757d;
+    }
+
+    /* Meta: Compact */
+    .news-meta {
+        padding-top: 8px;
+        border-top: none;
+        font-size: 0.75rem;
+    }
+
+    /* Actions: Simplified - БЕЗ ВЕРХНЕГО ОТСТУПА */
+    .news-actions {
+        padding: 12px 16px 16px 16px;
+        border-top: none;
+        background: transparent;
+        gap: 12px;
+    }
+
+    .btn-read-more {
+        flex: 0 0 auto;
+        padding: 6px 16px;
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+
+    .btn-original {
+        flex: 0 0 auto;
+        padding: 6px 12px;
+        font-size: 0.75rem;
+    }
+
     .filter-buttons {
         justify-content: center;
     }
-    
+
     .filters-header {
         flex-direction: column;
         gap: 10px;
         text-align: center;
     }
-    
+
     .toggle-header {
         flex-direction: column;
         gap: 15px;
         text-align: center;
     }
-    
+
     .modal-overlay {
         padding: 10px;
     }
-    
+
     .modal-content {
         max-width: none;
         max-height: 95vh;
     }
-    
+
     .modal-body {
         padding: 20px;
     }
-    
+
     .modal-title {
         font-size: 1.25rem;
     }
-    
+
     .modal-actions {
         flex-direction: column;
         gap: 8px;
     }
-    
+
     .modal-actions .btn {
         justify-content: center;
     }
