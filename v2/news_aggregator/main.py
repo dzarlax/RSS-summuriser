@@ -41,6 +41,8 @@ migration_manager.register_migration(FeedPerformanceOptimization())
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     # Startup
+    if not settings.admin_password:
+        raise RuntimeError("ADMIN_PASSWORD environment variable is required for secure startup.")
     # Record application start time for health endpoints
     app.state.started_at = datetime.utcnow()
     await init_db()
@@ -165,18 +167,21 @@ app = FastAPI(
 )
 
 # Add CORS middleware to allow cross-origin requests
-# This is needed for JavaScript fetch from same origin but with cookies/auth
+# Restrict to explicit origins; can be overridden via ALLOWED_ORIGINS env
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify exact origins
+    allow_origins=settings.get_allowed_origins_list(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# Trust hosts explicitly to avoid host header spoofing
+trusted_hosts = settings.get_trusted_hosts_list()
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=trusted_hosts + ["*"] if settings.development else trusted_hosts)
+
 # Add ProxyHeadersMiddleware to handle HTTPS behind reverse proxy
-# This ensures FastAPI respects X-Forwarded-Proto, X-Forwarded-For, etc.
-# Note: ProxyHeadersMiddleware trusts ALL X-Forwarded-* headers by default
+# Note: keep only when running behind a trusted proxy configured above
 app.add_middleware(ProxyHeadersMiddleware)
 
 # Статические файлы

@@ -53,7 +53,8 @@ class AsyncHTTPClient:
             limit_per_host=5,  # Connections per host
             ttl_dns_cache=300,  # DNS cache TTL
             use_dns_cache=True,
-            ssl=False,  # Disable SSL verification for problematic sites
+            # SSL verification enabled by default; disable per-request only when necessary
+            ssl=None,
         )
     
     async def __aenter__(self):

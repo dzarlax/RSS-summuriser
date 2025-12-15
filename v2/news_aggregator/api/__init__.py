@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Depends
 from ..database import get_db
+from ..security import require_admin
 from .feed_router import router as feed_router
 from .categories_router import router as categories_router
 from .sources_router import router as sources_router
@@ -21,16 +22,16 @@ def create_api_router() -> APIRouter:
     
     # Include all specialized routers
     router.include_router(feed_router, tags=["feed"])
-    router.include_router(categories_router, prefix="/categories", tags=["categories"])
-    router.include_router(sources_router, prefix="/sources", tags=["sources"])
-    router.include_router(stats_router, prefix="/stats", tags=["stats"])
-    router.include_router(processing_router, prefix="/process", tags=["processing"])
-    router.include_router(telegram_router, prefix="/telegram", tags=["telegram"])
-    router.include_router(backup_router, prefix="/backup", tags=["backup"])
-    router.include_router(articles_router, prefix="/articles", tags=["articles"])
-    router.include_router(system_router, prefix="/system", tags=["system"])
-    router.include_router(scheduler_router, prefix="/schedule", tags=["scheduler"])
-    router.include_router(summaries_router, prefix="/summaries", tags=["summaries"])
+    router.include_router(categories_router, prefix="/categories", tags=["categories"], dependencies=[Depends(require_admin)])
+    router.include_router(sources_router, prefix="/sources", tags=["sources"], dependencies=[Depends(require_admin)])
+    router.include_router(stats_router, prefix="/stats", tags=["stats"], dependencies=[Depends(require_admin)])
+    router.include_router(processing_router, prefix="/process", tags=["processing"], dependencies=[Depends(require_admin)])
+    router.include_router(telegram_router, prefix="/telegram", tags=["telegram"], dependencies=[Depends(require_admin)])
+    router.include_router(backup_router, prefix="/backup", tags=["backup"], dependencies=[Depends(require_admin)])
+    router.include_router(articles_router, prefix="/articles", tags=["articles"], dependencies=[Depends(require_admin)])
+    router.include_router(system_router, prefix="/system", tags=["system"], dependencies=[Depends(require_admin)])
+    router.include_router(scheduler_router, prefix="/schedule", tags=["scheduler"], dependencies=[Depends(require_admin)])
+    router.include_router(summaries_router, prefix="/summaries", tags=["summaries"], dependencies=[Depends(require_admin)])
     
     # Add category-mappings alias endpoints for frontend compatibility
     @router.get("/category-mappings", tags=["category-mappings"])
@@ -86,4 +87,3 @@ def create_api_router() -> APIRouter:
 router = create_api_router()
 
 __all__ = ['router']
-

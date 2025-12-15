@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from .security import (
     authenticate_admin_basic, 
     create_jwt_token, 
-    get_current_user_jwt,
+    get_current_user,
     SecurityLevel,
     get_security_info,
     limiter
@@ -49,7 +49,7 @@ async def login(
 
 @router.get("/me", response_model=UserInfo)
 async def get_current_user_info(
-    user: dict = Depends(get_current_user_jwt)
+    user: dict = Depends(get_current_user)
 ):
     """Get current user information."""
     from datetime import datetime, timezone
@@ -65,7 +65,7 @@ async def get_current_user_info(
 
 @router.post("/refresh")
 async def refresh_token(
-    user: dict = Depends(get_current_user_jwt)
+    user: dict = Depends(get_current_user)
 ):
     """Refresh JWT token."""
     # Create new token with same level

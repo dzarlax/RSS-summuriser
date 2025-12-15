@@ -68,9 +68,12 @@ async def init_db():
         # Import all models to ensure they're registered
         from . import models  # noqa
 
-        # Always run create_all - it's idempotent and only creates missing tables
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+        # Optionally run create_all for fresh installs; disable in production by setting ALLOW_CREATE_ALL=false
+        if settings.allow_create_all:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+        else:
+            logger.info("Skipping Base.metadata.create_all() because ALLOW_CREATE_ALL is false (use migrations).")
 
         # Verify database is accessible
         async with AsyncSessionLocal() as session:

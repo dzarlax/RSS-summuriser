@@ -39,9 +39,17 @@ services:
       # Admin Authentication (ОБЯЗАТЕЛЬНО УСТАНОВИТЕ!)
       - ADMIN_USERNAME=admin
       - ADMIN_PASSWORD=your_secure_admin_password_here
+      - JWT_SECRET=your_jwt_secret_here
       
       # Database password (for backup operations)
       - DB_PASSWORD=${DB_PASSWORD:-newspass123}
+
+      # CORS / trusted hosts
+      - ALLOWED_ORIGINS=https://news.dzarlax.dev,http://localhost:8000
+      - TRUSTED_HOSTS=news.dzarlax.dev,localhost,127.0.0.1
+
+      # Database init (allow create_all for fresh installs; set false in prod)
+      - ALLOW_CREATE_ALL=true
       
       # Article categories configuration
       - NEWS_CATEGORIES=Business,Tech,Science,Nature,Serbia,Marketing,Other,Media

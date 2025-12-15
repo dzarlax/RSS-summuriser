@@ -9,6 +9,7 @@ from typing import Optional, Dict, Any
 from fastapi import HTTPException, Depends, status, Request
 from fastapi.security import HTTPBearer, HTTPBasicCredentials, HTTPBasic
 from fastapi.security.utils import get_authorization_scheme_param
+from base64 import b64decode
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -19,7 +20,10 @@ from .config import settings
 limiter = Limiter(key_func=get_remote_address)
 
 # JWT Configuration
-JWT_SECRET_KEY = settings.admin_password or secrets.token_urlsafe(32)
+if not (settings.jwt_secret or settings.admin_password):
+    raise RuntimeError("Security configuration error: set ADMIN_PASSWORD and/or JWT_SECRET environment variables.")
+
+JWT_SECRET_KEY = settings.jwt_secret or settings.admin_password
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = 24
 
@@ -137,39 +141,52 @@ async def authenticate_admin_basic(
     return credentials.username
 
 
-async def get_current_user_jwt(request: Request) -> Dict[str, Any]:
-    """Get current user from JWT token."""
+def _try_basic_auth_from_header(request: Request) -> Optional[Dict[str, Any]]:
+    """Attempt to authenticate using Basic auth header for backward-compatible admin UI calls."""
+    authorization: str = request.headers.get("Authorization") or ""
+    scheme, credentials = get_authorization_scheme_param(authorization)
+    if scheme.lower() != "basic":
+        return None
+    try:
+        decoded = b64decode(credentials).decode("utf-8")
+        username, password = decoded.split(":", 1)
+    except Exception:
+        return None
+    is_correct_username = secrets.compare_digest(username.encode("utf8"), settings.admin_username.encode("utf8"))
+    is_correct_password = secrets.compare_digest(password.encode("utf8"), settings.admin_password.encode("utf8"))
+    if not (is_correct_username and is_correct_password):
+        return None
+    return {"sub": username, "level": SecurityLevel.ADMIN}
+
+
+async def get_current_user(request: Request) -> Dict[str, Any]:
+    """Get current user from JWT token or Basic auth (for admin UI fetches)."""
+    # Try JWT from Authorization header
     authorization: str = request.headers.get("Authorization")
-    
-    if not authorization:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authorization header missing",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    scheme, token = get_authorization_scheme_param(authorization)
-    
-    if scheme.lower() != "bearer":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid authentication scheme",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    payload = verify_jwt_token(token)
-    
-    if not payload:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    return payload
+    if authorization:
+        scheme, token = get_authorization_scheme_param(authorization)
+        if scheme.lower() == "bearer":
+            payload = verify_jwt_token(token)
+            if payload:
+                return payload
+    # Try JWT from cookie set by admin UI
+    cookie_token = request.cookies.get("admin_token")
+    if cookie_token:
+        payload = verify_jwt_token(cookie_token)
+        if payload:
+            return payload
+    # Fallback to basic using header
+    basic_payload = _try_basic_auth_from_header(request)
+    if basic_payload:
+        return basic_payload
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or missing credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 
-async def require_admin(user: Dict = Depends(get_current_user_jwt)) -> Dict[str, Any]:
+async def require_admin(user: Dict = Depends(get_current_user)) -> Dict[str, Any]:
     """Require admin level access."""
     if user.get("level") != SecurityLevel.ADMIN:
         raise HTTPException(
@@ -179,7 +196,7 @@ async def require_admin(user: Dict = Depends(get_current_user_jwt)) -> Dict[str,
     return user
 
 
-async def require_api_write(user: Dict = Depends(get_current_user_jwt)) -> Dict[str, Any]:
+async def require_api_write(user: Dict = Depends(get_current_user)) -> Dict[str, Any]:
     """Require API write access."""
     level = user.get("level")
     if level not in [SecurityLevel.API_WRITE, SecurityLevel.ADMIN]:
@@ -190,7 +207,7 @@ async def require_api_write(user: Dict = Depends(get_current_user_jwt)) -> Dict[
     return user
 
 
-async def require_api_read(user: Dict = Depends(get_current_user_jwt)) -> Dict[str, Any]:
+async def require_api_read(user: Dict = Depends(get_current_user)) -> Dict[str, Any]:
     """Require API read access."""
     level = user.get("level")
     if level not in [SecurityLevel.API_READ, SecurityLevel.API_WRITE, SecurityLevel.ADMIN]:

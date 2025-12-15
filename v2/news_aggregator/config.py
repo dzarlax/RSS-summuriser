@@ -1,9 +1,9 @@
 """Configuration management."""
 
 import os
-from typing import Optional
+from typing import Optional, List
 
-from pydantic import Field, HttpUrl, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     # Admin authentication
     admin_username: str = Field(default="admin", alias="ADMIN_USERNAME")
     admin_password: Optional[str] = Field(default=None, alias="ADMIN_PASSWORD")
+    jwt_secret: Optional[str] = Field(default=None, alias="JWT_SECRET")
     
     # Processing
     max_workers: int = Field(default=5, alias="MAX_WORKERS")
@@ -55,6 +56,19 @@ class Settings(BaseSettings):
     db_statement_timeout: int = Field(default=15000, alias="DB_STATEMENT_TIMEOUT")  # 15s per query
     db_pool_pre_ping: bool = Field(default=True, alias="DB_POOL_PRE_PING")
     db_pool_recycle: int = Field(default=300, alias="DB_POOL_RECYCLE")  # 5min aggressive recycle
+
+    # HTTP / proxy / CORS
+    allowed_origins: Optional[str] = Field(
+        default="http://localhost:8000,http://127.0.0.1:8000,https://news.dzarlax.dev",
+        alias="ALLOWED_ORIGINS"
+    )
+    trusted_hosts: Optional[str] = Field(
+        default="localhost,127.0.0.1,news.dzarlax.dev",
+        alias="TRUSTED_HOSTS"
+    )
+
+    # Database init safety
+    allow_create_all: bool = Field(default=True, alias="ALLOW_CREATE_ALL")
     
     
     class Config:
@@ -68,6 +82,18 @@ class Settings(BaseSettings):
         if v == '' or v is None:
             return None
         return v
+    
+    def get_allowed_origins_list(self) -> List[str]:
+        """Return allowed origins as list."""
+        if not self.allowed_origins:
+            return []
+        return [item.strip() for item in str(self.allowed_origins).split(',') if item.strip()]
+    
+    def get_trusted_hosts_list(self) -> List[str]:
+        """Return trusted hosts as list."""
+        if not self.trusted_hosts:
+            return []
+        return [item.strip() for item in str(self.trusted_hosts).split(',') if item.strip()]
         
     def get_legacy_config(self, key: str) -> Optional[str]:
         """Метод для совместимости со старой системой load_config."""
