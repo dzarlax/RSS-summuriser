@@ -6,6 +6,7 @@ from fastapi.templating import Jinja2Templates
 
 from .auth import get_current_admin_user
 from .security import create_jwt_token
+from .config import settings
 
 router = APIRouter()
 templates = Jinja2Templates(directory="web/templates")
@@ -18,9 +19,10 @@ def _with_admin_cookie(response, username: str):
         "admin_token",
         token,
         httponly=True,
-        secure=True,
+        secure=not settings.development,
         samesite="lax",
         max_age=24 * 3600,
+        path="/",
     )
     return response
 

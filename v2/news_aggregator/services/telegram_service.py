@@ -7,6 +7,7 @@ from datetime import datetime
 from ..config import settings
 from ..core.http_client import get_http_client
 from ..core.exceptions import TelegramError
+from ..utils.html_utils import validate_telegram_html, strip_html_tags
 
 
 class TelegramService:
@@ -128,11 +129,20 @@ class TelegramService:
         Returns:
             True if sent successfully, False otherwise
         """
+        if not text or not str(text).strip():
+            logging.warning("Telegram send_message called with empty text")
+            return False
+
+        # Telegram HTML parsing is strict; sanitize/validate to avoid 400 errors ("can't parse entities").
+        cleaned_text = validate_telegram_html(text)
+        if cleaned_text is None:
+            cleaned_text = strip_html_tags(text)
+
         url = f"{self.api_url}/sendMessage"
         
         data = {
             "chat_id": self.chat_id,
-            "text": text,
+            "text": cleaned_text,
             "parse_mode": "HTML",
             "disable_web_page_preview": True
         }
@@ -177,6 +187,10 @@ class TelegramService:
         if not message or not message.strip():
             logging.warning("Empty message provided")
             return False
+
+        cleaned_message = validate_telegram_html(message)
+        if cleaned_message is None:
+            cleaned_message = strip_html_tags(message)
         
         try:
             url = f"{self.api_url}/sendMessage"
@@ -184,7 +198,7 @@ class TelegramService:
             # Prepare payload
             payload = {
                 "chat_id": self.chat_id,
-                "text": message,
+                "text": cleaned_message,
                 "parse_mode": "HTML",
                 "disable_web_page_preview": True
             }

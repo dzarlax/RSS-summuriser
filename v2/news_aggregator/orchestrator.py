@@ -131,70 +131,72 @@ class NewsOrchestrator:
         """Generate and send Telegram digest."""
         try:
             print("📱 Generating and sending Telegram digest...")
-            
-            # Use processing queue to handle digest generation
-            async def digest_operation(db):
-                today = datetime.utcnow().date()
-                
-                # Check if daily summaries exist for today, if not - generate them
+            today = datetime.utcnow().date()
+
+            # Step 1: Check if daily summaries exist (fast read)
+            async def check_summaries_operation(db):
                 from .models import DailySummary
-                from sqlalchemy import select
-                
-                existing_summaries = await db.execute(
-                    select(DailySummary).where(DailySummary.date == today)
+                from sqlalchemy import select, func
+
+                result = await db.execute(
+                    select(func.count(DailySummary.id)).where(DailySummary.date == today)
                 )
-                summaries_count = len(existing_summaries.scalars().all())
-                
-                if summaries_count == 0:
-                    print("📊 No daily summaries found for today - generating them first...")
-                    summary_result = await self._generate_daily_summaries()
-                    print(f"  ✅ Generated {summary_result.get('summaries_generated', 0)} daily summaries")
-                else:
-                    print(f"📊 Using existing {summaries_count} daily summaries for today")
-                
-                # Create digest using digest builder
+                return int(result.scalar() or 0)
+
+            summaries_count = await self.db_queue_manager.execute_read(check_summaries_operation, timeout=30.0)
+
+            # Step 2: Generate missing daily summaries (potentially slow write + AI)
+            if summaries_count == 0:
+                print("📊 No daily summaries found for today - generating them first...")
+                summary_result = await self._generate_daily_summaries(timeout=300.0)
+                print(f"  ✅ Generated {summary_result.get('summaries_generated', 0)} daily summaries")
+            else:
+                print(f"📊 Using existing {summaries_count} daily summaries for today")
+
+            # Step 3: Build digest (read-only operation)
+            async def build_digest_operation(db):
                 digest_content = await self.digest_builder.create_combined_digest(db, today)
-                
+
                 if digest_content == "SPLIT_NEEDED":
-                    # Handle splitting if needed
                     from .models import DailySummary
                     from sqlalchemy import select
-                    
+
                     result = await db.execute(
                         select(DailySummary).where(DailySummary.date == today)
                         .order_by(DailySummary.articles_count.desc())
                     )
                     summaries = result.scalars().all()
-                    
+
                     total_articles = sum(s.articles_count for s in summaries)
                     categories_count = len(summaries)
-                    
+
                     header = f"<b>Сводка новостей за {today.strftime('%d.%m.%Y')}</b>"
                     footer = f"\n📊 Всего: {total_articles} новостей в {categories_count} категориях"
-                    
+
                     digest_parts = self.digest_builder.split_digest_into_parts(
                         header, summaries, footer, total_articles, categories_count
                     )
-                    
+
                     return {'digest_parts': digest_parts, 'split': True}
-                else:
-                    return {'digest_content': digest_content, 'split': False}
-            
-            # Send digest via Telegram
-            digest_result = await self.db_queue_manager.execute_read(digest_operation)
+
+                return {'digest_content': digest_content, 'split': False}
+
+            digest_result = await self.db_queue_manager.execute_read(build_digest_operation, timeout=30.0)
             
             if digest_result.get('split'):
                 # Send multiple parts
+                sent_ok = 0
                 for part in digest_result['digest_parts']:
-                    await self.telegram_service.send_message(part)
-                return {'success': True, 'parts_sent': len(digest_result['digest_parts'])}
+                    if await self.telegram_service.send_message(part):
+                        sent_ok += 1
+                return {'success': sent_ok == len(digest_result['digest_parts']), 'parts_sent': sent_ok}
             else:
                 # Send single message
-                await self.telegram_service.send_message(digest_result['digest_content'])
-                return {'success': True, 'parts_sent': 1}
+                ok = await self.telegram_service.send_message(digest_result['digest_content'])
+                return {'success': bool(ok), 'parts_sent': 1 if ok else 0}
                 
         except Exception as e:
-            error_msg = f"Error sending Telegram digest: {e}"
+            error_msg = f"Error sending Telegram digest ({type(e).__name__}): {e}"
             print(f"❌ {error_msg}")
             return {'success': False, 'error': error_msg}
     
@@ -306,7 +308,7 @@ class NewsOrchestrator:
             stats['errors'].append(error_msg)
             return {'articles_processed': 0, 'articles_summarized': 0, 'articles_categorized': 0}
     
-    async def _generate_daily_summaries(self) -> Dict[str, Any]:
+    async def _generate_daily_summaries(self, timeout: float = 60.0) -> Dict[str, Any]:
         """Generate daily summaries using digest builder."""
         try:
             today = datetime.utcnow().date()
@@ -336,7 +338,7 @@ class NewsOrchestrator:
                 
                 return {'summaries_generated': len(categories)}
             
-            return await self.db_queue_manager.execute_write(summary_operation)
+            return await self.db_queue_manager.execute_write(summary_operation, timeout=timeout)
                 
         except Exception as e:
             error_msg = f"Error generating daily summaries: {e}"

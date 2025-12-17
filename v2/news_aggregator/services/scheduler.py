@@ -283,17 +283,15 @@ class TaskScheduler:
             logger.info("Starting telegram digest task via orchestrator")
             
             # Use the same logic as button-triggered digest for consistency
-            stats = await self.orchestrator.send_telegram_digest()
+            result = await self.orchestrator.send_telegram_digest()
             
-            if stats.get('telegram_digest_sent'):
-                articles = stats.get('telegram_articles', 0)
-                categories = stats.get('telegram_categories', 0)
-                length = stats.get('telegram_digest_length', 0)
-                print(f"📱 Telegram digest sent: {articles} articles in {categories} categories ({length} chars)")
-                logger.info(f"Telegram digest sent successfully: {length} chars, {articles} articles in {categories} categories")
+            if result.get('success'):
+                parts_sent = result.get('parts_sent', 0)
+                print(f"📱 Telegram digest sent successfully ({parts_sent} parts)")
+                logger.info(f"Telegram digest sent successfully ({parts_sent} parts)")
             else:
                 print(f"❌ Failed to send telegram digest")
-                logger.warning("Failed to send telegram digest")
+                logger.warning(f"Failed to send telegram digest: {result.get('error', 'unknown error')}")
                 
         except Exception as e:
             print(f"❌ Error in telegram digest task: {e}")
@@ -325,13 +323,12 @@ class TaskScheduler:
             
             # Step 2: Send digest using unified logic (if enabled)
             if config.get('send_telegram', True):
-                digest_stats = await self.orchestrator.send_telegram_digest()
+                digest_result = await self.orchestrator.send_telegram_digest()
                 
-                if digest_stats.get('telegram_digest_sent'):
-                    logger.info(f"Digest sent successfully: {digest_stats.get('telegram_digest_length', 0)} chars, "
-                               f"{digest_stats.get('telegram_articles', 0)} articles in {digest_stats.get('telegram_categories', 0)} categories")
+                if digest_result.get('success'):
+                    logger.info(f"Digest sent successfully ({digest_result.get('parts_sent', 0)} parts)")
                 else:
-                    logger.warning("Failed to send telegram digest")
+                    logger.warning(f"Failed to send telegram digest: {digest_result.get('error', 'unknown error')}")
             
             logger.info("Complete news digest cycle finished successfully")
                 
