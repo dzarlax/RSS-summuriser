@@ -12,17 +12,41 @@ from ..core.exceptions import APIError
 
 
 class AIClient:
-    """Client for AI summarization using Constructor KM API."""
+    """Client for AI summarization using external AI provider (Constructor KM or Gemini)."""
     
     def __init__(self):
-        # Use Constructor KM API for everything
-        self.endpoint = getattr(settings, 'constructor_km_api', None)
-        self.api_key = getattr(settings, 'constructor_km_api_key', None)
+        # Provider selection: "constructor" or "gemini"
+        self.provider = getattr(settings, 'ai_provider', 'constructor').lower()
+        
+        # Task-specific models (names depend on provider)
         self.summarization_model = getattr(settings, 'summarization_model', 'gpt-4o-mini')
         self.digest_model = getattr(settings, 'digest_model', 'gpt-4.1')
         
-        if not self.endpoint or not self.api_key:
-            raise APIError("Constructor KM API endpoint and key must be configured")
+        if self.provider == "constructor":
+            # Constructor KM (OpenAI-compatible) configuration
+            self.endpoint = getattr(settings, 'constructor_km_api', None)
+            self.api_key = getattr(settings, 'constructor_km_api_key', None)
+            self.supports_structured_output = False
+            
+            if not self.endpoint or not self.api_key:
+                raise APIError("Constructor KM API endpoint and key must be configured")
+                
+        elif self.provider == "gemini":
+            # Direct Gemini configuration
+            self.endpoint = getattr(
+                settings, 
+                'gemini_api_endpoint',
+                'https://generativelanguage.googleapis.com/v1/models'
+            )
+            self.api_key = getattr(settings, 'gemini_api_key', None)
+            # Gemini 3 Flash Preview and other models support structured output
+            # See: https://ai.google.dev/gemini-api/docs/structured-output
+            self.supports_structured_output = True
+            
+            if not self.api_key:
+                raise APIError("Gemini API key must be configured")
+        else:
+            raise APIError(f"Unknown AI provider: {self.provider}. Supported: 'constructor', 'gemini'")
         
         self.enabled = True
     
@@ -79,7 +103,15 @@ class AIClient:
                 }
             
             # Use unified analysis to get summary (more reliable than separate summarization)
-            analysis_result = await self.analyze_article_complete(article_url, content, "Article")
+            # Extract title from content if available, otherwise use URL as fallback
+            title = "Article"  # Default title if not available
+            if content:
+                # Try to extract title from first line or use first sentence
+                lines = content.split('\n')
+                if lines:
+                    title = lines[0].strip()[:200]  # Use first line as title, limit length
+            
+            analysis_result = await self.analyze_article_complete(title, content, article_url)
             summary = analysis_result.get('summary') if analysis_result else None
             
             return {
@@ -119,41 +151,55 @@ class AIClient:
             from .prompts import NewsPrompts
             prompt = NewsPrompts.extract_publication_date(content_sample)
 
-            payload = {
-                "model": self.summarization_model,
-                "messages": [
-                    {
-                        "role": "user", 
-                        "content": prompt
-                    }
-                ],
-                "max_tokens": 200,
-                "temperature": 0.1
+            # Schema for structured output (Gemini)
+            schema = {
+                "type": "object",
+                "properties": {
+                    "date_found": {"type": "boolean"},
+                    "publication_date": {"type": ["string", "null"]},
+                    "confidence": {"type": "number"}
+                },
+                "required": ["date_found", "publication_date", "confidence"]
             }
-            
-            headers = {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'X-KM-AccessKey': self.api_key
-            }
-            
-            async with get_http_client() as client:
-                response = await client.post(
-                    str(self.endpoint),
-                    json=payload,
-                    headers=headers,
-                    timeout=15
+
+            if self.supports_structured_output:
+                # Use structured output for Gemini
+                response_data = await self._make_structured_ai_request(
+                    prompt,
+                    model=self.summarization_model,
+                    schema=schema,
+                    analysis_type="publication_date",
+                    domain=url
+                )
+                result = response_data.get("result") or {}
+                
+                if result.get("date_found") and result.get("publication_date"):
+                    pub_date = result.get("publication_date", "").strip()
+                    confidence = result.get("confidence", 0.0)
+                    
+                    if pub_date and confidence >= 0.5:
+                        from datetime import datetime
+                        try:
+                            datetime.strptime(pub_date, '%Y-%m-%d')
+                            print(f"  ✅ AI found publication date: {pub_date} (confidence: {confidence:.2f})")
+                            return pub_date
+                        except ValueError:
+                            print(f"  ⚠️ Invalid date format from AI: {pub_date}")
+                            return None
+                return None
+            else:
+                # Fallback for Constructor: use raw request and parse
+                response_data = await self._make_raw_ai_request(
+                    prompt,
+                    model=self.summarization_model,
+                    analysis_type="publication_date",
+                    domain=url
                 )
                 
-                async with response:
-                    if response.status == 200:
-                        data = await response.json()
-                        if 'choices' in data and data['choices']:
-                            ai_text = data['choices'][0]['message']['content'].strip()
-                            return self._parse_date_response(ai_text)
-                    else:
-                        print(f"  ❌ Date extraction API error {response.status}")
-                        return None
+                if response_data and 'choices' in response_data and response_data['choices']:
+                    ai_text = (response_data['choices'][0]['message']['content'] or "").strip()
+                    return self._parse_date_response(ai_text)
+                return None
         
         except Exception as e:
             print(f"  ⚠️ Error extracting publication date: {e}")
@@ -218,41 +264,60 @@ class AIClient:
             from .prompts import NewsPrompts
             prompt = NewsPrompts.find_full_article_link(content_sample, base_url)
 
-            payload = {
-                "model": self.summarization_model,
-                "messages": [
-                    {
-                        "role": "user", 
-                        "content": prompt
-                    }
-                ],
-                "max_tokens": 300,
-                "temperature": 0.1
+            # Schema for structured output (Gemini)
+            schema = {
+                "type": "object",
+                "properties": {
+                    "link_found": {"type": "boolean"},
+                    "full_article_url": {"type": ["string", "null"]},
+                    "confidence": {"type": "number"}
+                },
+                "required": ["link_found", "full_article_url", "confidence"]
             }
-            
-            headers = {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'X-KM-AccessKey': self.api_key
-            }
-            
-            async with get_http_client() as client:
-                response = await client.post(
-                    str(self.endpoint),
-                    json=payload,
-                    headers=headers,
-                    timeout=15
+
+            if self.supports_structured_output:
+                # Use structured output for Gemini
+                response_data = await self._make_structured_ai_request(
+                    prompt,
+                    model=self.summarization_model,
+                    schema=schema,
+                    analysis_type="full_article_link",
+                    domain=base_url
+                )
+                result = response_data.get("result") or {}
+                
+                if result.get("link_found") and result.get("full_article_url"):
+                    full_url = result.get("full_article_url", "").strip()
+                    confidence = result.get("confidence", 0.0)
+                    
+                    if full_url and confidence >= 0.5:
+                        from urllib.parse import urljoin, urlparse
+                        # Make sure URL is absolute
+                        if not full_url.startswith(('http://', 'https://')):
+                            full_url = urljoin(base_url, full_url)
+                        
+                        # Validate URL format
+                        parsed = urlparse(full_url)
+                        if parsed.scheme and parsed.netloc:
+                            print(f"  ✅ AI found full article link: {full_url} (confidence: {confidence:.2f})")
+                            return full_url
+                        else:
+                            print(f"  ⚠️ Invalid URL from AI: {full_url}")
+                            return None
+                return None
+            else:
+                # Fallback for Constructor: use raw request and parse
+                response_data = await self._make_raw_ai_request(
+                    prompt,
+                    model=self.summarization_model,
+                    analysis_type="full_article_link",
+                    domain=base_url
                 )
                 
-                async with response:
-                    if response.status == 200:
-                        data = await response.json()
-                        if 'choices' in data and data['choices']:
-                            ai_text = data['choices'][0]['message']['content'].strip()
-                            return self._parse_link_response(ai_text, base_url)
-                    else:
-                        print(f"  ❌ Link extraction API error {response.status}")
-                        return None
+                if response_data and 'choices' in response_data and response_data['choices']:
+                    ai_text = (response_data['choices'][0]['message']['content'] or "").strip()
+                    return self._parse_link_response(ai_text, base_url)
+                return None
         
         except Exception as e:
             print(f"  ⚠️ Error extracting full article link: {e}")
@@ -354,50 +419,22 @@ class AIClient:
                 header_text=header_text
             )
 
-            payload = {
-                "model": self.digest_model,  # Configurable model for final digest
-                "messages": [
-                    {
-                        "role": "user", 
-                        "content": prompt
-                    }
-                ],
-                "max_tokens": 1500,
-                "temperature": 0.4
-            }
+            # Use unified API for digest generation with higher temperature for creativity
+            response_data = await self._make_raw_ai_request(
+                prompt,
+                model=self.digest_model,
+                analysis_type="digest_generation",
+                domain="digest",
+                temperature=0.4,  # Higher temperature for more creative digest
+                max_tokens=1500
+            )
             
-            headers = {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'X-KM-AccessKey': self.api_key
-            }
-            
-            async with get_http_client() as client:
-                response = await client.post(
-                    str(self.endpoint),
-                    json=payload,
-                    headers=headers
-                )
-                
-                async with response:
-                    if response.status == 200:
-                        data = await response.json()
-                        if 'choices' in data and data['choices']:
-                            digest = data['choices'][0]['message']['content'].strip()
-                            return digest
-                        else:
-                            print(f"  ⚠️ No choices in digest API response")
-                            return None
-                    elif response.status == 429:
-                        raise APIError("Rate limit exceeded", status_code=429)
-                    else:
-                        error_text = await response.text()
-                        print(f"  ⚠️ Digest API error {response.status}: {error_text}")
-                        raise APIError(
-                            f"Digest API error: {response.status}",
-                            status_code=response.status,
-                            response_text=error_text
-                        )
+            if response_data and 'choices' in response_data and response_data['choices']:
+                digest = (response_data['choices'][0]['message']['content'] or "").strip()
+                return digest
+            else:
+                print(f"  ⚠️ No choices in digest API response")
+                return None
         
         except APIError:
             raise
@@ -407,22 +444,38 @@ class AIClient:
     
     async def _make_raw_ai_request(self, prompt: str, model: str = None,
                                     analysis_type: str = "combined_analysis",
-                                    domain: str = "unknown") -> dict:
+                                    domain: str = "unknown",
+                                    temperature: float = 0.1,
+                                    max_tokens: int = 2000) -> dict:
         """
-        Make raw AI API request for custom analysis (like DOM structure analysis).
+        Make raw AI API request for custom analysis.
+        This method is provider-agnostic and always returns OpenAI-like response.
 
         Args:
             prompt: Raw prompt text
             model: Model to use (defaults to summarization_model)
             analysis_type: Type of analysis for tracking
             domain: Domain being analyzed for tracking
+            temperature: Temperature for generation (default: 0.1)
+            max_tokens: Maximum tokens to generate (default: 2000)
 
         Returns:
-            Raw API response dict
+            OpenAI-like response dict with 'choices' and 'usage'
         """
         if not model:
             model = self.summarization_model
 
+        if self.provider == "constructor":
+            return await self._make_constructor_request(prompt, model, analysis_type, domain, temperature, max_tokens)
+        elif self.provider == "gemini":
+            return await self._make_gemini_request(prompt, model, analysis_type, domain, temperature, max_tokens)
+        else:
+            raise APIError(f"Unsupported AI provider: {self.provider}")
+    
+    async def _make_constructor_request(self, prompt: str, model: str,
+                                        analysis_type: str, domain: str,
+                                        temperature: float = 0.1, max_tokens: int = 2000) -> dict:
+        """Make request to Constructor KM API (OpenAI-compatible)."""
         payload = {
             "model": model,
             "messages": [
@@ -431,8 +484,8 @@ class AIClient:
                     "content": prompt
                 }
             ],
-            "max_tokens": 2000,
-            "temperature": 0.1  # Low temperature for consistent analysis
+            "max_tokens": max_tokens,
+            "temperature": temperature
         }
 
         headers = {
@@ -441,87 +494,306 @@ class AIClient:
             'X-KM-AccessKey': self.api_key
         }
 
-        # Log request details
-        print(f"  🌐 API endpoint: {self.endpoint}")
+        print(f"  🌐 Constructor API endpoint: {self.endpoint}")
         print(f"  🤖 Model: {model}")
         print(f"  📊 Analysis type: {analysis_type}")
         print(f"  🏷️ Domain: {domain}")
         print(f"  📝 Prompt length: {len(prompt)} chars")
-        print(f"  🔑 API key present: {'Yes' if self.api_key else 'No'} (length: {len(self.api_key) if self.api_key else 0})")
 
         async with get_http_client() as client:
-            print(f"  📤 Sending request to API...")
-            response = await client.post(
-                str(self.endpoint),
-                json=payload,
-                headers=headers
-            )
+            response = await client.post(str(self.endpoint), json=payload, headers=headers)
 
             async with response:
                 if response.status == 200:
-                    # Log response headers for debugging
-                    content_type = response.headers.get('content-type', '')
-                    print(f"  📋 Response content-type: {content_type}")
-
-                    # Get raw response text first
                     response_text = await response.text()
                     print(f"  📄 Response length: {len(response_text)} chars")
-                    print(f"  📝 Response preview: {response_text[:200]}...")
 
-                    # Check if response is empty
                     if not response_text or not response_text.strip():
-                        print(f"  ⚠️ Empty response from API")
                         raise APIError("Empty response from API", status_code=200, response_text="")
 
-                    # Try to parse JSON - support both raw JSON and markdown-wrapped JSON
                     data = None
                     last_error = None
 
-                    # Strategy 1: Try parsing as-is (raw JSON)
                     try:
-                        print(f"  🔍 Attempt 1: Parsing as raw JSON...")
                         data = json.loads(response_text)
                         print(f"  ✅ Raw JSON parsed successfully")
                     except json.JSONDecodeError as e:
-                        print(f"  ⚠️ Raw JSON parsing failed: {e}")
                         last_error = e
 
-                    # Strategy 2: Extract from markdown code block and parse
                     if data is None:
                         try:
-                            print(f"  🔍 Attempt 2: Extracting from markdown code block...")
                             json_str = self._extract_json_from_response(response_text)
-                            print(f"  📝 Extracted JSON length: {len(json_str)} chars")
-
                             data = json.loads(json_str)
                             print(f"  ✅ Markdown-wrapped JSON parsed successfully")
                         except json.JSONDecodeError as e:
-                            print(f"  ⚠️ Markdown extraction parsing failed: {e}")
                             last_error = e
 
-                    # If both strategies failed, raise error
                     if data is None:
-                        print(f"  ❌ All JSON parsing strategies failed")
-                        print(f"  📄 Response preview: {response_text[:500]}...")
                         raise APIError(
-                            f"Invalid JSON response from API (tried both raw and markdown): {last_error}",
+                            f"Invalid JSON response from API: {last_error}",
                             status_code=200,
                             response_text=response_text
                         )
 
-                    # Track AI usage (fire-and-forget, non-blocking)
                     self._track_ai_usage(data, analysis_type, domain)
                     return data
                 elif response.status == 429:
                     raise APIError("Rate limit exceeded", status_code=429)
                 else:
                     error_text = await response.text()
-                    print(f"  ❌ API error {response.status}: {error_text[:500]}...")
+                    print(f"  ❌ Constructor API error {response.status}: {error_text[:500]}...")
                     raise APIError(
-                        f"AI API error: {response.status}",
+                        f"Constructor API error: {response.status}",
                         status_code=response.status,
                         response_text=error_text
                     )
+    
+    async def _make_gemini_request(self, prompt: str, model: str,
+                                   analysis_type: str, domain: str,
+                                   temperature: float = 0.1, max_tokens: int = 2000) -> dict:
+        """Make request to Gemini API and adapt response to OpenAI-like structure."""
+        # Check if model is Gemini 3 (contains "gemini-3")
+        is_gemini_3 = "gemini-3" in model.lower()
+        
+        # Use v1beta endpoint for Gemini 3, v1 for others
+        if is_gemini_3:
+            endpoint_base = str(self.endpoint).replace("/v1/models", "/v1beta/models")
+            url = f"{endpoint_base}/{model}:generateContent"
+        else:
+            url = f"{self.endpoint}/{model}:generateContent"
+
+        payload = {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {"text": prompt}
+                    ]
+                }
+            ],
+            "generationConfig": {
+                "temperature": temperature,
+                "maxOutputTokens": max_tokens,
+            }
+        }
+
+        params = {"key": self.api_key}
+
+        print(f"  🌐 Gemini endpoint: {url}")
+        print(f"  🤖 Gemini model: {model}")
+        print(f"  📊 Analysis type: {analysis_type}")
+        print(f"  🏷️ Domain: {domain}")
+        print(f"  📝 Prompt length: {len(prompt)} chars")
+
+        async with get_http_client() as client:
+            response = await client.post(url, json=payload, params=params, timeout=30)
+
+            async with response:
+                if response.status == 200:
+                    raw = await response.json()
+                    print(f"  📄 Gemini raw response keys: {list(raw.keys())}")
+
+                    candidates = raw.get("candidates") or []
+                    if not candidates:
+                        raise APIError(
+                            "Empty Gemini response",
+                            status_code=200,
+                            response_text=json.dumps(raw)[:500]
+                        )
+
+                    first = candidates[0]
+                    content = first.get("content") or {}
+                    parts = content.get("parts") or []
+                    text = ""
+                    if parts:
+                        text = (parts[0].get("text") or "").strip()
+
+                    usage_meta = raw.get("usageMetadata") or {}
+                    usage = {
+                        "prompt_tokens": usage_meta.get("promptTokenCount", 0),
+                        "completion_tokens": usage_meta.get("candidatesTokenCount", 0),
+                        "total_tokens": usage_meta.get("totalTokenCount", 0),
+                    }
+
+                    # Adapt to OpenAI-like structure
+                    data = {
+                        "choices": [
+                            {
+                                "message": {
+                                    "content": text
+                                }
+                            }
+                        ],
+                        "usage": usage
+                    }
+
+                    self._track_ai_usage(data, analysis_type, domain)
+                    return data
+                elif response.status == 429:
+                    raise APIError("Rate limit exceeded", status_code=429)
+                else:
+                    error_text = await response.text()
+                    print(f"  ❌ Gemini API error {response.status}: {error_text[:500]}...")
+                    raise APIError(
+                        f"Gemini API error: {response.status}",
+                        status_code=response.status,
+                        response_text=error_text
+                    )
+    
+    async def _make_structured_ai_request(self, prompt: str, model: str, schema: dict,
+                                          analysis_type: str, domain: str) -> dict:
+        """
+        Make structured AI request. For Gemini uses native structured output,
+        for other providers falls back to raw text + JSON parsing.
+
+        Args:
+            prompt: Prompt text
+            model: Model to use
+            schema: JSON schema for structured output (Gemini only)
+            analysis_type: Type of analysis for tracking
+            domain: Domain being analyzed for tracking
+
+        Returns:
+            Dict with 'result' (parsed structured data) and 'usage'
+        """
+        if self.provider == "gemini":
+            # Check if model is Gemini 3 (contains "gemini-3")
+            is_gemini_3 = "gemini-3" in model.lower()
+            
+            # Use v1beta endpoint for Gemini 3, v1 for others
+            # See: https://ai.google.dev/gemini-api/docs/gemini-3
+            if is_gemini_3:
+                # Replace /v1/models with /v1beta/models for Gemini 3
+                endpoint_base = str(self.endpoint).replace("/v1/models", "/v1beta/models")
+                url = f"{endpoint_base}/{model}:generateContent"
+            else:
+                url = f"{self.endpoint}/{model}:generateContent"
+
+            # Build payload - structured output params always go in generationConfig
+            # According to: https://ai.google.dev/gemini-api/docs/structured-output?example=recipe
+            payload = {
+                "contents": [
+                    {
+                        "role": "user",
+                        "parts": [
+                            {"text": prompt}
+                        ]
+                    }
+                ],
+                "generationConfig": {
+                    "temperature": 0.1,
+                    "maxOutputTokens": 2000,
+                    "responseMimeType": "application/json",
+                    "responseJsonSchema": schema
+                }
+            }
+
+            params = {"key": self.api_key}
+
+            print(f"  🌐 Gemini structured endpoint: {url}")
+            print(f"  🤖 Model: {model}")
+            print(f"  📊 Analysis type: {analysis_type}")
+            print(f"  🏷️ Domain: {domain}")
+            print(f"  📋 Using structured output with schema")
+            print(f"  🔍 Is Gemini 3: {is_gemini_3}")
+            print(f"  📝 Payload generationConfig keys: {list(payload['generationConfig'].keys())}")
+
+            async with get_http_client() as client:
+                response = await client.post(url, json=payload, params=params, timeout=40)
+
+                async with response:
+                    if response.status == 200:
+                        raw = await response.json()
+
+                        candidates = raw.get("candidates") or []
+                        if not candidates:
+                            raise APIError(
+                                "Empty Gemini response",
+                                status_code=200,
+                                response_text=str(raw)[:500]
+                            )
+
+                        first = candidates[0]
+                        content = first.get("content") or {}
+                        parts = content.get("parts") or []
+
+                        if not parts or "text" not in parts[0]:
+                            raise APIError(
+                                "Gemini structured response missing text",
+                                status_code=200,
+                                response_text=str(raw)[:500]
+                            )
+
+                        # Text should already be valid JSON according to schema
+                        text_response = parts[0]["text"].strip()
+                        try:
+                            structured = json.loads(text_response)
+                        except json.JSONDecodeError as e:
+                            print(f"  ⚠️ Failed to parse JSON from Gemini structured response: {e}")
+                            print(f"  📄 Response preview: {text_response[:500]}...")
+                            # Fallback: try to extract JSON from markdown if needed
+                            try:
+                                json_str = self._extract_json_from_response(text_response)
+                                structured = json.loads(json_str)
+                                print(f"  ✅ Extracted JSON from markdown code block")
+                            except Exception as e2:
+                                raise APIError(
+                                    f"Failed to parse JSON from Gemini structured response: {e2}",
+                                    status_code=200,
+                                    response_text=text_response[:500]
+                                )
+
+                        usage_meta = raw.get("usageMetadata") or {}
+                        usage = {
+                            "prompt_tokens": usage_meta.get("promptTokenCount", 0),
+                            "completion_tokens": usage_meta.get("candidatesTokenCount", 0),
+                            "total_tokens": usage_meta.get("totalTokenCount", 0),
+                        }
+
+                        data = {
+                            "result": structured,
+                            "usage": usage
+                        }
+
+                        self._track_ai_usage(data, analysis_type, domain)
+                        return data
+
+                    elif response.status == 429:
+                        raise APIError("Rate limit exceeded", status_code=429)
+                    else:
+                        error_text = await response.text()
+                        print(f"  ❌ Gemini API error {response.status}: {error_text[:500]}...")
+                        raise APIError(
+                            f"Gemini API error: {response.status}",
+                            status_code=response.status,
+                            response_text=error_text
+                        )
+
+        # Fallback: provider without structured output (Constructor)
+        raw_data = await self._make_raw_ai_request(
+            prompt,
+            model=model,
+            analysis_type=analysis_type,
+            domain=domain
+        )
+
+        # Expect text in choices[0].message.content and parse JSON
+        text = ""
+        if raw_data and "choices" in raw_data and raw_data["choices"]:
+            text = (raw_data["choices"][0]["message"]["content"] or "").strip()
+
+        try:
+            json_str = self._extract_json_from_response(text)
+            structured = json.loads(json_str)
+        except Exception as e:
+            raise APIError(
+                f"Failed to parse structured JSON from provider text response: {e}",
+                status_code=200,
+                response_text=text[:500]
+            )
+
+        raw_data["result"] = structured
+        return raw_data
 
     def _track_ai_usage(self, response_data: dict, analysis_type: str, domain: str):
         """Track AI API usage to database (fire-and-forget)."""
@@ -626,46 +898,26 @@ class AIClient:
     # analyze_article_complete() which provides better quality results
 
     async def _call_summary_llm(self, prompt: str, *, system_prompt: str | None = None) -> Optional[str]:
-        messages = []
+        # Build full prompt with system message if provided
+        full_prompt = prompt
         if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
+            full_prompt = f"{system_prompt}\n\n{prompt}"
 
-        payload = {
-            "model": self.summarization_model,
-            "messages": messages,
-            "max_tokens": 1000,
-            "temperature": 0.2,
-            "top_p": 0.9,
-            "presence_penalty": 0.0,
-            "frequency_penalty": 0.1,
-        }
-        headers = {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'X-KM-AccessKey': self.api_key,
-        }
-        async with get_http_client() as client:
-            print(f"  🤖 Sending to AI for summarization...")
-            print(f"  🌐 Making API request to {self.endpoint}")
-            response = await client.post(str(self.endpoint), json=payload, headers=headers)
-            async with response:
-                print(f"  📡 API response status: {response.status}")
-                if response.status == 200:
-                    data = await response.json()
-                    if 'choices' in data and data['choices']:
-                        return (data['choices'][0]['message']['content'] or '').strip()
-                    return None
-                elif response.status == 429:
-                    raise APIError("Rate limit exceeded", status_code=429)
-                else:
-                    error_text = await response.text()
-                    print(f"  ❌ API error {response.status}: {error_text}")
-                    raise APIError(
-                        f"API error: {response.status}",
-                        status_code=response.status,
-                        response_text=error_text,
-                    )
+        print(f"  🤖 Sending to AI for summarization...")
+        
+        # Use unified API with appropriate parameters for summarization
+        response_data = await self._make_raw_ai_request(
+            full_prompt,
+            model=self.summarization_model,
+            analysis_type="summary",
+            domain="summary",
+            temperature=0.2,  # Slightly higher for summarization
+            max_tokens=1000
+        )
+        
+        if response_data and 'choices' in response_data and response_data['choices']:
+            return (response_data['choices'][0]['message']['content'] or '').strip()
+        return None
 
     def _is_summary_valid(self, summary: str, original: str) -> bool:
         if not summary or len(summary) < 60:
@@ -752,9 +1004,57 @@ class AIClient:
                 from urllib.parse import urlparse
                 domain = urlparse(url).netloc if url else "unknown"
 
-                # Make API request
+                # JSON schema for structured output
+                schema = {
+                    "type": "object",
+                    "properties": {
+                        "optimized_title": {"type": ["string", "null"]},
+                        "summary": {"type": ["string", "null"]},
+                        "categories": {
+                            "type": "array",
+                            "items": {"type": "string"}
+                        },
+                        "category_confidences": {
+                            "type": "array",
+                            "items": {"type": "number"}
+                        },
+                        "category": {"type": ["string", "null"]},
+                        "category_confidence": {"type": "number"},
+                        "summary_confidence": {"type": "number"},
+                        "original_categories": {
+                            "type": "array",
+                            "items": {"type": "string"}
+                        },
+                        "is_advertisement": {"type": "boolean"},
+                        "ad_type": {"type": "string"},
+                        "ad_confidence": {"type": "number"},
+                        "ad_reasoning": {"type": "string"},
+                        "publication_date": {"type": ["string", "null"]},
+                        "content_quality": {"type": "number"},
+                        "confidence": {"type": "number"}
+                    },
+                    "required": ["summary", "categories", "is_advertisement"],
+                    "additionalProperties": True
+                }
+
+                if self.supports_structured_output:
+                    # Gemini: use structured output for guaranteed JSON
+                    response_data = await self._make_structured_ai_request(
+                        prompt,
+                        model=self.summarization_model,
+                        schema=schema,
+                        analysis_type="combined_analysis",
+                        domain=domain
+                    )
+                    result = response_data.get("result") or {}
+                    print(f"  ✅ Combined analysis (structured) successful")
+                    return self._validate_analysis_result(result, title, content)
+
+                # Constructor / other: fallback to text parsing
                 response_data = await self._make_raw_ai_request(
-                    prompt, analysis_type="combined_analysis", domain=domain
+                    prompt,
+                    analysis_type="combined_analysis",
+                    domain=domain
                 )
                 response = ''
                 if response_data and 'choices' in response_data and response_data['choices']:

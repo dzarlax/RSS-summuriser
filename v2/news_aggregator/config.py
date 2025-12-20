@@ -13,10 +13,20 @@ class Settings(BaseSettings):
     # Database
     database_url: str = Field(default="postgresql://newsuser:newspass123@localhost:5432/newsdb")
     
+    # AI Provider selection
+    ai_provider: str = Field(default="constructor", alias="AI_PROVIDER")  # "constructor" or "gemini"
+    
     # Constructor KM API (primary AI)
     constructor_km_api: Optional[str] = Field(default=None, alias="CONSTRUCTOR_KM_API") 
     constructor_km_api_key: Optional[str] = Field(default=None, alias="CONSTRUCTOR_KM_API_KEY")
     model: str = Field(default="gpt-4o-mini", alias="MODEL")
+    
+    # Gemini API configuration
+    gemini_api_key: Optional[str] = Field(default=None, alias="GEMINI_API_KEY")
+    gemini_api_endpoint: str = Field(
+        default="https://generativelanguage.googleapis.com/v1/models",
+        alias="GEMINI_API_ENDPOINT"
+    )
     
     # Specific AI models for different tasks
     summarization_model: str = Field(default="gpt-4o-mini", alias="SUMMARIZATION_MODEL")
