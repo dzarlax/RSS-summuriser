@@ -112,13 +112,23 @@ class NewsOrchestrator:
             total_duration = (end_time - start_time).total_seconds()
             stats['end_time'] = end_time.isoformat()
             stats['total_duration'] = total_duration
+            stats['duration_seconds'] = total_duration
             
             # Summary
-            print(f"🎉 Processing cycle completed in {total_duration:.1f}s")
-            print(f"   📈 {stats['articles_processed']} articles processed")
-            print(f"   🏷️ {len(stats['categories_found'])} categories found")
-            print(f"   💬 {stats['api_calls_made']} API calls made")
-            
+            print(f"Processing cycle completed in {total_duration:.1f}s")
+            print(f"   {stats['articles_processed']} articles processed")
+            print(f"   {len(stats['categories_found'])} categories found")
+            print(f"   {stats['api_calls_made']} API calls made")
+
+            # Persist processing stats for dashboard
+            try:
+                from .processing.processing_stats_service import get_processing_stats_service
+                processing_stats_service = get_processing_stats_service()
+                async with AsyncSessionLocal() as stats_db:
+                    await processing_stats_service.update_processing_stats(stats_db, stats)
+            except Exception as e:
+                print(f"  Failed to update processing stats: {e}")
+
             return stats
             
         except Exception as e:
@@ -182,9 +192,71 @@ class NewsOrchestrator:
                 return {'digest_content': digest_content, 'split': False}
 
             digest_result = await self.db_queue_manager.execute_read(build_digest_operation, timeout=30.0)
-            
+
+            # Step 4: Build Telegraph page (read-only operation)
+            async def build_telegraph_payload(db):
+                from .models import ArticleCategory
+                from .services.category_display_service import get_category_display_service
+
+                result = await db.execute(
+                    select(Article, ArticleCategory.ai_category, ArticleCategory.confidence)
+                    .join(ArticleCategory, Article.id == ArticleCategory.article_id)
+                    .where(Article.fetched_at >= today)
+                    .order_by(Article.fetched_at.desc())
+                )
+
+                category_display_service = await get_category_display_service(db)
+                category_cache = {}
+                best_by_article = {}
+
+                for article, ai_category, confidence in result.all():
+                    current = best_by_article.get(article.id)
+                    if current is None or (confidence or 0) > (current['confidence'] or 0):
+                        best_by_article[article.id] = {
+                            'article': article,
+                            'ai_category': ai_category or 'Other',
+                            'confidence': confidence or 0
+                        }
+
+                articles_by_category = {}
+                for item in best_by_article.values():
+                    article = item['article']
+                    ai_key = (item['ai_category'] or 'Other').strip() or 'Other'
+                    if ai_key not in category_cache:
+                        display = await category_display_service.map_ai_category_to_display(ai_key)
+                        category_cache[ai_key] = display.get('display_name') or display.get('name') or ai_key
+
+                    category_name = category_cache[ai_key]
+                    if category_name not in articles_by_category:
+                        articles_by_category[category_name] = []
+
+                    if len(articles_by_category[category_name]) >= 10:
+                        continue
+
+                    articles_by_category[category_name].append({
+                        "headline": article.title,
+                        "description": article.summary or article.content or "",
+                        "links": [article.url] if article.url else [],
+                        "image_url": article.primary_image or article.image_url
+                    })
+
+                return articles_by_category
+
+            telegraph_url = None
+            try:
+                from .services.telegraph_service import TelegraphService
+                telegraph_service = TelegraphService()
+                telegraph_payload = await self.db_queue_manager.execute_read(build_telegraph_payload, timeout=30.0)
+                telegraph_url = await telegraph_service.create_news_page(telegraph_payload)
+            except Exception as e:
+                print(f"⚠️ Telegraph generation failed: {e}")
+
             if digest_result.get('split'):
                 # Send multiple parts
+                if telegraph_url:
+                    link_line = f"\n<b>Полная версия:</b> <a href=\"{telegraph_url}\">Telegraph</a>"
+                    digest_result['digest_parts'][0] = digest_result['digest_parts'][0] + link_line
+
                 sent_ok = 0
                 for part in digest_result['digest_parts']:
                     if await self.telegram_service.send_message(part):
@@ -192,7 +264,10 @@ class NewsOrchestrator:
                 return {'success': sent_ok == len(digest_result['digest_parts']), 'parts_sent': sent_ok}
             else:
                 # Send single message
-                ok = await self.telegram_service.send_message(digest_result['digest_content'])
+                digest_content = digest_result['digest_content']
+                if telegraph_url:
+                    digest_content += f"\n<b>Полная версия:</b> <a href=\"{telegraph_url}\">Telegraph</a>"
+                ok = await self.telegram_service.send_message(digest_content)
                 return {'success': bool(ok), 'parts_sent': 1 if ok else 0}
                 
         except Exception as e:
@@ -315,27 +390,45 @@ class NewsOrchestrator:
             
             # Use database queue for summary generation
             async def summary_operation(db):
-                # Get today's articles grouped by category
-                from .models import ArticleCategory, Category
-                
+                # Get today's articles with AI categories and confidence
+                from .models import ArticleCategory
+                from .services.category_display_service import get_category_display_service
+
                 result = await db.execute(
-                    select(Article, Category.name.label('category_name'))
+                    select(Article, ArticleCategory.ai_category, ArticleCategory.confidence)
                     .join(ArticleCategory, Article.id == ArticleCategory.article_id)
-                    .join(Category, ArticleCategory.category_id == Category.id)
                     .where(Article.fetched_at >= today)
                     .order_by(Article.fetched_at.desc())
                 )
-                
-                # Group articles by category
+
+                category_display_service = await get_category_display_service(db)
+                category_cache = {}
+                best_by_article = {}
+
+                for article, ai_category, confidence in result.all():
+                    current = best_by_article.get(article.id)
+                    if current is None or (confidence or 0) > (current['confidence'] or 0):
+                        best_by_article[article.id] = {
+                            'article': article,
+                            'ai_category': ai_category or 'Other',
+                            'confidence': confidence or 0
+                        }
+
+                # Group articles by mapped category (best confidence only)
                 categories = {}
-                for article, category_name in result.all():
-                    if category_name not in categories:
-                        categories[category_name] = []
-                    categories[category_name].append(article)
-                
+                for item in best_by_article.values():
+                    article = item['article']
+                    ai_key = (item['ai_category'] or 'Other').strip() or 'Other'
+                    if ai_key not in category_cache:
+                        display = await category_display_service.map_ai_category_to_display(ai_key)
+                        category_cache[ai_key] = display.get('display_name') or display.get('name') or ai_key
+
+                    category_name = category_cache[ai_key]
+                    categories.setdefault(category_name, []).append(article)
+
                 # Generate summaries using digest builder
                 await self.digest_builder.generate_and_save_daily_summaries(db, today, categories)
-                
+
                 return {'summaries_generated': len(categories)}
             
             return await self.db_queue_manager.execute_write(summary_operation, timeout=timeout)

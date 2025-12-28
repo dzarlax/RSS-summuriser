@@ -1616,32 +1616,30 @@ document.addEventListener('DOMContentLoaded', function() {
 async function loadExtractorStats() {
     try {
         const response = await apiRequest('/api/v1/stats/extractor');
-        if (response.success && response.overall) {
-            const overall = response.overall;
-            // Overall success
-            const successRate = Math.round(overall.success_rate || 0);
-            document.getElementById('extractor-success').textContent = `${successRate}%`;
-            document.getElementById('extractor-details').textContent = 
-                `Попыток: ${overall.total_attempts || 0}, Шаблонов: ${overall.patterns_discovered || 0}`;
-        }
-        // Domains table (top problem domains)
+        const recent = response.recent_extractions || {};
+        const successRate = Math.round(recent.success_rate || 0);
+
+        document.getElementById('extractor-success').textContent = `${successRate}%`;
+        document.getElementById('extractor-details').textContent =
+            `???????: ${recent.total || 0}, ????????: ${recent.successful || 0}`;
+
         const container = document.getElementById('extractor-domains');
-        const domains = (response.domains || []).slice(0, 10);
+        const domains = (response.domain_stats || []).slice(0, 10);
         if (domains.length === 0) {
-            container.innerHTML = `<div class="loading-state"><p style="margin:0;">Данные отсутствуют</p></div>`;
+            container.innerHTML = `<div class="loading-state"><p style="margin:0;">?????? ???</p></div>`;
             return;
         }
+
         const rows = domains.map(d => {
             const rate = Math.round(d.success_rate || 0);
-            const methods = Object.entries(d.methods || {})
-                .map(([name, val]) => `${name}: ${val.successes||0}/${val.attempts||0}`)
-                .join(', ');
+            const avgTime = Math.round(d.avg_extraction_time_ms || 0);
+            const avgQuality = (d.avg_quality_score || 0).toFixed(2);
             return `
                 <div class="news-item">
                     <h4>${d.domain}</h4>
                     <div class="news-meta">
-                        <span>Попыток: ${d.total_attempts} • Успех: ${rate}%</span>
-                        <span class="news-category">${methods || '—'}</span>
+                        <span>???????: ${d.total_attempts} ? ?????: ${rate}%</span>
+                        <span class="news-category">?????: ${avgTime}?? ? ????????: ${avgQuality}</span>
                     </div>
                 </div>
             `;
@@ -1650,9 +1648,10 @@ async function loadExtractorStats() {
     } catch (error) {
         console.error('Error loading extractor stats:', error);
         document.getElementById('extractor-domains').innerHTML = `
-            <div class="loading-state"><p style="margin:0;color:var(--error-color);">❌ Ошибка загрузки</p></div>
+            <div class="loading-state"><p style="margin:0;color:var(--error-color);">?????? ????????</p></div>
         `;
     }
 }
+
 </script>
 {% endblock %}

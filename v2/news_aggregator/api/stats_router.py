@@ -11,6 +11,7 @@ from ..database import get_db
 from ..models import Article, ProcessingStat
 from ..orchestrator import NewsOrchestrator
 from ..services.extraction_memory import get_extraction_memory
+from ..processing.processing_stats_service import get_processing_stats_service
 
 
 router = APIRouter()
@@ -93,20 +94,20 @@ async def get_dashboard_stats(
         except Exception:
             top_category = "N/A"
         
-        # API calls and performance stats (mocked for now - can be implemented with ProcessingStat)
+        # API calls and performance stats from ProcessingStat (real data)
         api_calls_today = 0
-        api_success_rate = 100
+        api_success_rate = 0
         errors_today = 0
-        avg_processing_time = 2500  # milliseconds
+        avg_processing_time = 0  # milliseconds
         articles_per_hour = round(today_articles / 24) if today_articles > 0 else 0
-        
-        # Try to get real stats from ProcessingStat table if it exists
+
         try:
             stats_result = await db.execute(
                 select(
-                    func.coalesce(func.sum(ProcessingStat.api_calls), 0).label('api_calls'),
-                    func.coalesce(func.sum(ProcessingStat.errors), 0).label('errors'),
-                    func.coalesce(func.avg(ProcessingStat.avg_processing_time), avg_processing_time).label('avg_time')
+                    func.coalesce(func.sum(ProcessingStat.api_calls_made), 0).label('api_calls'),
+                    func.coalesce(func.sum(ProcessingStat.errors_count), 0).label('errors'),
+                    func.coalesce(func.sum(ProcessingStat.processing_time_seconds), 0).label('processing_seconds'),
+                    func.coalesce(func.sum(ProcessingStat.articles_processed), 0).label('processed')
                 )
                 .where(ProcessingStat.date >= today.date())
             )
@@ -114,8 +115,15 @@ async def get_dashboard_stats(
             if stats_row:
                 api_calls_today = int(stats_row.api_calls) if stats_row.api_calls else 0
                 errors_today = int(stats_row.errors) if stats_row.errors else 0
-                avg_processing_time = float(stats_row.avg_time) if stats_row.avg_time else avg_processing_time
-        except Exception as e:
+                processed_count = int(stats_row.processed) if stats_row.processed else 0
+                processing_seconds = float(stats_row.processing_seconds) if stats_row.processing_seconds else 0.0
+
+                if processed_count > 0 and processing_seconds > 0:
+                    avg_processing_time = int((processing_seconds / processed_count) * 1000)
+
+                if api_calls_today > 0:
+                    api_success_rate = round((api_calls_today - errors_today) / api_calls_today * 100)
+        except Exception:
             # Table might not exist yet
             pass
         
@@ -189,7 +197,7 @@ async def get_ai_usage_stats(
                     COALESCE(SUM(patterns_discovered), 0) as patterns_discovered,
                     COALESCE(SUM(patterns_successful), 0) as patterns_successful
                 FROM ai_usage_tracking
-                WHERE created_at >= :since_date
+                WHERE created_at >= :since_date OR created_at IS NULL
             """),
             {"since_date": since_date}
         )
@@ -219,7 +227,7 @@ async def get_ai_usage_stats(
                     COALESCE(SUM(tokens_used), 0) as tokens,
                     COALESCE(SUM(credits_cost), 0) as cost
                 FROM ai_usage_tracking
-                WHERE created_at >= :since_date
+                WHERE created_at >= :since_date OR created_at IS NULL
                 GROUP BY analysis_type
                 ORDER BY tokens DESC
             """),
@@ -269,7 +277,7 @@ async def get_ai_usage_stats(
                     COALESCE(SUM(tokens_used), 0) as tokens,
                     COALESCE(SUM(credits_cost), 0) as cost
                 FROM ai_usage_tracking
-                WHERE created_at >= :since_date
+                WHERE created_at >= :since_date OR created_at IS NULL
                 GROUP BY domain
                 ORDER BY tokens DESC
                 LIMIT 10
@@ -319,6 +327,33 @@ async def get_ai_usage_stats(
         }
 
 
+@router.get("/processing")
+async def get_processing_stats(
+    days: int = Query(30, ge=1, le=365)
+):
+    """Get processing statistics for charts."""
+    try:
+        processing_stats_service = get_processing_stats_service()
+        data = await processing_stats_service.get_processing_stats(days)
+        daily_stats = data.get('daily_stats', [])
+        daily_stats_sorted = sorted(daily_stats, key=lambda s: s.get('date') or "")
+
+        return {
+            "period_days": days,
+            "daily_stats": daily_stats_sorted,
+            "totals": data.get('totals', {}),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        return {
+            "error": str(e),
+            "period_days": days,
+            "daily_stats": [],
+            "totals": {},
+            "timestamp": datetime.utcnow().isoformat()
+        }
+
+
 @router.get("/extractor")
 async def get_extractor_stats(db: AsyncSession = Depends(get_db)):
     """Get content extractor performance statistics."""
@@ -331,12 +366,12 @@ async def get_extractor_stats(db: AsyncSession = Depends(get_db)):
         # Get recent extraction stats
         recent_extractions = await db.execute(
             text("""
-                SELECT 
+                SELECT
                     COUNT(*) as total,
                     SUM(CASE WHEN content IS NOT NULL AND LENGTH(content) > 100 THEN 1 ELSE 0 END) as successful,
                     AVG(CASE WHEN content IS NOT NULL THEN LENGTH(content) ELSE 0 END) as avg_content_length
-                FROM articles 
-                WHERE fetched_at >= NOW() - INTERVAL '7 days'
+                FROM articles
+                WHERE fetched_at >= NOW() - INTERVAL 7 DAY
             """)
         )
         

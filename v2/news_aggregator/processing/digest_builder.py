@@ -166,9 +166,15 @@ class DigestBuilder:
 - Сосредоточься на главных событиях
 - Используй деловой стиль
 - Начинай с "В сфере {category.lower()}..."
-- Не повторяй одну и ту же информацию"""
+- Не повторяй одну и ту же информацию
+Requirements:
+- End with a complete sentence
+- Do not cut words
+- Avoid trailing ellipsis"""
                 
-                summary_text = await ai_client._call_summary_llm(summary_prompt)
+                summary_text = await ai_client._call_summary_llm(summary_prompt, max_tokens=1500)
+                if summary_text:
+                    summary_text = ai_client._clean_summary_text(summary_text)
                 
                 # Save or update daily summary
                 existing_result = await db.execute(

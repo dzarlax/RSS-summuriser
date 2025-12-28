@@ -3,7 +3,7 @@
 import asyncio
 from typing import Dict, List, Optional
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import text
@@ -453,6 +453,45 @@ class ExtractionMemoryService:
             'last_attempt': None,  # Not tracked in simple version
             'methods': methods
         }
+
+    async def get_domain_success_rates(self, limit: int = 20, days: int = 7) -> List[Dict]:
+        """Get per-domain extraction success rates from persisted attempts."""
+        since_date = datetime.utcnow() - timedelta(days=days)
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                text("""
+                    SELECT
+                        domain,
+                        COUNT(*) as total_attempts,
+                        SUM(CASE WHEN success THEN 1 ELSE 0 END) as successful_attempts,
+                        AVG(extraction_time_ms) as avg_time_ms,
+                        AVG(quality_score) as avg_quality_score
+                    FROM extraction_attempts
+                    WHERE created_at >= :since_date
+                    GROUP BY domain
+                    ORDER BY total_attempts DESC
+                    LIMIT :limit
+                """),
+                {"since_date": since_date, "limit": limit}
+            )
+
+            domain_stats = []
+            for row in result.fetchall():
+                domain = row.domain
+                total_attempts = int(row.total_attempts or 0)
+                successful_attempts = int(row.successful_attempts or 0)
+                success_rate = (successful_attempts / total_attempts * 100) if total_attempts > 0 else 0.0
+
+                domain_stats.append({
+                    "domain": domain,
+                    "total_attempts": total_attempts,
+                    "successful_attempts": successful_attempts,
+                    "success_rate": round(success_rate, 2),
+                    "avg_extraction_time_ms": float(row.avg_time_ms or 0),
+                    "avg_quality_score": float(row.avg_quality_score or 0)
+                })
+
+            return domain_stats
     
     async def record_ai_pattern_discovery(
         self, domain: str, patterns: List[Dict], analysis_type: str = "selector_discovery"

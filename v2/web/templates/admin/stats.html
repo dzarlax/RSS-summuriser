@@ -572,6 +572,8 @@
 // Chart instances
 let articlesChart = null;
 let categoriesChart = null;
+let lastDashboardData = null;
+let lastAIUsageData = null;
 
 // Function to wait for Chart.js to load
 function waitForChart(callback, maxWait = 5000) {
@@ -836,6 +838,7 @@ async function loadStatistics() {
         const dashboardResponse = await fetch('/api/v1/stats/dashboard');
         if (dashboardResponse.ok) {
             const dashboard = await dashboardResponse.json();
+            lastDashboardData = dashboard;
             updateOverviewCards(dashboard);
         }
         
@@ -848,8 +851,11 @@ async function loadStatistics() {
         // Load AI usage stats
         await loadAIUsageStats();
 
+        // Update performance metrics with latest data
+        updatePerformanceMetrics();
+
         // Update system status
-        updateSystemStatus();
+        updateSystemStatus(true);
         
         // Update last update time
         document.getElementById('last-update-time').textContent = 
@@ -858,6 +864,7 @@ async function loadStatistics() {
     } catch (error) {
         console.error('Error loading statistics:', error);
         showErrorState();
+        updateSystemStatus(false);
     } finally {
         // Reset loading state
         const refreshBtn = document.querySelector('.refresh-btn');
@@ -873,13 +880,13 @@ function updateOverviewCards(data) {
     document.getElementById('ai-requests').textContent = data.api_calls_today || '0';
     document.getElementById('active-sources').textContent = data.active_sources || '0';
     
-    // Calculate success rate based on real data or reasonable estimate
-    let successRate = '0';
-    if (data.total_processed && data.successful_processed) {
-        successRate = Math.round((data.successful_processed / data.total_processed) * 100);
-    } else if (data.today_articles && data.today_articles > 0) {
-        // If we have articles but no error data, assume 85-95% success rate
-        successRate = Math.floor(85 + Math.random() * 10);
+    // Calculate success rate based on real data
+    let successRate = 0;
+    if (typeof data.api_success_rate === 'number') {
+        successRate = data.api_success_rate;
+    } else if (data.api_calls_today) {
+        const errorsToday = data.errors_today || 0;
+        successRate = Math.round(((data.api_calls_today - errorsToday) / data.api_calls_today) * 100);
     }
     document.getElementById('success-rate').textContent = `${successRate}%`;
     
@@ -947,16 +954,35 @@ async function loadChartData() {
         return;
     }
     
-    // Generate mock data for charts (would come from real API)
     const period = document.getElementById('periodSelect').value;
     const days = period === '7d' ? 7 : period === '30d' ? 30 : 90;
-    
-    // Articles chart data
-    const articlesData = generateTimeSeriesData(days);
-    articlesChart.data.labels = articlesData.labels;
-    articlesChart.data.datasets[0].data = articlesData.articles;
-    articlesChart.data.datasets[1].data = articlesData.aiRequests;
-    articlesChart.update('none');
+
+    // Articles chart data (real API)
+    try {
+        const processingResponse = await fetch(`/api/v1/stats/processing?days=${days}`);
+        if (processingResponse.ok) {
+            const processingData = await processingResponse.json();
+            const dailyStats = processingData.daily_stats || [];
+
+            const labels = [];
+            const articles = [];
+            const aiRequests = [];
+
+            dailyStats.forEach(stat => {
+                const date = stat.date ? new Date(stat.date) : null;
+                labels.push(formatDateLabel(date, days));
+                articles.push(stat.articles_processed || 0);
+                aiRequests.push(stat.api_calls_made || 0);
+            });
+
+            articlesChart.data.labels = labels;
+            articlesChart.data.datasets[0].data = articles;
+            articlesChart.data.datasets[1].data = aiRequests;
+            articlesChart.update('none');
+        }
+    } catch (error) {
+        console.error('Error loading processing stats:', error);
+    }
     
     // Categories chart data
     try {
@@ -980,34 +1006,17 @@ async function loadChartData() {
     }
 }
 
-function generateTimeSeriesData(days) {
-    const labels = [];
-    const articles = [];
-    const aiRequests = [];
-    
-    const now = new Date();
-    for (let i = days - 1; i >= 0; i--) {
-        const date = new Date(now);
-        date.setDate(date.getDate() - i);
-        
-        if (days <= 7) {
-            labels.push(date.toLocaleDateString('ru-RU', { weekday: 'short' }));
-        } else if (days <= 30) {
-            labels.push(date.toLocaleDateString('ru-RU', { day: 'numeric' }));
-        } else {
-            labels.push(date.toLocaleDateString('ru-RU', { month: 'short', day: 'numeric' }));
-        }
-        
-        // Generate realistic mock data
-        const baseArticles = 15 + Math.floor(Math.random() * 25);
-        const weekend = date.getDay() === 0 || date.getDay() === 6;
-        const articleCount = weekend ? Math.floor(baseArticles * 0.6) : baseArticles;
-        
-        articles.push(articleCount);
-        aiRequests.push(Math.floor(articleCount * 0.8 + Math.random() * 5));
+function formatDateLabel(date, days) {
+    if (!date || Number.isNaN(date.getTime())) {
+        return '';
     }
-    
-    return { labels, articles, aiRequests };
+    if (days <= 7) {
+        return date.toLocaleDateString('ru-RU', { weekday: 'short' });
+    }
+    if (days <= 30) {
+        return date.toLocaleDateString('ru-RU', { day: 'numeric' });
+    }
+    return date.toLocaleDateString('ru-RU', { month: 'short', day: 'numeric' });
 }
 
 function updateCategoriesChart(data) {
@@ -1029,34 +1038,22 @@ async function loadInsights() {
         const sourcesResponse = await fetch('/api/v1/sources');
         if (sourcesResponse.ok) {
             const sourcesData = await sourcesResponse.json();
-            // Transform sources data to top sources format
-            const topSources = sourcesData.sources.slice(0, 5).map(source => ({
-                name: source.name || source.url,
-                articles: Math.floor(Math.random() * 50) + 10 // Mock for now since we don't have article counts per source
-            }));
+            const sources = sourcesData.sources || [];
+            const topSources = sources
+                .sort((a, b) => (b.articles_count || 0) - (a.articles_count || 0))
+                .slice(0, 5)
+                .map(source => ({
+                    name: source.name || source.url,
+                    articles: source.articles_count || 0
+                }));
             updateTopSources({ top_sources: topSources });
         } else {
-            // Mock data
-            updateTopSources({
-                top_sources: [
-                    { name: 'RSS Feed 1', articles: 45 },
-                    { name: 'RSS Feed 2', articles: 32 },
-                    { name: 'Telegram Channel', articles: 28 }
-                ]
-            });
+            updateTopSources({ top_sources: [] });
         }
     } catch (error) {
         console.error('Error loading sources insight:', error);
-        // Fallback to mock data
-        updateTopSources({
-            top_sources: [
-                { name: 'Загрузка источников...', articles: 0 }
-            ]
-        });
+        updateTopSources({ top_sources: [] });
     }
-    
-    // Update performance metrics
-    updatePerformanceMetrics();
 }
 
 function updateTopSources(data) {
@@ -1079,10 +1076,23 @@ function updateTopSources(data) {
 }
 
 function updatePerformanceMetrics() {
-    // Mock performance data (would come from real metrics)
-    document.getElementById('avg-processing-time').textContent = '2.3 сек';
-    document.getElementById('articles-per-hour').textContent = Math.floor(10 + Math.random() * 15).toString();
-    document.getElementById('ai-usage').textContent = `${Math.floor(70 + Math.random() * 20)}%`;
+    const avgEl = document.getElementById('avg-processing-time');
+    const perHourEl = document.getElementById('articles-per-hour');
+    const aiUsageEl = document.getElementById('ai-usage');
+
+    const dashboard = lastDashboardData || {};
+    const aiUsage = lastAIUsageData || {};
+
+    const avgMs = dashboard.avg_processing_time || 0;
+    avgEl.textContent = avgMs > 0 ? `${(avgMs / 1000).toFixed(1)} sec` : '-';
+
+    const perHour = dashboard.articles_per_hour || 0;
+    perHourEl.textContent = perHour.toString();
+
+    const todayTokens = aiUsage.today?.tokens || 0;
+    const totalTokens = aiUsage.total?.tokens || 0;
+    const percent = totalTokens > 0 ? Math.round((todayTokens / totalTokens) * 100) : 0;
+    aiUsageEl.textContent = `${percent}%`;
 }
 
 async function loadAIUsageStats() {
@@ -1096,11 +1106,12 @@ async function loadAIUsageStats() {
         }
 
         const data = await response.json();
+        lastAIUsageData = data;
 
         // Update main stats
         document.getElementById('ai-tokens-today').textContent = formatNumber(data.today?.tokens || 0);
         document.getElementById('ai-tokens-total').textContent = formatNumber(data.total?.tokens || 0);
-        document.getElementById('ai-cost-total').textContent = `$${(data.total?.cost || 0).toFixed(4)}`;
+        document.getElementById('ai-cost-total').textContent = `$${(data.total?.cost || 0).toFixed(6)}`;
         document.getElementById('ai-requests-total').textContent = formatNumber(data.total?.requests || 0);
 
         // Update by type list
@@ -1141,6 +1152,7 @@ async function loadAIUsageStats() {
 
     } catch (error) {
         console.error('Error loading AI usage stats:', error);
+        lastAIUsageData = null;
         // Show error state
         document.getElementById('ai-tokens-today').textContent = '-';
         document.getElementById('ai-tokens-total').textContent = '-';
@@ -1170,14 +1182,14 @@ function formatAnalysisType(type) {
     return typeNames[type] || type;
 }
 
-function updateSystemStatus() {
-    // Mock system status (would come from health checks)
+function updateSystemStatus(isHealthy) {
     const services = ['db-status', 'ai-status', 'rss-status', 'telegram-status'];
+    const status = isHealthy ? 'healthy' : 'warning';
     services.forEach(service => {
         const element = document.getElementById(service);
-        // Randomly simulate different statuses for demo
-        const status = Math.random() > 0.1 ? 'healthy' : 'warning';
-        element.className = `status-indicator status-${status}`;
+        if (element) {
+            element.className = `status-indicator status-${status}`;
+        }
     });
 }
 

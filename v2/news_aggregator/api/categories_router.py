@@ -49,7 +49,7 @@ class CategoryUpdateRequest(BaseModel):
 class CategoryMappingRequest(BaseModel):
     ai_category: str
     fixed_category: str
-    confidence_threshold: Optional[float] = 0.0
+    confidence_threshold: Optional[float] = 0.7
     description: Optional[str] = None
 
 
@@ -57,7 +57,7 @@ class CategoryMappingResponse(BaseModel):
     id: int
     ai_category: str
     fixed_category: str
-    confidence_threshold: Optional[float] = 0.0
+    confidence_threshold: Optional[float] = 0.7
     description: Optional[str] = None
     created_by: Optional[str] = 'system'
     usage_count: Optional[int] = 0
@@ -255,7 +255,7 @@ async def create_category_mapping(
     mapping = CategoryMapping(
         ai_category=payload.ai_category,
         fixed_category=payload.fixed_category,
-        confidence_threshold=payload.confidence_threshold or 0.0,
+        confidence_threshold=payload.confidence_threshold if payload.confidence_threshold is not None else 0.7,
         description=payload.description,
         created_by="admin",  # TODO: Get from auth
         usage_count=0,
@@ -302,7 +302,7 @@ async def update_category_mapping(
     # Update fields
     mapping.ai_category = payload.ai_category
     mapping.fixed_category = payload.fixed_category
-    mapping.confidence_threshold = payload.confidence_threshold or 0.0
+    mapping.confidence_threshold = payload.confidence_threshold if payload.confidence_threshold is not None else 0.7
     mapping.description = payload.description
     mapping.updated_at = datetime.utcnow()
     
@@ -517,7 +517,7 @@ class AICategoryMappingApprovalRequest(BaseModel):
     """Request model for approving AI category mappings."""
     ai_category: str
     approved_fixed_category: str
-    confidence_threshold: Optional[float] = 0.0
+    confidence_threshold: Optional[float] = 0.7
     description: Optional[str] = None
 
 

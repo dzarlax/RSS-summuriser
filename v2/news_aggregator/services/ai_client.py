@@ -832,13 +832,14 @@ class AIClient:
 
                 from ..database import AsyncSessionLocal
                 from sqlalchemy import text
+                from datetime import datetime
 
                 async with AsyncSessionLocal() as session:
                     await session.execute(
                         text("""
                             INSERT INTO ai_usage_tracking
-                            (domain, analysis_type, tokens_used, credits_cost, analysis_result)
-                            VALUES (:domain, :analysis_type, :tokens_used, :cost, :result)
+                            (domain, analysis_type, tokens_used, credits_cost, analysis_result, created_at)
+                            VALUES (:domain, :analysis_type, :tokens_used, :cost, :result, :created_at)
                         """),
                         {
                             "domain": domain,
@@ -851,7 +852,8 @@ class AIClient:
                                     "completion_tokens": completion_tokens,
                                     "cached_tokens": cached_tokens
                                 }
-                            )
+                            ),
+                            "created_at": datetime.utcnow()
                         }
                     )
                     await session.commit()
@@ -922,7 +924,8 @@ class AIClient:
     # Note: _summarize_content() method removed - all summarization now uses 
     # analyze_article_complete() which provides better quality results
 
-    async def _call_summary_llm(self, prompt: str, *, system_prompt: str | None = None) -> Optional[str]:
+    async def _call_summary_llm(self, prompt: str, *, system_prompt: str | None = None,
+                                max_tokens: int = 1000) -> Optional[str]:
         # Build full prompt with system message if provided
         full_prompt = prompt
         if system_prompt:
@@ -937,7 +940,7 @@ class AIClient:
             analysis_type="summary",
             domain="summary",
             temperature=0.2,  # Slightly higher for summarization
-            max_tokens=1000
+            max_tokens=max_tokens
         )
         
         if response_data and 'choices' in response_data and response_data['choices']:
