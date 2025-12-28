@@ -32,6 +32,11 @@ class Settings(BaseSettings):
     summarization_model: str = Field(default="gpt-4o-mini", alias="SUMMARIZATION_MODEL")
     categorization_model: str = Field(default="gpt-4o-mini", alias="CATEGORIZATION_MODEL") 
     digest_model: str = Field(default="gpt-4.1", alias="DIGEST_MODEL")
+
+    # AI usage pricing (per 1M tokens) - optional, configure per provider/model
+    ai_input_cost_per_1m: Optional[float] = Field(default=None, alias="AI_INPUT_COST_PER_1M")
+    ai_output_cost_per_1m: Optional[float] = Field(default=None, alias="AI_OUTPUT_COST_PER_1M")
+    ai_cached_input_cost_per_1m: Optional[float] = Field(default=None, alias="AI_CACHED_INPUT_COST_PER_1M")
     
     # Telegram
     telegram_token: Optional[SecretStr] = Field(default=None, alias="TELEGRAM_TOKEN")

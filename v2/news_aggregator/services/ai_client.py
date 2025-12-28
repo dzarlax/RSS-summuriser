@@ -548,6 +548,24 @@ class AIClient:
                         response_text=error_text
                     )
     
+    def _normalize_gemini_usage(self, raw: dict) -> dict:
+        """Normalize Gemini usage metadata to OpenAI-like token keys."""
+        usage_meta = raw.get("usageMetadata") or {}
+        prompt_tokens = usage_meta.get("promptTokenCount", 0)
+        completion_tokens = usage_meta.get("candidatesTokenCount", 0)
+        cached_tokens = usage_meta.get("cachedContentTokenCount", 0)
+        total_tokens = usage_meta.get("totalTokenCount")
+
+        if total_tokens is None:
+            total_tokens = prompt_tokens + completion_tokens + cached_tokens
+
+        return {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "cached_tokens": cached_tokens,
+            "total_tokens": total_tokens or 0,
+        }
+
     async def _make_gemini_request(self, prompt: str, model: str,
                                    analysis_type: str, domain: str,
                                    temperature: float = 0.1, max_tokens: int = 2000) -> dict:
@@ -608,12 +626,7 @@ class AIClient:
                     if parts:
                         text = (parts[0].get("text") or "").strip()
 
-                    usage_meta = raw.get("usageMetadata") or {}
-                    usage = {
-                        "prompt_tokens": usage_meta.get("promptTokenCount", 0),
-                        "completion_tokens": usage_meta.get("candidatesTokenCount", 0),
-                        "total_tokens": usage_meta.get("totalTokenCount", 0),
-                    }
+                    usage = self._normalize_gemini_usage(raw)
 
                     # Adapt to OpenAI-like structure
                     data = {
@@ -743,12 +756,7 @@ class AIClient:
                                     response_text=text_response[:500]
                                 )
 
-                        usage_meta = raw.get("usageMetadata") or {}
-                        usage = {
-                            "prompt_tokens": usage_meta.get("promptTokenCount", 0),
-                            "completion_tokens": usage_meta.get("candidatesTokenCount", 0),
-                            "total_tokens": usage_meta.get("totalTokenCount", 0),
-                        }
+                        usage = self._normalize_gemini_usage(raw)
 
                         data = {
                             "result": structured,
@@ -803,13 +811,24 @@ class AIClient:
             try:
                 # Extract token usage from response
                 usage = response_data.get('usage', {})
-                tokens_used = usage.get('total_tokens', 0)
+                tokens_used = usage.get('total_tokens')
                 prompt_tokens = usage.get('prompt_tokens', 0)
                 completion_tokens = usage.get('completion_tokens', 0)
+                cached_tokens = usage.get('cached_tokens', 0)
 
-                # Estimate cost (approximate pricing)
-                # GPT-4o-mini: ~$0.15/1M input, ~$0.60/1M output
-                cost = (prompt_tokens * 0.00000015) + (completion_tokens * 0.0000006)
+                if not tokens_used:
+                    tokens_used = prompt_tokens + completion_tokens
+
+                # Cost from config (per 1M tokens); defaults to 0 if not configured
+                input_rate = getattr(settings, 'ai_input_cost_per_1m', None) or 0.0
+                output_rate = getattr(settings, 'ai_output_cost_per_1m', None) or 0.0
+                cached_input_rate = getattr(settings, 'ai_cached_input_cost_per_1m', None) or 0.0
+
+                cost = (
+                    (prompt_tokens * input_rate) +
+                    (completion_tokens * output_rate) +
+                    (cached_tokens * cached_input_rate)
+                ) / 1_000_000
 
                 from ..database import AsyncSessionLocal
                 from sqlalchemy import text
@@ -826,7 +845,13 @@ class AIClient:
                             "analysis_type": analysis_type,
                             "tokens_used": tokens_used,
                             "cost": cost,
-                            "result": json.dumps({"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens})
+                            "result": json.dumps(
+                                {
+                                    "prompt_tokens": prompt_tokens,
+                                    "completion_tokens": completion_tokens,
+                                    "cached_tokens": cached_tokens
+                                }
+                            )
                         }
                     )
                     await session.commit()

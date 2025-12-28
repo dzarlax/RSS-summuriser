@@ -5,7 +5,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete
 
 from ..database import get_db
 from ..models import Article, Source
@@ -227,6 +227,7 @@ async def toggle_source(
 @router.delete("/{source_id}")
 async def delete_source(
     source_id: int,
+    delete_articles: bool = False,
     db: AsyncSession = Depends(get_db)
     # TODO: Add admin auth when security is fixed
 ):
@@ -245,11 +246,17 @@ async def delete_source(
         )
         articles_count = articles_count_result.scalar() or 0
         
-        if articles_count > 0:
+        if articles_count > 0 and not delete_articles:
             raise HTTPException(
-                status_code=400, 
-                detail=f"Cannot delete source with {articles_count} articles. Disable it instead."
+                status_code=400,
+                detail=(
+                    f"Cannot delete source with {articles_count} articles. "
+                    "Disable it instead or pass delete_articles=true to purge."
+                )
             )
+
+        if articles_count > 0 and delete_articles:
+            await db.execute(delete(Article).where(Article.source_id == source_id))
         
         # Delete source
         await db.delete(source)
@@ -257,7 +264,8 @@ async def delete_source(
         
         return {
             "message": f"Source '{source.name}' deleted successfully",
-            "deleted_source_id": source_id
+            "deleted_source_id": source_id,
+            "deleted_articles": articles_count if delete_articles else 0
         }
         
     except HTTPException:

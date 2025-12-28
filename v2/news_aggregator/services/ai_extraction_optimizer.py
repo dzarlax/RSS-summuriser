@@ -114,8 +114,19 @@ class AIExtractionOptimizer:
                 analysis_time = int((time.time() - start_time) * 1000)
                 analysis_result.analysis_time_ms = analysis_time
                 
-                # Estimate token usage (rough approximation)
-                analysis_result.tokens_used = len(prompt.split()) + len(ai_text.split())
+                # Prefer API usage metadata when available (Gemini/Constructor), fallback to estimate
+                usage = response.get("usage", {}) if isinstance(response, dict) else {}
+                prompt_tokens = usage.get("prompt_tokens", 0) or 0
+                completion_tokens = usage.get("completion_tokens", 0) or 0
+                total_tokens = usage.get("total_tokens")
+
+                if not total_tokens:
+                    total_tokens = prompt_tokens + completion_tokens
+
+                if not total_tokens:
+                    total_tokens = len(prompt.split()) + len(ai_text.split())
+
+                analysis_result.tokens_used = int(total_tokens)
                 
                 print(f"  ✅ AI analysis complete: {len(analysis_result.selectors_discovered)} selectors discovered")
                 
