@@ -90,17 +90,41 @@ class SourceManager:
             await db.rollback()
             raise SourceError(f"Failed to update source {source_id}: {e}")
     
-    async def delete_source(self, db: AsyncSession, source_id: int) -> bool:
-        """Delete source."""
+    async def delete_source(self, db: AsyncSession, source_id: int, delete_articles: bool = False) -> bool:
+        """
+        Delete source and optionally its articles.
+        
+        Args:
+            db: Database session
+            source_id: ID of source to delete
+            delete_articles: Whether to delete associated articles
+        """
         try:
             source = await self.get_source_by_id(db, source_id)
             if not source:
                 return False
+                
+            # Check if source has articles
+            from ..models import Article
+            from sqlalchemy import select, func, delete
+            
+            # If delete_articles is requested, remove them first
+            if delete_articles:
+                await db.execute(delete(Article).where(Article.source_id == source_id))
+            
+            # Delete source
             await db.delete(source)
             await db.commit()
+            
+            # Cleanup in-memory instance
             if source_id in self._source_instances:
                 del self._source_instances[source_id]
+                
             return True
+        except Exception as e:
+            await db.rollback()
+            raise SourceError(f"Failed to delete source {source_id}: {e}")
+
         except Exception as e:
             await db.rollback()
             raise SourceError(f"Failed to delete source {source_id}: {e}")

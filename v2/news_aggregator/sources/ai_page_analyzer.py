@@ -6,7 +6,7 @@ from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass
 from bs4 import BeautifulSoup
 
-from ..services.ai_client import get_ai_client
+
 
 
 @dataclass
@@ -51,6 +51,7 @@ class AIPageAnalyzer:
             prompt = self._build_structure_analysis_prompt(url, clean_html, context)
             
             # Get AI analysis
+            from ..services.ai_client import get_ai_client
             ai_client = get_ai_client()
             response = await ai_client._make_raw_ai_request(prompt, model=ai_client.summarization_model)
             
@@ -236,6 +237,7 @@ Change types: "new_content_added", "content_updated", "content_removed", "layout
 Significance: "high", "medium", "low"
 """
             
+            from ..services.ai_client import get_ai_client
             ai_client = get_ai_client()
             response = await ai_client._make_raw_ai_request(prompt, model=ai_client.summarization_model)
             

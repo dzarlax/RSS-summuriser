@@ -53,7 +53,7 @@ class Article(Base):
     processed = Column(Boolean, default=False)  # Legacy field for backward compatibility
     summary_processed = Column(Boolean, default=False)  # True if AI summarization was attempted
     category_processed = Column(Boolean, default=False)  # True if AI categorization was attempted
-    hash_content = Column(String(64))
+    hash_content = Column(String(64), index=True)
     
     # Advertising detection fields
     is_advertisement = Column(Boolean, default=False, index=True)  # True if content is advertising

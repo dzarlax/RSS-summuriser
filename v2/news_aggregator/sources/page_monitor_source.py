@@ -141,6 +141,14 @@ class PageMonitorSource(BaseSource):
         # Dynamic selectors learned through AI analysis
         self.learned_selectors: Dict[str, float] = {}  # selector -> confidence
         
+        # Specific structure selectors learned from AI
+        self.learned_container_selectors: List[str] = []
+        self.learned_title_selectors: List[str] = []
+        self.learned_link_selectors: List[str] = []
+        self.learned_date_selectors: List[str] = []
+        
+        self._learned_structure_loaded = False
+        
         # Content patterns for intelligent extraction
         self.content_patterns = {
             'changelog': [
@@ -321,8 +329,17 @@ class PageMonitorSource(BaseSource):
         soup = BeautifulSoup(html, 'html.parser')
         articles = []
         
-        # Try learned selectors first (if any)
-        if self.learned_selectors:
+        # 1. Try specific learned container selectors first
+        if self.learned_container_selectors:
+            for selector in self.learned_container_selectors:
+                print(f"  🧠 Trying learned container selector: {selector}")
+                new_articles = await self._extract_with_selector(soup, selector, page)
+                articles.extend(new_articles)
+                if articles:
+                    break
+        
+        # 2. Try general learned selectors
+        if not articles and self.learned_selectors:
             sorted_selectors = sorted(
                 self.learned_selectors.items(), 
                 key=lambda x: x[1], 
@@ -330,20 +347,31 @@ class PageMonitorSource(BaseSource):
             )
             for selector, confidence in sorted_selectors[:3]:
                 if confidence > 0.7:
-                    print(f"  🎯 Trying learned selector: {selector} (confidence: {confidence:.2f})")
+                    print(f"  🎯 Trying learned general selector: {selector} (confidence: {confidence:.2f})")
                     articles.extend(await self._extract_with_selector(soup, selector, page))
                     if articles:
                         break
         
-        # If no articles found, try configured selectors
+        # 3. If no articles found, try configured selectors
         if not articles:
             for selector in self.config.article_selectors:
-                print(f"  🔍 Trying selector: {selector}")
+                print(f"  🔍 Trying configured selector: {selector}")
                 new_articles = await self._extract_with_selector(soup, selector, page)
                 articles.extend(new_articles)
                 
                 if len(articles) >= self.config.max_articles_per_check:
                     break
+        
+        # 4. Check for list-page fallback (treating whole page as one article)
+        if await self._detect_list_page_fallback(articles, html):
+            print("  ⚠️ Detected list-page fallback - triggering AI source study")
+            await self._study_source_structure(html)
+            # Re-try with newly learned selectors if any
+            if self.learned_container_selectors:
+                articles = [] # Clear and retry
+                for selector in self.learned_container_selectors:
+                    articles.extend(await self._extract_with_selector(soup, selector, page))
+                    if articles: break
         
         # Filter and enhance articles
         articles = await self._filter_and_enhance_articles(articles)
@@ -405,7 +433,18 @@ class PageMonitorSource(BaseSource):
     
     async def _extract_title(self, element) -> Optional[str]:
         """Extract title from element."""
-        # Try title selectors
+        # Try learned title selectors first
+        for selector in self.learned_title_selectors:
+            try:
+                title_elem = element.select_one(selector)
+                if title_elem:
+                    title = title_elem.get_text(strip=True)
+                    if title:
+                        return title
+            except:
+                continue
+                
+        # Try configured title selectors
         for selector in self.config.title_selectors:
             try:
                 title_elem = element.select_one(selector)
@@ -430,6 +469,17 @@ class PageMonitorSource(BaseSource):
     
     async def _extract_link(self, element) -> Optional[str]:
         """Extract link from element."""
+        # Try learned link selectors first
+        for selector in self.learned_link_selectors:
+            try:
+                link_elem = element.select_one(selector)
+                if link_elem and link_elem.get('href'):
+                    href = link_elem.get('href')
+                    if href and not href.startswith('#'):
+                        return href
+            except:
+                continue
+
         # Try to find link in element or parent
         link_elem = element.find('a', href=True)
         if not link_elem:
@@ -454,6 +504,19 @@ class PageMonitorSource(BaseSource):
     
     async def _extract_date(self, element) -> Optional[datetime]:
         """Extract date from element."""
+        # Try learned date selectors first
+        for selector in self.learned_date_selectors:
+            try:
+                date_elem = element.select_one(selector)
+                if date_elem:
+                    # Try datetime attribute first
+                    dt = date_elem.get('datetime') or date_elem.get_text(strip=True)
+                    if dt:
+                        parsed = self._parse_datetime(dt)
+                        if parsed: return parsed
+            except:
+                continue
+
         for selector in self.config.date_selectors:
             try:
                 date_elem = element.select_one(selector)
@@ -723,6 +786,59 @@ class PageMonitorSource(BaseSource):
         
         return articles
     
+    async def _load_learned_structure(self):
+        """Load learned source structure from memory."""
+        if self._learned_structure_loaded:
+            return
+            
+        try:
+            from ..services.extraction_memory import get_extraction_memory
+            
+            domain = urlparse(self.config.url).netloc.lower()
+            memory = await get_extraction_memory()
+            structure = await memory.get_page_structure(domain)
+            
+            self.learned_container_selectors = structure.get('container_selectors', [])
+            self.learned_title_selectors = structure.get('title_selectors', [])
+            self.learned_link_selectors = structure.get('link_selectors', [])
+            self.learned_date_selectors = structure.get('date_selectors', [])
+            
+            if self.learned_container_selectors:
+                print(f"  🧠 Loaded learned structure for {domain} ({len(self.learned_container_selectors)} containers)")
+                
+            self._learned_structure_loaded = True
+        except Exception as e:
+            print(f"  ⚠️ Failed to load learned structure: {e}")
+
+    async def _study_source_structure(self, html: Optional[str] = None):
+        """Use AI to study the source structure and discover selectors."""
+        try:
+            if not html:
+                return False
+                
+            from .ai_page_analyzer import get_ai_page_analyzer
+            from ..services.extraction_memory import get_extraction_memory
+            
+            analyzer = await get_ai_page_analyzer()
+            analysis = await analyzer.analyze_page_structure(self.config.url, html, context="news")
+            
+            if analysis:
+                # Update our in-memory selectors
+                self.learned_container_selectors = analysis.content_selectors
+                self.learned_title_selectors = analysis.title_selectors
+                self.learned_date_selectors = analysis.date_selectors
+                
+                # Persist to memory service
+                domain = urlparse(self.config.url).netloc.lower()
+                memory = await get_extraction_memory()
+                await memory.record_page_structure(domain, analysis)
+                
+                print(f"  🎯 AI discovered new structure for {domain}")
+                return True
+        except Exception as e:
+            print(f"  ❌ Source study failed: {e}")
+        return False
+
     def _hash_article(self, article_data: Dict[str, Any]) -> str:
         """Create hash for article to detect changes."""
         key_data = {
@@ -737,8 +853,9 @@ class PageMonitorSource(BaseSource):
         try:
             print(f"🤖 Triggering AI analysis for {self.config.url}")
             
-            # This would integrate with the AI extraction optimizer
-            # For now, we'll implement a simple heuristic improvement
+            # 1. Try source structure study if we have HTML
+            # We don't have HTML here easily, but we can try to fetch it again 
+            # or just use the heuristic below
             
             self.ai_analysis_count += 1
             
@@ -802,6 +919,59 @@ class PageMonitorSource(BaseSource):
         except Exception as e:
             print(f"❌ Connection test failed: {e}")
             return False
+
+
+    async def _detect_list_page_fallback(self, articles: List[Dict[str, Any]], html: str) -> bool:
+        """
+        Detect if extraction resulted in a fallback (treating whole page as one article).
+        This happens when overly broad selectors like 'article' or 'main' are used on a list page.
+        """
+        if not articles:
+            return False
+            
+        base_url = self.config.url.split('?')[0].split('#')[0].rstrip('/')
+        
+        # Check if MAJORITY of articles point to the base URL (strong fallback symptom)
+        match_base_count = 0
+        unique_links = set()
+        
+        for article in articles:
+            link = article.get('link', '')
+            if not link:
+                match_base_count += 1
+                continue
+            article_url = link.split('?')[0].split('#')[0].rstrip('/')
+            unique_links.add(article_url)
+            if article_url == base_url:
+                match_base_count += 1
+        
+        # If more than 50% of extracted items point to the base URL, it's a fallback
+        if len(articles) > 0 and (match_base_count / len(articles)) > 0.5:
+            print(f"  ⚠️ Majority of items ({match_base_count}/{len(articles)}) point to base URL: {base_url}")
+            return True
+        
+        # If all links are the same (and we have multiple articles), it's likely a failure
+        if len(unique_links) == 1 and len(articles) > 1:
+            print(f"  ⚠️ All {len(articles)} extracted articles point to the same URL: {list(unique_links)[0]}")
+            return True
+            
+        # If we only have one article and its link is the base URL
+        if len(articles) == 1:
+            article = articles[0]
+            link = article.get('link', '')
+            article_url = link.split('?')[0].split('#')[0].rstrip('/') if link else ""
+            
+            if article_url == base_url or not article_url:
+                print(f"  ⚠️ Single article link matches source URL: {article_url}")
+                return True
+                
+            # If description is very large, it's likely the whole page text
+            description = article.get('description', '')
+            if len(description) > 5000:
+                print(f"  ⚠️ Extracted article is suspiciously large ({len(description)} chars)")
+                return True
+                
+        return False
 
 
 async def create_page_monitor_source(url: str, name: str, **config_kwargs) -> PageMonitorSource:

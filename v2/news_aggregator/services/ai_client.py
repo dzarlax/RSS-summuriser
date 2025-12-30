@@ -45,6 +45,7 @@ class AIClient:
         
         # Gemini supports structured output
         self.supports_structured_output = True
+        self.provider = "gemini"
         self.enabled = True
     
     # Note: get_article_summary() method was removed and replaced by analyze_article_complete()
@@ -184,7 +185,6 @@ class AIClient:
                             print(f"  ⚠️ Invalid date format from AI: {pub_date}")
                             return None
                 return None
-                return None
         
         except Exception as e:
             print(f"  ⚠️ Error extracting publication date: {e}")
@@ -253,7 +253,6 @@ class AIClient:
                         else:
                             print(f"  ⚠️ Invalid URL from AI: {full_url}")
                             return None
-                return None
                 return None
         
         except Exception as e:
@@ -469,152 +468,124 @@ class AIClient:
     async def _make_structured_ai_request(self, prompt: str, model: str, schema: dict,
                                           analysis_type: str, domain: str) -> dict:
         """
-        Make structured AI request. For Gemini uses native structured output,
-        for other providers falls back to raw text + JSON parsing.
+        Make structured AI request using Gemini's native structured output.
 
         Args:
             prompt: Prompt text
             model: Model to use
-            schema: JSON schema for structured output (Gemini only)
+            schema: JSON schema for structured output
             analysis_type: Type of analysis for tracking
             domain: Domain being analyzed for tracking
 
         Returns:
             Dict with 'result' (parsed structured data) and 'usage'
         """
-        if self.provider == "gemini":
-            # Check if model is Gemini 3 (contains "gemini-3")
-            is_gemini_3 = "gemini-3" in model.lower()
-            
-            # Use v1beta endpoint for Gemini 3, v1 for others
-            # See: https://ai.google.dev/gemini-api/docs/gemini-3
-            if is_gemini_3:
-                # Replace /v1/models with /v1beta/models for Gemini 3
-                endpoint_base = str(self.endpoint).replace("/v1/models", "/v1beta/models")
-                url = f"{endpoint_base}/{model}:generateContent"
-            else:
-                url = f"{self.endpoint}/{model}:generateContent"
+        # Check if model is Gemini 3 (contains "gemini-3")
+        is_gemini_3 = "gemini-3" in model.lower()
+        
+        # Use v1beta endpoint for Gemini 3, v1 for others
+        # See: https://ai.google.dev/gemini-api/docs/gemini-3
+        if is_gemini_3:
+            # Replace /v1/models with /v1beta/models for Gemini 3
+            endpoint_base = str(self.endpoint).replace("/v1/models", "/v1beta/models")
+            url = f"{endpoint_base}/{model}:generateContent"
+        else:
+            url = f"{self.endpoint}/{model}:generateContent"
 
-            # Build payload - structured output params always go in generationConfig
-            # According to: https://ai.google.dev/gemini-api/docs/structured-output?example=recipe
-            payload = {
-                "contents": [
-                    {
-                        "role": "user",
-                        "parts": [
-                            {"text": prompt}
-                        ]
-                    }
-                ],
-                "generationConfig": {
-                    "temperature": 0.1,
-                    "maxOutputTokens": 2000,
-                    "responseMimeType": "application/json",
-                    "responseJsonSchema": schema
+        # Build payload - structured output params always go in generationConfig
+        # According to: https://ai.google.dev/gemini-api/docs/structured-output?example=recipe
+        payload = {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {"text": prompt}
+                    ]
                 }
+            ],
+            "generationConfig": {
+                "temperature": 0.1,
+                "maxOutputTokens": 2000,
+                "responseMimeType": "application/json",
+                "responseJsonSchema": schema
             }
+        }
 
-            params = {"key": self.api_key}
+        params = {"key": self.api_key}
 
-            print(f"  🌐 Gemini structured endpoint: {url}")
-            print(f"  🤖 Model: {model}")
-            print(f"  📊 Analysis type: {analysis_type}")
-            print(f"  🏷️ Domain: {domain}")
-            print(f"  📋 Using structured output with schema")
-            print(f"  🔍 Is Gemini 3: {is_gemini_3}")
-            print(f"  📝 Payload generationConfig keys: {list(payload['generationConfig'].keys())}")
+        print(f"  🌐 Gemini structured endpoint: {url}")
+        print(f"  🤖 Model: {model}")
+        print(f"  📊 Analysis type: {analysis_type}")
+        print(f"  🏷️ Domain: {domain}")
+        print(f"  📋 Using structured output with schema")
+        print(f"  🔍 Is Gemini 3: {is_gemini_3}")
+        print(f"  📝 Payload generationConfig keys: {list(payload['generationConfig'].keys())}")
 
-            async with get_http_client() as client:
-                response = await client.post(url, json=payload, params=params, timeout=40)
+        async with get_http_client() as client:
+            response = await client.post(url, json=payload, params=params, timeout=40)
 
-                async with response:
-                    if response.status == 200:
-                        raw = await response.json()
+            async with response:
+                if response.status == 200:
+                    raw = await response.json()
 
-                        candidates = raw.get("candidates") or []
-                        if not candidates:
-                            raise APIError(
-                                "Empty Gemini response",
-                                status_code=200,
-                                response_text=str(raw)[:500]
-                            )
-
-                        first = candidates[0]
-                        content = first.get("content") or {}
-                        parts = content.get("parts") or []
-
-                        if not parts or "text" not in parts[0]:
-                            raise APIError(
-                                "Gemini structured response missing text",
-                                status_code=200,
-                                response_text=str(raw)[:500]
-                            )
-
-                        # Text should already be valid JSON according to schema
-                        text_response = parts[0]["text"].strip()
-                        try:
-                            structured = json.loads(text_response)
-                        except json.JSONDecodeError as e:
-                            print(f"  ⚠️ Failed to parse JSON from Gemini structured response: {e}")
-                            print(f"  📄 Response preview: {text_response[:500]}...")
-                            # Fallback: try to extract JSON from markdown if needed
-                            try:
-                                json_str = self._extract_json_from_response(text_response)
-                                structured = json.loads(json_str)
-                                print(f"  ✅ Extracted JSON from markdown code block")
-                            except Exception as e2:
-                                raise APIError(
-                                    f"Failed to parse JSON from Gemini structured response: {e2}",
-                                    status_code=200,
-                                    response_text=text_response[:500]
-                                )
-
-                        usage = self._normalize_gemini_usage(raw)
-
-                        data = {
-                            "result": structured,
-                            "usage": usage
-                        }
-
-                        self._track_ai_usage(data, analysis_type, domain)
-                        return data
-
-                    elif response.status == 429:
-                        raise APIError("Rate limit exceeded", status_code=429)
-                    else:
-                        error_text = await response.text()
-                        print(f"  ❌ Gemini API error {response.status}: {error_text[:500]}...")
+                    candidates = raw.get("candidates") or []
+                    if not candidates:
                         raise APIError(
-                            f"Gemini API error: {response.status}",
-                            status_code=response.status,
-                            response_text=error_text
+                            "Empty Gemini response",
+                            status_code=200,
+                            response_text=str(raw)[:500]
                         )
 
-        # Fallback: provider without structured output (Constructor)
-        raw_data = await self._make_raw_ai_request(
-            prompt,
-            model=model,
-            analysis_type=analysis_type,
-            domain=domain
-        )
+                    first = candidates[0]
+                    content = first.get("content") or {}
+                    parts = content.get("parts") or []
 
-        # Expect text in choices[0].message.content and parse JSON
-        text = ""
-        if raw_data and "choices" in raw_data and raw_data["choices"]:
-            text = (raw_data["choices"][0]["message"]["content"] or "").strip()
+                    if not parts or "text" not in parts[0]:
+                        raise APIError(
+                            "Gemini structured response missing text",
+                            status_code=200,
+                            response_text=str(raw)[:500]
+                        )
 
-        try:
-            json_str = self._extract_json_from_response(text)
-            structured = json.loads(json_str)
-        except Exception as e:
-            raise APIError(
-                f"Failed to parse structured JSON from provider text response: {e}",
-                status_code=200,
-                response_text=text[:500]
-            )
+                    # Text should already be valid JSON according to schema
+                    text_response = parts[0]["text"].strip()
+                    try:
+                        structured = json.loads(text_response)
+                    except json.JSONDecodeError as e:
+                        print(f"  ⚠️ Failed to parse JSON from Gemini structured response: {e}")
+                        print(f"  📄 Response preview: {text_response[:500]}...")
+                        # Fallback: try to extract JSON from markdown if needed
+                        try:
+                            json_str = self._extract_json_from_response(text_response)
+                            structured = json.loads(json_str)
+                            print(f"  ✅ Extracted JSON from markdown code block")
+                        except Exception as e2:
+                            raise APIError(
+                                f"Failed to parse JSON from Gemini structured response: {e2}",
+                                status_code=200,
+                                response_text=text_response[:500]
+                            )
 
-        raw_data["result"] = structured
-        return raw_data
+                    usage = self._normalize_gemini_usage(raw)
+
+                    data = {
+                        "result": structured,
+                        "usage": usage
+                    }
+
+                    self._track_ai_usage(data, analysis_type, domain)
+                    return data
+
+                elif response.status == 429:
+                    raise APIError("Rate limit exceeded", status_code=429)
+                else:
+                    error_text = await response.text()
+                    print(f"  ❌ Gemini API error {response.status}: {error_text[:500]}...")
+                    raise APIError(
+                        f"Gemini API error: {response.status}",
+                        status_code=response.status,
+                        response_text=error_text
+                    )
 
     def _track_ai_usage(self, response_data: dict, analysis_type: str, domain: str):
         """Track AI API usage to database (fire-and-forget)."""

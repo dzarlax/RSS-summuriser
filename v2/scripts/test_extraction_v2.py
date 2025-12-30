@@ -27,7 +27,7 @@ async def test_extraction(url):
         
         if content:
             print(f"✅ Extracted {len(content)} characters")
-            # print(f"Preview: {content[:200]}...")
+            print(f"Preview: {content[:1000]}...")
         else:
             print("❌ Extraction failed")
             return

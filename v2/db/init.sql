@@ -138,6 +138,7 @@ CREATE INDEX idx_schedule_settings_next_run ON schedule_settings(next_run);
 -- Indexes from migrations
 CREATE INDEX idx_articles_summary_processed ON articles(summary_processed);
 CREATE INDEX idx_articles_category_processed ON articles(category_processed);
+CREATE INDEX idx_articles_hash_content ON articles(hash_content);
 
 -- Вставляем настройки по умолчанию
 INSERT INTO settings (key, value, description) VALUES

@@ -50,11 +50,12 @@ class AIProcessor:
                 filter_reason = "Force processing enabled (reprocessing mode)"
                 print(f"  🔄 Smart Filter: Bypassed for forced reprocessing")
             else:
-                should_process, filter_reason = smart_filter.should_process_with_ai(
+                should_process, filter_reason = await smart_filter.should_process_with_ai(
                     title=article_data.get('title') or '',
                     content=article_content,
                     url=article_url,
-                    source_type=source_type
+                    source_type=source_type,
+                    db_session=db
                 )
             
             # If content is too short or empty, try to extract full content from URL
@@ -114,11 +115,12 @@ class AIProcessor:
                                     filter_reason = "Force processing enabled (after content extraction)"
                                     print(f"  🔄 Smart Filter: Bypassed after content extraction (forced reprocessing)")
                                 else:
-                                    should_process, filter_reason = smart_filter.should_process_with_ai(
+                                    should_process, filter_reason = await smart_filter.should_process_with_ai(
                                         title=article_data.get('title') or '',
                                         content=extracted_content,
                                         url=article_url,
-                                        source_type=source_type
+                                        source_type=source_type,
+                                        db_session=db
                                     )
                             else:
                                 print(f"  ⚠️ Could not extract meaningful content from external URL")

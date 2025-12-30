@@ -492,6 +492,94 @@ class ExtractionMemoryService:
 
             return domain_stats
     
+    async def record_page_structure(self, domain: str, analysis: 'PageAnalysis') -> bool:
+        """Record page structure discovered by AI analysis."""
+        try:
+            patterns = []
+            
+            # Record content/container selectors
+            for sel in analysis.content_selectors:
+                patterns.append({
+                    'selector': sel,
+                    'strategy': 'source_container',
+                    'confidence': analysis.confidence_scores.get(sel, 0.8)
+                })
+            
+            # Record title selectors
+            for sel in analysis.title_selectors:
+                patterns.append({
+                    'selector': sel,
+                    'strategy': 'source_title',
+                    'confidence': 0.9
+                })
+                
+            # Record link selectors
+            if hasattr(analysis, 'link_selectors') and analysis.link_selectors:
+                for sel in analysis.link_selectors:
+                    patterns.append({
+                        'selector': sel,
+                        'strategy': 'source_link',
+                        'confidence': 0.9
+                    })
+            
+            # Record date selectors
+            for sel in analysis.date_selectors:
+                patterns.append({
+                    'selector': sel,
+                    'strategy': 'source_date',
+                    'confidence': 0.8
+                })
+                
+            # Use record_ai_pattern_discovery to save them all
+            return await self.record_ai_pattern_discovery(
+                domain, 
+                patterns, 
+                analysis_type="page_structure_discovery"
+            )
+            
+        except Exception as e:
+            print(f"❌ Error recording page structure: {e}")
+            return False
+
+    async def get_page_structure(self, domain: str) -> Dict[str, List[str]]:
+        """Get best page structure selectors learned for a domain."""
+        await self._ensure_initialized()
+        
+        result = {
+            'container_selectors': [],
+            'title_selectors': [],
+            'link_selectors': [],
+            'date_selectors': []
+        }
+        
+        if domain not in self._patterns:
+            return result
+            
+        patterns = self._patterns[domain]
+        
+        # Map strategy to result key
+        mapping = {
+            'source_container': 'container_selectors',
+            'source_title': 'title_selectors',
+            'source_link': 'link_selectors',
+            'source_date': 'date_selectors'
+        }
+        
+        for strategy, key in mapping.items():
+            best = [
+                p.selector_pattern for p in patterns 
+                if p.extraction_strategy == strategy and p.success_rate >= 50
+            ]
+            # If none with >50% success (AI discovered are often high confidence), take all
+            if not best:
+                best = [
+                    p.selector_pattern for p in patterns 
+                    if p.extraction_strategy == strategy
+                ]
+            result[key] = best
+            
+        return result
+
     async def record_ai_pattern_discovery(
         self, domain: str, patterns: List[Dict], analysis_type: str = "selector_discovery"
     ) -> bool:

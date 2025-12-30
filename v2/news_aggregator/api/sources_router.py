@@ -255,12 +255,9 @@ async def delete_source(
                 )
             )
 
-        if articles_count > 0 and delete_articles:
-            await db.execute(delete(Article).where(Article.source_id == source_id))
-        
-        # Delete source
-        await db.delete(source)
-        await db.commit()
+        # Delete via manager (handles articles and cleanup)
+        source_manager = SourceManager()
+        await source_manager.delete_source(db, source_id, delete_articles=delete_articles)
         
         return {
             "message": f"Source '{source.name}' deleted successfully",

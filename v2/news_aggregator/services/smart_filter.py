@@ -54,8 +54,9 @@ class SmartFilter:
         self.recent_content_hashes = {}  # Hash -> timestamp
         self.duplicate_detection_window = timedelta(hours=24)
         
-    def should_process_with_ai(self, title: str, content: str, url: str, 
-                              source_type: str = 'rss', allow_extraction: bool = True) -> Tuple[bool, str]:
+    async def should_process_with_ai(self, title: str, content: str, url: str, 
+                               source_type: str = 'rss', allow_extraction: bool = True,
+                               db_session: Optional[Any] = None) -> Tuple[bool, str]:
         """
         Determine if article should be processed with AI.
         
@@ -64,6 +65,7 @@ class SmartFilter:
             content: Article content
             url: Article URL
             source_type: Source type (rss, telegram, etc.)
+            db_session: Database session for duplicate checking
             
         Returns:
             Tuple of (should_process, reason)
@@ -105,7 +107,7 @@ class SmartFilter:
                 return False, "Metadata/low-quality content detected (no extraction possible)"
         
         # Check for duplicates
-        if self._is_duplicate_content(content):
+        if await self._is_duplicate_content(content, db_session):
             return False, "Duplicate content detected"
         
         # Check for suspiciously short articles that might need extraction
@@ -218,29 +220,55 @@ class SmartFilter:
         
         return False
     
-    def _is_duplicate_content(self, content: str) -> bool:
+    async def _is_duplicate_content(self, content: str, db_session: Optional[Any] = None) -> bool:
         """Check if content is a duplicate of recently processed content."""
         if not content:
             return False
-        
-        # Simple hash-based duplicate detection
-        content_hash = hash(content.strip().lower())
-        current_time = datetime.now()
-        
-        # Clean old entries
-        cutoff_time = current_time - self.duplicate_detection_window
-        self.recent_content_hashes = {
-            h: timestamp for h, timestamp in self.recent_content_hashes.items()
-            if timestamp > cutoff_time
-        }
-        
-        # Check if this content was seen recently
-        if content_hash in self.recent_content_hashes:
-            return True
-        
-        # Add to recent hashes
-        self.recent_content_hashes[content_hash] = current_time
-        return False
+
+        try:
+            # Generate hash (MD5 for DB compatibility and speed)
+            import hashlib
+            content_hash = hashlib.md5(content.strip().lower().encode('utf-8')).hexdigest()
+            current_time = datetime.now()
+            
+            # 1. Check in-memory cache (Level 1 - Fastest)
+            # Clean old entries first
+            cutoff_time = current_time - self.duplicate_detection_window
+            self.recent_content_hashes = {
+                h: timestamp for h, timestamp in self.recent_content_hashes.items()
+                if timestamp > cutoff_time
+            }
+            
+            if content_hash in self.recent_content_hashes:
+                last_seen = self.recent_content_hashes[content_hash]
+                time_diff = current_time - last_seen
+                seconds_ago = int(time_diff.total_seconds())
+                print(f"  🔍 Smart Filter: Content hash {content_hash} found in RAM cache ({seconds_ago}s ago)")
+                return True
+            
+            # 2. Check database (Level 2 - Persistent)
+            if db_session:
+                from sqlalchemy import select
+                from ..models import Article
+                
+                # Check if hash exists in DB
+                # Note: We rely on the index we added to hash_content
+                stmt = select(Article.id).where(Article.hash_content == content_hash).limit(1)
+                result = await db_session.execute(stmt)
+                if result.scalar_one_or_none():
+                    print(f"  🔍 Smart Filter: Content hash {content_hash} found in Database")
+                    
+                    # Update RAM cache to save future DB hits
+                    self.recent_content_hashes[content_hash] = current_time
+                    return True
+            
+            # Not found: Add to RAM cache
+            self.recent_content_hashes[content_hash] = current_time
+            return False
+            
+        except Exception as e:
+            print(f"  ⚠️ Smart Filter: Duplicate check error: {e}")
+            return False
     
     def _calculate_quality_score(self, title: str, content: str, source_type: str) -> float:
         """Calculate content quality score (0.0 - 1.0)."""
@@ -260,7 +288,7 @@ class SmartFilter:
                 score += 0.05  # Very long articles get less bonus
             
             # Paragraph structure
-            paragraph_count = len([p for p in content.split('\n\n') if p.strip()])
+            paragraph_count = len([p for p in content.split('\\n\\n') if p.strip()])
             if paragraph_count >= 2:
                 score += 0.1
             
@@ -323,4 +351,3 @@ def get_smart_filter() -> SmartFilter:
         _smart_filter = SmartFilter()
     
     return _smart_filter
-
