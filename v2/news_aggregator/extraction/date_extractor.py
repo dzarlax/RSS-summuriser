@@ -15,13 +15,18 @@ class DateExtractor:
     def __init__(self, utils: ExtractionUtils):
         self.utils = utils
     
-    def extract_publication_date(self, soup: BeautifulSoup) -> Optional[str]:
-        """Extract publication date from HTML using multiple strategies."""
+    def extract_publication_date(self, soup: BeautifulSoup) -> tuple[Optional[str], Optional[str]]:
+        """
+        Extract publication date from HTML using multiple strategies.
+        
+        Returns:
+            Tuple of (normalized_date, successful_selector)
+        """
         try:
             # Strategy 1: JSON-LD structured data
-            json_date = self._extract_date_from_json_ld(soup)
+            json_date, json_selector = self._extract_date_from_json_ld(soup)
             if json_date:
-                return json_date
+                return json_date, json_selector
             
             # Strategy 2: Common CSS selectors for publication date
             date_selectors = [
@@ -68,37 +73,42 @@ class DateExtractor:
                     if date_value and self._is_valid_date_string(date_value):
                         normalized_date = self.normalize_date(date_value)
                         if normalized_date:
-                            return normalized_date
+                            return normalized_date, selector
             
             # Strategy 3: Text pattern matching
             text_content = soup.get_text()
             date_patterns = [
                 # Various text-based date patterns
-                r'Published:?\s*([A-Za-z]+\s+\d{1,2},?\s+\d{4})',
-                r'Date:?\s*([A-Za-z]+\s+\d{1,2},?\s+\d{4})',
-                r'(\d{1,2}\s+[A-Za-z]+\s+\d{4})',
-                r'([A-Za-z]+\s+\d{1,2},?\s+\d{4})',
-                r'(\d{4}-\d{2}-\d{2})',
-                r'(\d{2}/\d{2}/\d{4})',
-                r'(\d{1,2}/\d{1,2}/\d{4})'
+                (r'Published:?\s*([A-Za-z]+\s+\d{1,2},?\s+\d{4})', 'text_pattern_published'),
+                (r'Date:?\s*([A-Za-z]+\s+\d{1,2},?\s+\d{4})', 'text_pattern_date'),
+                (r'(\d{1,2}\s+[A-Za-z]+\s+\d{4})', 'text_pattern_dd_month_yyyy'),
+                (r'([A-Za-z]+\s+\d{1,2},?\s+\d{4})', 'text_pattern_month_dd_yyyy'),
+                (r'(\d{4}-\d{2}-\d{2})', 'text_pattern_yyyy_mm_dd'),
+                (r'(\d{2}/\d{2}/\d{4})', 'text_pattern_mm_dd_yyyy'),
+                (r'(\d{1,2}/\d{1,2}/\d{4})', 'text_pattern_m_d_yyyy')
             ]
             
-            for pattern in date_patterns:
+            for pattern, pattern_name in date_patterns:
                 matches = re.finditer(pattern, text_content, re.IGNORECASE)
                 for match in matches:
                     date_str = match.group(1)
                     if self._is_valid_date_string(date_str):
                         normalized_date = self.normalize_date(date_str)
                         if normalized_date:
-                            return normalized_date
+                            return normalized_date, pattern_name
             
-            return None
+            return None, None
             
         except Exception as e:
             return None
     
-    def _extract_date_from_json_ld(self, soup: BeautifulSoup) -> Optional[str]:
-        """Extract publication date from JSON-LD structured data."""
+    def _extract_date_from_json_ld(self, soup: BeautifulSoup) -> tuple[Optional[str], Optional[str]]:
+        """
+        Extract publication date from JSON-LD structured data.
+        
+        Returns:
+            Tuple of (date, json_path/field)
+        """
         scripts = soup.find_all('script', type='application/ld+json')
         
         for script in scripts:
@@ -130,12 +140,12 @@ class DateExtractor:
                         for field in date_fields:
                             date_value = item.get(field)
                             if date_value:
-                                return str(date_value)
+                                return str(date_value), f"json_ld_{field}"
                 
             except Exception as e:
                 continue
         
-        return None
+        return None, None
     
     def _is_valid_date_string(self, date_str: str) -> bool:
         """Check if string looks like a valid date."""

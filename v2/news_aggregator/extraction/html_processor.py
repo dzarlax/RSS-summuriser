@@ -13,8 +13,13 @@ class HTMLProcessor:
     def __init__(self, utils: ExtractionUtils):
         self.utils = utils
     
-    def extract_by_enhanced_selectors(self, soup: BeautifulSoup) -> Optional[str]:
-        """Extract content using enhanced CSS selectors."""
+    def extract_by_enhanced_selectors(self, soup: BeautifulSoup) -> tuple[Optional[str], Optional[str]]:
+        """
+        Extract content using enhanced CSS selectors.
+        
+        Returns:
+            Tuple of (content, successful_selector)
+        """
         # Priority selectors for main content
         content_selectors = [
             # Site-specific patterns (high priority)
@@ -47,11 +52,11 @@ class HTMLProcessor:
                 for element in elements:
                     content = self._extract_text_from_element(element)
                     if content and self.utils.is_good_content(content):
-                        return content
+                        return content, selector
             except Exception:
                 continue
         
-        return None
+        return None, None
     
     def extract_by_enhanced_heuristics(self, soup: BeautifulSoup) -> Optional[str]:
         """Extract content using heuristic analysis of DOM structure."""

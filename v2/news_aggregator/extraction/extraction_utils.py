@@ -48,16 +48,22 @@ class ExtractionUtils:
         
         return cleaned_url.strip()
     
-    def is_good_content(self, content: str) -> bool:
+    def is_good_content(self, content: str, is_full_article: bool = False) -> bool:
         """Check if extracted content meets basic quality standards."""
-        if not content or len(content) < self.min_content_length:
+        # Relax min length if it's a known full article extraction
+        min_len = self.min_content_length if not is_full_article else max(100, self.min_content_length // 2)
+        
+        if not content or len(content) < min_len:
             return False
         
         # Simple quality checks
         # 1. Must have reasonable length (already checked above)
         # 2. Must contain some sentences (basic structure check)
+        # Relax sentence count for full articles if they are long enough
         sentence_count = len([s for s in content.split('.') if len(s.strip()) > 20])
-        if sentence_count < 2:
+        min_sentences = 2 if not is_full_article else 1
+        
+        if sentence_count < min_sentences:
             return False
         
         # 3. Must not be mostly repetitive (basic spam check)
@@ -65,10 +71,11 @@ class ExtractionUtils:
         if len(words) < 10:
             return False
             
-        # 4. Basic navigation/menu detection
+        # 4. Basic navigation/menu detection - slightly more lenient for full articles
+        nav_limit = 0.1 if not is_full_article else 0.15
         nav_indicators = ['menu', 'navigation', 'footer', 'sidebar', 'advertisement', 'cookie']
         nav_word_count = sum(1 for word in words if any(indicator in word.lower() for indicator in nav_indicators))
-        if nav_word_count > len(words) * 0.1:  # More than 10% navigation words
+        if nav_word_count > len(words) * nav_limit:  # More lenient limit for full articles
             return False
         
         return True

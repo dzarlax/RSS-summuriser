@@ -41,7 +41,7 @@ python -m news_aggregator
 - **Database**: PostgreSQL 15
 - **Frontend**: Jinja2 + vanilla JS/CSS with dynamic modals
 - **Deployment**: Docker + Nginx
-- **AI**: Constructor KM API integration
+- **AI**: Google Gemini (Direct API)
 
 ## ✅ Implementation Status
 
@@ -51,8 +51,12 @@ python -m news_aggregator
 - [x] **Web Interface** - Admin panel + public API + modal article views
 - [x] **Docker Containerization** - dev/prod environments
 - [x] **Source System** - Plugin architecture (RSS, Telegram, Generic, Custom)
-- [x] **AI Integration** - Constructor KM API with rate limiting
-- [x] **AI-Enhanced Content Extraction** - Publication dates, full articles
+- **AI Integration**: Google Gemini API with rate limiting
+- [x] **Universal Database Queue** - Dedicated read/write queues for performance and deadlock resilience
+- [x] **Selector Learning System** - Passive learning and caching of successful extraction patterns
+- [x] **Smart Content Filtering** - Heuristic-based filtering to reduce redundant/low-quality AI requests
+- [x] **Domain Stability Tracking** - Adaptive success tracking with exponential backoff and localized timeouts
+- [x] **AI-Enhanced Content Extraction** - Publication dates, full articles, and dynamic selector discovery
 - [x] **Advertisement Detection** - AI-based ad detection in Telegram channels
 - [x] **Telegraph Publishing** - Automatic article publishing
 - [x] **Backup System** - Automated database backups
@@ -66,7 +70,6 @@ python -m news_aggregator
 - [x] **Universal Migration System** - Reusable migration manager
 - [x] **Intelligent Categorization** - AI with contextual analysis and confidence scoring
 - [x] **Task Scheduler** - Reliable automatic task execution system
-- [x] **Universal Database Queue** - Database queue for all operations
 - [x] **AI Categories in Interface** - Display of original AI categories in modal windows
 - [x] **Media Support** - Multiple media files (images, videos, documents)
 - [x] **Centralized Prompts** - AI prompt management system
@@ -163,10 +166,12 @@ async def get_article_details(article_id):
 # Database
 DATABASE_URL=postgresql://user:pass@localhost:5432/newsdb
 
-# Constructor KM API (main AI)
-CONSTRUCTOR_KM_API=https://training.constructor.app/api/platform-kmapi/v1/knowledge-models/your-model-id/chat/completions/direct_llm
-CONSTRUCTOR_KM_API_KEY=Bearer your_api_key_here
-RPS=3  # Rate limiting for API (strictly enforced!)
+# Google Gemini API (Direct)
+GEMINI_API_KEY=your_gemini_api_key
+GEMINI_API_ENDPOINT=https://generativelanguage.googleapis.com/v1/models
+
+# Rate Limiting
+RPS=3                           # Requests per second (strictly enforced!)
 
 # Telegram integration
 TELEGRAM_TOKEN=your_bot_token
@@ -177,11 +182,10 @@ TELEGRAPH_ACCESS_TOKEN=your_telegraph_token
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=your_secure_password
 
-# AI models for different tasks
-SUMMARIZATION_MODEL=gpt-4.1-nano    # Fast model for summarization
-CATEGORIZATION_MODEL=gpt-4.1-mini   # Main model for categorization
-DIGEST_MODEL=gpt-4.1                # Full model for final digests
-MODEL=gpt-4.1                       # Compatibility with existing code
+# AI models for different tasks (Gemini)
+SUMMARIZATION_MODEL=gemini-3-flash-preview    # Fast & cost-effective
+CATEGORIZATION_MODEL=gemini-3-flash-preview   # Smart & fast
+DIGEST_MODEL=gemini-3-flash-preview         # High quality for digests
 
 # Category settings (optional)
 NEWS_CATEGORIES=Business,Tech,Science,Serbia,Nature,Media,Marketing,Other
@@ -337,6 +341,21 @@ The system supports multiple source types and content extraction methods:
 2. **CSS selectors** - Schema.org, semantic tags
 3. **Playwright browser** - JavaScript rendering for SPAs
 4. **AI optimization** - Machine learning for selector improvement
+5. **Passive Selector Learning** - Caching successful selectors for high-speed reuse
+
+#### **Extraction Persistence and Learning** (`ExtractionMemoryService`)
+- **Fast Lookups**: In-memory caching for active extraction patterns.
+- **Selector Persistence**: Successful selectors are automatically saved to MariaDB.
+- **Stability Tracking**: Monitoring domain stability to decide when to trigger browser rendering or AI optimization.
+- **Performance**: Async database writes to ensure extraction latency is minimized.
+
+### 🗄️ Database Optimizations
+
+#### **Universal Database Queue** (`DatabaseQueueManager`)
+- **Queue Separation**: Distinct read and write queues for high throughput.
+- **Deadlock Resilience**: Automatic retry logic for MariaDB/MySQL deadlocks with exponential backoff.
+- **Connection Management**: Active semaphore-based pooling at the application level.
+- **Performance**: Decoupled IO operations from the main processing loops.
 
 #### **Supported Markup Schemas**
 
@@ -402,6 +421,28 @@ The system supports multiple source types and content extraction methods:
 - **AI refinement**: Contextual analysis for disputed cases
 - **Typing**: `product_promotion`, `service_offer`, `event_promotion`
 - **Confidence scoring**: 0.0-1.0 with explanation
+
+#### **Smart Filtering** (`SmartFilter`)
+- **Quality Gate**: Prevents processing of boilerplate, navigation, or low-quality content.
+- **Language Detection**: Prioritizes target languages (Russian/English) using heuristic analysis.
+- **Deduplication**: Hash-based detection to avoid reprocessing identical content within 24h.
+- **Extraction Trigger**: Smart detection of RSS summaries that require full-content extraction.
+
+#### **Domain Stability Tracking** (`DomainStabilityTracker`)
+- **Performance History**: Tracks success rates and average extraction times per domain.
+- **Adaptive Timeouts**: Dynamically adjusts browser/request timeouts based on domain performance.
+- **Exponential Backoff**: Automatically throttles extraction attempts for domains experiencing persistent failures.
+- **AI Cost Savings**: Skips AI optimization for stable domains to conserve credits.
+
+#### **Telegraph Publishing** (`TelegraphService`)
+- **Automated Summaries**: Generates daily digests and publishes them as enriched Telegraph pages.
+- **Size Management**: Intelligent content truncation to stay within Telegraph's API limits.
+- **Navigation**: Automatic generation of Table of Contents with anchor links for large digests.
+
+#### **Process Monitoring** (`ProcessMonitor`)
+- **Resource Cleanup**: Automated detection and termination of hanging Playwright/Chromium instances.
+- **Zombie Prevention**: Periodic checks to ensure browser contexts are properly disposed of.
+- **Manual Intervention**: Admin API endpoints to trigger resource cleanup on demand.
 
 
 ## 📚 Documentation

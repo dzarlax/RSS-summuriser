@@ -138,17 +138,16 @@ class ExtractionMemoryService:
                          :length_avg, :discovered_by, :is_stable,
                          :consec_success, :consec_failure,
                          :first_success, :last_success)
-                    ON CONFLICT (domain, selector_pattern, extraction_strategy)
-                    DO UPDATE SET
-                        success_count = EXCLUDED.success_count,
-                        failure_count = EXCLUDED.failure_count,
-                        quality_score_avg = EXCLUDED.quality_score_avg,
-                        content_length_avg = EXCLUDED.content_length_avg,
-                        is_stable = EXCLUDED.is_stable,
-                        consecutive_successes = EXCLUDED.consecutive_successes,
-                        consecutive_failures = EXCLUDED.consecutive_failures,
-                        last_success_at = EXCLUDED.last_success_at,
-                        updated_at = NOW()
+                    ON DUPLICATE KEY UPDATE
+                    success_count = VALUES(success_count),
+                    failure_count = VALUES(failure_count),
+                    quality_score_avg = VALUES(quality_score_avg),
+                    content_length_avg = VALUES(content_length_avg),
+                    is_stable = VALUES(is_stable),
+                    consecutive_successes = VALUES(consecutive_successes),
+                    consecutive_failures = VALUES(consecutive_failures),
+                    last_success_at = VALUES(last_success_at),
+                    updated_at = NOW()
                 """), {
                     'domain': entry.domain,
                     'selector': entry.selector_pattern,

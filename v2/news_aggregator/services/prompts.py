@@ -121,13 +121,12 @@ CATEGORIZATION RULES:
 - Provide high confidence scores (0.8+) when categories match well
 
 TITLE OPTIMIZATION RULES:
-- ALWAYS provide optimized_title field (even if keeping original)
+- ALWAYS provide optimized_title in RUSSIAN, regardless of source language
 - Maximum 120 characters for Telegram readability
 - Make title clear and informative
 - Remove clickbait elements (BREAKING, TOP-5, etc.)
 - Fix truncated titles (ending with "..." or incomplete)
-- Keep language consistent with content (Russian for Russian content, English for English)
-- If original is good and under 120 chars, return it as optimized_title
+- If original is already in Russian and good, you can use it as optimized_title
 
 SUMMARIZATION:{NewsPrompts._get_summarization_rules("5-6")}
 

@@ -13,14 +13,6 @@ class Settings(BaseSettings):
     # Database
     database_url: str = Field(default="postgresql://newsuser:newspass123@localhost:5432/newsdb")
     
-    # AI Provider selection
-    ai_provider: str = Field(default="constructor", alias="AI_PROVIDER")  # "constructor" or "gemini"
-    
-    # Constructor KM API (primary AI)
-    constructor_km_api: Optional[str] = Field(default=None, alias="CONSTRUCTOR_KM_API") 
-    constructor_km_api_key: Optional[str] = Field(default=None, alias="CONSTRUCTOR_KM_API_KEY")
-    model: str = Field(default="gpt-4o-mini", alias="MODEL")
-    
     # Gemini API configuration
     gemini_api_key: Optional[str] = Field(default=None, alias="GEMINI_API_KEY")
     gemini_api_endpoint: str = Field(
@@ -29,9 +21,9 @@ class Settings(BaseSettings):
     )
     
     # Specific AI models for different tasks
-    summarization_model: str = Field(default="gpt-4o-mini", alias="SUMMARIZATION_MODEL")
-    categorization_model: str = Field(default="gpt-4o-mini", alias="CATEGORIZATION_MODEL") 
-    digest_model: str = Field(default="gpt-4.1", alias="DIGEST_MODEL")
+    summarization_model: str = Field(default="gemini-1.5-flash-latest", alias="SUMMARIZATION_MODEL")
+    categorization_model: str = Field(default="gemini-1.5-flash-latest", alias="CATEGORIZATION_MODEL") 
+    digest_model: str = Field(default="gemini-1.5-pro-latest", alias="DIGEST_MODEL")
 
     # AI usage pricing (per 1M tokens) - optional, configure per provider/model
     ai_input_cost_per_1m: Optional[float] = Field(default=None, alias="AI_INPUT_COST_PER_1M")
@@ -89,14 +81,6 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = False
-        
-    @field_validator('constructor_km_api', mode='before')
-    @classmethod
-    def empty_str_to_none(cls, v):
-        """Convert empty strings to None for optional URL fields."""
-        if v == '' or v is None:
-            return None
-        return v
     
     def get_allowed_origins_list(self) -> List[str]:
         """Return allowed origins as list."""
@@ -113,9 +97,6 @@ class Settings(BaseSettings):
     def get_legacy_config(self, key: str) -> Optional[str]:
         """Метод для совместимости со старой системой load_config."""
         legacy_mapping = {
-            "CONSTRUCTOR_KM_API": self.constructor_km_api,
-            "CONSTRUCTOR_KM_API_KEY": self.constructor_km_api_key,
-            "MODEL": self.model,
             "TELEGRAM_BOT_TOKEN": self.telegram_token.get_secret_value() if self.telegram_token else None,
             "TELEGRAM_TOKEN": self.telegram_token.get_secret_value() if self.telegram_token else None,
             "TELEGRAM_CHAT_ID": self.telegram_chat_id,

@@ -1,53 +1,50 @@
-"""AI API client for article summarization using Constructor KM."""
+"""AI API client for article summarization using Google Gemini."""
 
 import asyncio
 import json
 from typing import Optional, Dict, Any
 
+import logging
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception, before_sleep_log
+
 from ..config import settings
 from ..core.http_client import get_http_client
 from ..core.cache import cached
 from ..core.exceptions import APIError
-# Removed direct import to avoid circular dependency
+
+logger = logging.getLogger(__name__)
+
+
+def is_retryable_api_error(exception):
+    """Check if API error is transient and should be retried."""
+    if isinstance(exception, APIError):
+        # Retry on rate limits (429) or server errors (5xx)
+        return exception.status_code in [429, 500, 502, 503, 504]
+    return False
 
 
 class AIClient:
-    """Client for AI summarization using external AI provider (Constructor KM or Gemini)."""
+    """Client for AI summarization using Google Gemini API."""
     
     def __init__(self):
-        # Provider selection: "constructor" or "gemini"
-        self.provider = getattr(settings, 'ai_provider', 'constructor').lower()
+        # Gemini configuration
+        self.endpoint = getattr(
+            settings, 
+            'gemini_api_endpoint',
+            'https://generativelanguage.googleapis.com/v1/models'
+        )
+        self.api_key = settings.gemini_api_key
         
-        # Task-specific models (names depend on provider)
-        self.summarization_model = getattr(settings, 'summarization_model', 'gpt-4o-mini')
-        self.digest_model = getattr(settings, 'digest_model', 'gpt-4.1')
-        
-        if self.provider == "constructor":
-            # Constructor KM (OpenAI-compatible) configuration
-            self.endpoint = getattr(settings, 'constructor_km_api', None)
-            self.api_key = getattr(settings, 'constructor_km_api_key', None)
-            self.supports_structured_output = False
+        if not self.api_key:
+            raise APIError("Gemini API key must be configured")
             
-            if not self.endpoint or not self.api_key:
-                raise APIError("Constructor KM API endpoint and key must be configured")
-                
-        elif self.provider == "gemini":
-            # Direct Gemini configuration
-            self.endpoint = getattr(
-                settings, 
-                'gemini_api_endpoint',
-                'https://generativelanguage.googleapis.com/v1/models'
-            )
-            self.api_key = getattr(settings, 'gemini_api_key', None)
-            # Gemini 3 Flash Preview and other models support structured output
-            # See: https://ai.google.dev/gemini-api/docs/structured-output
-            self.supports_structured_output = True
-            
-            if not self.api_key:
-                raise APIError("Gemini API key must be configured")
-        else:
-            raise APIError(f"Unknown AI provider: {self.provider}. Supported: 'constructor', 'gemini'")
+        # Task-specific models
+        self.summarization_model = settings.summarization_model
+        self.categorization_model = settings.categorization_model
+        self.digest_model = settings.digest_model
         
+        # Gemini supports structured output
+        self.supports_structured_output = True
         self.enabled = True
     
     # Note: get_article_summary() method was removed and replaced by analyze_article_complete()
@@ -187,58 +184,10 @@ class AIClient:
                             print(f"  ⚠️ Invalid date format from AI: {pub_date}")
                             return None
                 return None
-            else:
-                # Fallback for Constructor: use raw request and parse
-                response_data = await self._make_raw_ai_request(
-                    prompt,
-                    model=self.summarization_model,
-                    analysis_type="publication_date",
-                    domain=url
-                )
-                
-                if response_data and 'choices' in response_data and response_data['choices']:
-                    ai_text = (response_data['choices'][0]['message']['content'] or "").strip()
-                    return self._parse_date_response(ai_text)
                 return None
         
         except Exception as e:
             print(f"  ⚠️ Error extracting publication date: {e}")
-            return None
-    
-    def _parse_date_response(self, ai_response: str) -> Optional[str]:
-        """Parse AI response for publication date."""
-        try:
-            import re
-            import json
-            from datetime import datetime
-            
-            # Try to extract JSON from response
-            json_match = re.search(r'\{[\s\S]*\}', ai_response)
-            if not json_match:
-                return None
-            
-            data = json.loads(json_match.group())
-            
-            if not data.get('date_found', False):
-                return None
-            
-            publication_date = data.get('publication_date', '').strip()
-            confidence = data.get('confidence', 0.0)
-            
-            if publication_date and confidence >= 0.5:
-                # Validate date format
-                try:
-                    datetime.strptime(publication_date, '%Y-%m-%d')
-                    print(f"  ✅ AI found publication date: {publication_date} (confidence: {confidence:.2f})")
-                    return publication_date
-                except ValueError:
-                    print(f"  ⚠️ Invalid date format from AI: {publication_date}")
-                    return None
-            
-            return None
-            
-        except (json.JSONDecodeError, Exception) as e:
-            print(f"  ⚠️ Failed to parse date response: {e}")
             return None
     
     async def extract_full_article_link(self, html_content: str, base_url: str) -> Optional[str]:
@@ -305,62 +254,10 @@ class AIClient:
                             print(f"  ⚠️ Invalid URL from AI: {full_url}")
                             return None
                 return None
-            else:
-                # Fallback for Constructor: use raw request and parse
-                response_data = await self._make_raw_ai_request(
-                    prompt,
-                    model=self.summarization_model,
-                    analysis_type="full_article_link",
-                    domain=base_url
-                )
-                
-                if response_data and 'choices' in response_data and response_data['choices']:
-                    ai_text = (response_data['choices'][0]['message']['content'] or "").strip()
-                    return self._parse_link_response(ai_text, base_url)
                 return None
         
         except Exception as e:
             print(f"  ⚠️ Error extracting full article link: {e}")
-            return None
-    
-    def _parse_link_response(self, ai_response: str, base_url: str) -> Optional[str]:
-        """Parse AI response for full article link."""
-        try:
-            import re
-            import json
-            from urllib.parse import urljoin, urlparse
-            
-            # Try to extract JSON from response
-            json_match = re.search(r'\{[\s\S]*\}', ai_response)
-            if not json_match:
-                return None
-            
-            data = json.loads(json_match.group())
-            
-            if not data.get('link_found', False):
-                return None
-            
-            full_article_url = data.get('full_article_url', '').strip()
-            confidence = data.get('confidence', 0.0)
-            
-            if full_article_url and confidence >= 0.5:
-                # Make sure URL is absolute
-                if not full_article_url.startswith(('http://', 'https://')):
-                    full_article_url = urljoin(base_url, full_article_url)
-                
-                # Validate URL format
-                parsed = urlparse(full_article_url)
-                if parsed.scheme and parsed.netloc:
-                    print(f"  ✅ AI found full article link: {full_article_url} (confidence: {confidence:.2f})")
-                    return full_article_url
-                else:
-                    print(f"  ⚠️ Invalid URL from AI: {full_article_url}")
-                    return None
-            
-            return None
-            
-        except (json.JSONDecodeError, Exception) as e:
-            print(f"  ⚠️ Failed to parse link response: {e}")
             return None
     
     async def generate_digest(self, result_data: dict, message_part: Optional[int] = None) -> Optional[str]:
@@ -419,16 +316,6 @@ class AIClient:
                 header_text=header_text
             )
 
-            # Use unified API for digest generation with higher temperature for creativity
-            response_data = await self._make_raw_ai_request(
-                prompt,
-                model=self.digest_model,
-                analysis_type="digest_generation",
-                domain="digest",
-                temperature=0.4,  # Higher temperature for more creative digest
-                max_tokens=1500
-            )
-            
             if response_data and 'choices' in response_data and response_data['choices']:
                 digest = (response_data['choices'][0]['message']['content'] or "").strip()
                 return digest
@@ -442,14 +329,21 @@ class AIClient:
             print(f"  ⚠️ Error generating digest: {e}")
             raise APIError(f"Failed to generate digest: {e}")
     
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception(is_retryable_api_error),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+        reraise=True
+    )
     async def _make_raw_ai_request(self, prompt: str, model: str = None,
                                     analysis_type: str = "combined_analysis",
                                     domain: str = "unknown",
                                     temperature: float = 0.1,
                                     max_tokens: int = 2000) -> dict:
         """
-        Make raw AI API request for custom analysis.
-        This method is provider-agnostic and always returns OpenAI-like response.
+        Make raw AI API request to Gemini.
+        Returns OpenAI-like response for backward compatibility.
 
         Args:
             prompt: Raw prompt text
@@ -465,88 +359,7 @@ class AIClient:
         if not model:
             model = self.summarization_model
 
-        if self.provider == "constructor":
-            return await self._make_constructor_request(prompt, model, analysis_type, domain, temperature, max_tokens)
-        elif self.provider == "gemini":
-            return await self._make_gemini_request(prompt, model, analysis_type, domain, temperature, max_tokens)
-        else:
-            raise APIError(f"Unsupported AI provider: {self.provider}")
-    
-    async def _make_constructor_request(self, prompt: str, model: str,
-                                        analysis_type: str, domain: str,
-                                        temperature: float = 0.1, max_tokens: int = 2000) -> dict:
-        """Make request to Constructor KM API (OpenAI-compatible)."""
-        payload = {
-            "model": model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            "max_tokens": max_tokens,
-            "temperature": temperature
-        }
-
-        headers = {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            'X-KM-AccessKey': self.api_key
-        }
-
-        print(f"  🌐 Constructor API endpoint: {self.endpoint}")
-        print(f"  🤖 Model: {model}")
-        print(f"  📊 Analysis type: {analysis_type}")
-        print(f"  🏷️ Domain: {domain}")
-        print(f"  📝 Prompt length: {len(prompt)} chars")
-
-        async with get_http_client() as client:
-            response = await client.post(str(self.endpoint), json=payload, headers=headers)
-
-            async with response:
-                if response.status == 200:
-                    response_text = await response.text()
-                    print(f"  📄 Response length: {len(response_text)} chars")
-
-                    if not response_text or not response_text.strip():
-                        raise APIError("Empty response from API", status_code=200, response_text="")
-
-                    data = None
-                    last_error = None
-
-                    try:
-                        data = json.loads(response_text)
-                        print(f"  ✅ Raw JSON parsed successfully")
-                    except json.JSONDecodeError as e:
-                        last_error = e
-
-                    if data is None:
-                        try:
-                            json_str = self._extract_json_from_response(response_text)
-                            data = json.loads(json_str)
-                            print(f"  ✅ Markdown-wrapped JSON parsed successfully")
-                        except json.JSONDecodeError as e:
-                            last_error = e
-
-                    if data is None:
-                        raise APIError(
-                            f"Invalid JSON response from API: {last_error}",
-                            status_code=200,
-                            response_text=response_text
-                        )
-
-                    self._track_ai_usage(data, analysis_type, domain)
-                    return data
-                elif response.status == 429:
-                    raise APIError("Rate limit exceeded", status_code=429)
-                else:
-                    error_text = await response.text()
-                    print(f"  ❌ Constructor API error {response.status}: {error_text[:500]}...")
-                    raise APIError(
-                        f"Constructor API error: {response.status}",
-                        status_code=response.status,
-                        response_text=error_text
-                    )
+        return await self._make_gemini_request(prompt, model, analysis_type, domain, temperature, max_tokens)
     
     def _normalize_gemini_usage(self, raw: dict) -> dict:
         """Normalize Gemini usage metadata to OpenAI-like token keys."""

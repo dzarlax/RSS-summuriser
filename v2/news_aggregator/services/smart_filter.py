@@ -135,7 +135,12 @@ class SmartFilter:
             if not any(domain in url.lower() for domain in skip_domains):
                 return False, f"Metadata/low-quality content detected (needs extraction)"
         
-        if quality_score < 0.4:  # Threshold for minimum quality
+        # Slightly more lenient threshold for extracted content or certain domains
+        quality_threshold = 0.4
+        if source_type == 'extraction':
+            quality_threshold = 0.35  # Be more lenient with extracted content
+            
+        if quality_score < quality_threshold:
             return False, f"Content quality too low (score: {quality_score:.2f})"
         
         return True, f"Passed all filters (quality: {quality_score:.2f})"
@@ -271,6 +276,8 @@ class SmartFilter:
             score += 0.05  # RSS usually higher quality
         elif source_type == 'telegram':
             score += 0.02  # Telegram can be more varied
+        elif source_type == 'extraction':
+            score += 0.1   # Extra bonus for successful web extraction
         
         # Penalty for suspicious patterns
         if content and re.search(r'[A-Z]{10,}', content):  # Too much CAPS

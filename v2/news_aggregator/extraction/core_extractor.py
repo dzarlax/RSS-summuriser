@@ -95,6 +95,7 @@ class CoreExtractor:
                     extraction_time = time.time() - extraction_start
                     content_length = len(result['content'])
                     method_used = result.get('method_used', 'unknown')
+                    selector_used = result.get('selector_used')
 
                     # Log success
                     ext_logger.complete_extraction(
@@ -115,6 +116,7 @@ class CoreExtractor:
                             article_url=url,
                             domain=domain,
                             extraction_strategy=method_used,
+                            selector_used=selector_used,
                             success=True,
                             content_length=content_length,
                             extraction_time_ms=int(extraction_time * 1000)
@@ -253,7 +255,16 @@ class CoreExtractor:
             try:
                 print(f"  📝 Extraction attempt {attempt}/{retry_count}")
                 
-                content = await self.strategies.attempt_content_extraction(clean_url, domain, attempt)
+                res = await self.strategies.attempt_content_extraction(clean_url, domain, attempt)
+                
+                # attempt_content_extraction now returns (content, selector) or content
+                content = None
+                selector_used = None
+                
+                if isinstance(res, tuple):
+                    content, selector_used = res
+                else:
+                    content = res
                 
                 if content and self.utils.is_good_content(content):
                     extraction_time = time.time() - extraction_start
@@ -264,12 +275,19 @@ class CoreExtractor:
                     print(f"     Time taken: {extraction_time:.2f}s")
                     
                     # Record success for learning
-                    await self.strategies.record_extraction_success(
-                        domain=domain,
-                        method="content_extraction",
-                        content_length=content_length,
-                        extraction_time=extraction_time
-                    )
+                    try:
+                        extraction_memory = await get_extraction_memory()
+                        await extraction_memory.record_extraction_attempt(ExtractionAttempt(
+                            article_url=url,
+                            domain=domain,
+                            extraction_strategy="content_extraction",
+                            selector_used=selector_used,
+                            success=True,
+                            content_length=content_length,
+                            extraction_time_ms=int(extraction_time * 1000)
+                        ))
+                    except Exception as e:
+                        print(f"  ⚠️ Failed to record success: {e}")
                     
                     # Update domain stability
                     try:

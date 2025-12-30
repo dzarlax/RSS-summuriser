@@ -130,7 +130,21 @@ class AIProcessor:
                 # Mark as processed with fallback values to avoid reprocessing
                 update_fields = {}
                 if needs_summary:
-                    update_fields['summary'] = article_data.get('title', 'No summary available')
+                    # Better fallback for summary: try RSS description/content if available
+                    fallback_summary = article_data.get('title', 'No summary available')
+                    rss_content = article_data.get('raw_description') or article_data.get('description') or article_data.get('content')
+                    
+                    if rss_content and len(rss_content.strip()) > len(fallback_summary) * 1.5:
+                        # If RSS content is significantly longer than title, use it as fallback
+                        from ..extraction.extraction_utils import ExtractionUtils
+                        utils = ExtractionUtils()
+                        # Use first 500 chars as a mini-summary if extraction failed/skipped
+                        fallback_summary = utils.smart_truncate(rss_content, 500)
+                        print(f"  📝 Using RSS description as fallback summary ({len(fallback_summary)} chars)")
+                    else:
+                        print(f"  📝 Using title as fallback summary (no better RSS content found)")
+                        
+                    update_fields['summary'] = fallback_summary
                     update_fields['summary_processed'] = True
                 if needs_category:
                     update_fields['category_processed'] = True
@@ -557,8 +571,22 @@ class AIProcessor:
                 print(f"  🚫 Smart Filter: Skipping AI processing - {filter_reason}")
                 # Mark as processed with fallback values
                 if needs_summary:
+                    # Better fallback for summary: try RSS description/content if available
+                    fallback_summary = article_data.get('title', 'No summary available')
+                    rss_content = article_data.get('raw_description') or article_data.get('description') or article_data.get('content')
+                    
+                    if rss_content and len(rss_content.strip()) > len(fallback_summary) * 1.5:
+                        # If RSS content is significantly longer than title, use it as fallback
+                        from ..extraction.extraction_utils import ExtractionUtils
+                        utils = ExtractionUtils()
+                        # Use first 500 chars as a mini-summary if extraction failed/skipped
+                        fallback_summary = utils.smart_truncate(rss_content, 500)
+                        print(f"  📝 Using RSS description as fallback summary ({len(fallback_summary)} chars)")
+                    else:
+                        print(f"  📝 Using title as fallback summary (no better RSS content found)")
+
                     await self._save_article_fields(article_id, {
-                        'summary': article_data.get('title', 'No summary available'),
+                        'summary': fallback_summary,
                         'summary_processed': True
                     })
                 if needs_category:
