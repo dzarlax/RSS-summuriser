@@ -143,6 +143,9 @@ class TaskScheduler:
         print("🔄 Scheduler loop started (enhanced version)")
         logger.info("Scheduler loop started")
         
+        # Check for stuck tasks on startup
+        await self._reset_stuck_tasks()
+        
         while self.running:
             try:
                 await self._check_and_run_tasks()
@@ -156,6 +159,50 @@ class TaskScheduler:
                 print(f"❌ Error in scheduler loop: {e}")
                 logger.error(f"Error in scheduler loop: {e}", exc_info=True)
                 await asyncio.sleep(self._check_interval)
+
+    async def _reset_stuck_tasks(self):
+        """Reset tasks that are stuck in running state for too long."""
+        try:
+            print("🔄 Checking for stuck scheduler tasks...")
+            
+            async def reset_operation(session):
+                from sqlalchemy import update
+                
+                # Find tasks running for more than 4 hours
+                cutoff_time = datetime.utcnow() - timedelta(hours=4)
+                
+                # Get stuck tasks first for logging
+                query = select(ScheduleSettings).where(
+                    ScheduleSettings.is_running == True,
+                    ScheduleSettings.last_run < cutoff_time
+                )
+                result = await session.execute(query)
+                stuck_tasks = result.scalars().all()
+                
+                if stuck_tasks:
+                    print(f"⚠️ Found {len(stuck_tasks)} stuck tasks (running > 4h):")
+                    for task in stuck_tasks:
+                        print(f"  - {task.task_name} (Last run: {task.last_run})")
+                        logger.warning(f"Resetting stuck task: {task.task_name}")
+                        
+                    # Reset them
+                    stmt = update(ScheduleSettings).where(
+                        ScheduleSettings.is_running == True,
+                        ScheduleSettings.last_run < cutoff_time
+                    ).values(is_running=False)
+                    
+                    await session.execute(stmt)
+                    await session.commit()
+                    print(f"✅ Reset {len(stuck_tasks)} stuck tasks")
+                else:
+                    print("✅ No stuck tasks found")
+                    
+            await execute_custom_write(reset_operation)
+            
+        except Exception as e:
+            print(f"❌ Error checking stuck tasks: {e}")
+            logger.error(f"Error checking stuck tasks: {e}", exc_info=True)
+
                 
     async def _check_and_run_tasks(self):
         """Check for tasks that need to run and execute them."""
