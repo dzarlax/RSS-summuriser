@@ -97,7 +97,11 @@ class ExtractionStrategies:
                 if content and self.utils.is_good_content(content, is_full_article=True) and self._is_high_quality_content(content, url=url):
                     result['content'] = content
                     result['selector_used'] = learned_pattern.get('selector')
-                    result['method_used'] = f"learned_pattern_{learned_pattern.get('method', 'unknown')}"
+                    original_method = learned_pattern.get('method', 'unknown')
+                    if original_method.startswith('learned_pattern_'):
+                        result['method_used'] = original_method
+                    else:
+                        result['method_used'] = f"learned_pattern_{original_method}"
                     
                     # Try to extract metadata with quick HTML fetch
                     try:
