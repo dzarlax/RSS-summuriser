@@ -559,7 +559,7 @@ class AIProcessor:
             article_url = article_data.get('url') or ''
             
             if not force_processing:
-                should_process, filter_reason = smart_filter.should_process_with_ai(
+                should_process, filter_reason = await smart_filter.should_process_with_ai(
                     title=article_data.get('title') or '',
                     content=article_content,
                     url=article_url,

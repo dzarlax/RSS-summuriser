@@ -101,6 +101,8 @@ class TaskScheduler:
         self.running = False
         self._tasks: Dict[str, asyncio.Task] = {}
         self._check_interval = 60  # Check every minute
+        self._reset_counter = 0
+        self._reset_every = 10  # Reset stuck tasks every 10 checks (10 minutes)
         
     async def start(self):
         """Start the scheduler."""
@@ -148,6 +150,11 @@ class TaskScheduler:
         
         while self.running:
             try:
+                self._reset_counter += 1
+                if self._reset_counter >= self._reset_every:
+                    self._reset_counter = 0
+                    await self._reset_stuck_tasks()
+
                 await self._check_and_run_tasks()
                 await asyncio.sleep(self._check_interval)
                 
