@@ -1,5 +1,8 @@
 """Content extraction components for RSS Summarizer v2."""
 
+import asyncio
+import weakref
+
 from .core_extractor import CoreExtractor
 from .extraction_strategies import ExtractionStrategies
 from .html_processor import HTMLProcessor
@@ -29,6 +32,7 @@ class ContentExtractor:
         self.core_extractor = CoreExtractor(
             self.utils, self.html_processor, self.extraction_strategies
         )
+        _ACTIVE_EXTRACTORS.add(self)
     
     async def __aenter__(self):
         """Async context manager entry."""
@@ -59,8 +63,21 @@ async def get_content_extractor():
 
 async def cleanup_content_extractor():
     """Cleanup resources (maintains original API)."""
-    # This was empty in original, keeping for compatibility
-    pass
+    if not _ACTIVE_EXTRACTORS:
+        return
+
+    extractors = [extractor for extractor in list(_ACTIVE_EXTRACTORS) if extractor]
+    if not extractors:
+        return
+
+    await asyncio.gather(
+        *(extractor.close_browser() for extractor in extractors),
+        return_exceptions=True
+    )
+    _ACTIVE_EXTRACTORS.clear()
+
+
+_ACTIVE_EXTRACTORS: "weakref.WeakSet[ContentExtractor]" = weakref.WeakSet()
 
 
 __all__ = [

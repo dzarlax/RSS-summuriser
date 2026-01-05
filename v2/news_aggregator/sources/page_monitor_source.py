@@ -134,6 +134,7 @@ class PageMonitorSource(BaseSource):
         
         self.config = config
         self.browser: Optional[Browser] = None
+        self._playwright = None
         self.last_snapshot: Optional[PageSnapshot] = None
         self.failure_count = 0
         self.ai_analysis_count = 0
@@ -171,8 +172,8 @@ class PageMonitorSource(BaseSource):
     async def __aenter__(self):
         """Initialize browser if needed."""
         if self.config.use_browser and not self.browser:
-            playwright = await async_playwright().start()
-            self.browser = await playwright.chromium.launch(
+            self._playwright = await async_playwright().start()
+            self.browser = await self._playwright.chromium.launch(
                 headless=True,
                 args=[
                     '--no-sandbox',
@@ -189,6 +190,9 @@ class PageMonitorSource(BaseSource):
         if self.browser:
             await self.browser.close()
             self.browser = None
+        if self._playwright:
+            await self._playwright.stop()
+            self._playwright = None
     
     async def fetch_articles(self) -> List[Article]:
         """Fetch new articles by monitoring page changes."""

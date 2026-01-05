@@ -57,6 +57,7 @@ class TelegramSource(BaseSource):
         super().__init__(source_info)
         self.channel_username = self._extract_channel_username()
         self.browser: Optional[Browser] = None
+        self._playwright = None
         
         # Initialize modular components
         self.message_parser = MessageParser(self.name, self.channel_username)
@@ -185,8 +186,8 @@ class TelegramSource(BaseSource):
         
         try:
             if not self.browser:
-                playwright = await async_playwright().start()
-                self.browser = await playwright.chromium.launch(headless=True)
+                self._playwright = await async_playwright().start()
+                self.browser = await self._playwright.chromium.launch(headless=True)
             
             context = await self.browser.new_context()
             page = await context.new_page()
@@ -244,6 +245,9 @@ class TelegramSource(BaseSource):
             if self.browser:
                 await self.browser.close()
                 self.browser = None
+            if self._playwright:
+                await self._playwright.stop()
+                self._playwright = None
             raise SourceError(f"Browser access failed: {e}")
     
     async def _parse_html(self, html: str, base_url: str) -> List[Article]:
@@ -319,3 +323,10 @@ class TelegramSource(BaseSource):
                 print(f"Error closing browser: {e}")
             finally:
                 self.browser = None
+        if self._playwright:
+            try:
+                await self._playwright.stop()
+            except Exception as e:
+                print(f"Error stopping Playwright: {e}")
+            finally:
+                self._playwright = None

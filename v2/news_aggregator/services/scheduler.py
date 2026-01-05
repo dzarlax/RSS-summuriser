@@ -1,6 +1,7 @@
 """Background task scheduler service."""
 
 import asyncio
+import os
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -103,6 +104,10 @@ class TaskScheduler:
         self._check_interval = 60  # Check every minute
         self._reset_counter = 0
         self._reset_every = 10  # Reset stuck tasks every 10 checks (10 minutes)
+        self._max_concurrent_tasks = max(
+            1, int(os.getenv("SCHEDULER_MAX_CONCURRENT_TASKS", "1"))
+        )
+        self._task_semaphore = asyncio.Semaphore(self._max_concurrent_tasks)
         
     async def start(self):
         """Start the scheduler."""
@@ -214,6 +219,12 @@ class TaskScheduler:
     async def _check_and_run_tasks(self):
         """Check for tasks that need to run and execute them."""
         try:
+            # Trim completed tasks to avoid unbounded growth
+            if self._tasks:
+                self._tasks = {
+                    name: task for name, task in self._tasks.items() if not task.done()
+                }
+
             # Get all enabled schedule settings (quick DB query through read queue)
             query = select(ScheduleSettings).where(
                 ScheduleSettings.enabled == True,
@@ -235,32 +246,50 @@ class TaskScheduler:
                         print(f"  {setting.task_name}: {status}")
                 
             for setting in settings:
-                    # Check if task should run
-                    should_run = await self._should_run_task(setting, now_utc)
+                # Check if task should run
+                should_run = await self._should_run_task(setting, now_utc)
+                
+                if should_run:
+                    try:
+                        await asyncio.wait_for(self._task_semaphore.acquire(), timeout=0)
+                    except asyncio.TimeoutError:
+                        logger.info(
+                            "Scheduler capacity reached (%s max); delaying %s",
+                            self._max_concurrent_tasks,
+                            setting.task_name,
+                        )
+                        continue
+
+                    print(f"???? Starting scheduled task: {setting.task_name}")
+                    logger.info(f"Running scheduled task: {setting.task_name}")
                     
-                    if should_run:
-                        print(f"🚀 Starting scheduled task: {setting.task_name}")
-                        logger.info(f"Running scheduled task: {setting.task_name}")
+                    # Mark as running through write queue
+                    async def mark_running_operation(session):
+                        from sqlalchemy import update
+                        stmt = update(ScheduleSettings).where(
+                            ScheduleSettings.id == setting.id
+                        ).values(
+                            is_running=True,
+                            last_run=now_utc.replace(tzinfo=None)
+                        )
+                        await session.execute(stmt)
+                        await session.commit()
                         
-                        # Mark as running through write queue
-                        async def mark_running_operation(session):
-                            from sqlalchemy import update
-                            stmt = update(ScheduleSettings).where(
-                                ScheduleSettings.id == setting.id
-                            ).values(
-                                is_running=True,
-                                last_run=now_utc.replace(tzinfo=None)
-                            )
-                            await session.execute(stmt)
-                            await session.commit()
-                            
+                    try:
                         await execute_custom_write(mark_running_operation)
-                        
-                        # Run task in background
-                        task_key = f"task_{setting.task_name}_{setting.id}"
+                    except Exception:
+                        self._task_semaphore.release()
+                        raise
+                    
+                    # Run task in background
+                    task_key = f"task_{setting.task_name}_{setting.id}"
+                    try:
                         self._tasks[task_key] = asyncio.create_task(
                             self._run_task(setting.task_name, setting.task_config, setting.id)
                         )
+                    except Exception:
+                        self._task_semaphore.release()
+                        raise
                         
         except Exception as e:
             print(f"❌ Error checking tasks: {e}")
@@ -328,7 +357,10 @@ class TaskScheduler:
             
         finally:
             # Mark task as not running and calculate next run
-            await self._update_task_schedule(setting_id)
+            try:
+                await self._update_task_schedule(setting_id)
+            finally:
+                self._task_semaphore.release()
             
     async def _run_telegram_digest(self, config: Dict[str, Any]):
         """Run telegram digest task using unified orchestrator logic."""
