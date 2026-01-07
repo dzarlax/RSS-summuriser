@@ -63,6 +63,16 @@ class DatabaseQueueManager:
             'write_errors': 0,
             'total_processed': 0
         }
+
+    def _log_unhealthy_workers(self):
+        active_workers = [task for task in self.worker_tasks if not task.done()]
+        expected = self.read_workers + self.write_workers
+        if len(active_workers) < expected:
+            logger.warning(
+                "Database queue unhealthy: %s/%s workers active",
+                len(active_workers),
+                expected,
+            )
         
     async def start(self):
         """Start the database queue system."""
@@ -124,6 +134,8 @@ class DatabaseQueueManager:
         """Execute database operation through appropriate queue."""
         if not self.running:
             raise RuntimeError("Database queue is not running")
+
+        self._log_unhealthy_workers()
             
         # Create future for result
         result_future = asyncio.Future()
@@ -159,7 +171,12 @@ class DatabaseQueueManager:
             else:
                 return await result_future
         except asyncio.TimeoutError:
-            logger.error(f"Database operation timed out: {task.task_id}")
+            logger.error(
+                "Database operation timed out: %s (read_queue=%s, write_queue=%s)",
+                task.task_id,
+                self.read_queue.qsize(),
+                self.write_queue.qsize(),
+            )
             raise
             
     async def _read_worker(self, worker_id: int):
@@ -213,6 +230,7 @@ class DatabaseQueueManager:
     async def _process_task(self, task: DatabaseTask, semaphore: Semaphore, worker_name: str):
         """Process a database task."""
         start_time = datetime.now()
+        session = None
         
         # Check if task was already cancelled before processing
         if task.result_future.cancelled():
@@ -307,14 +325,6 @@ class DatabaseQueueManager:
             if not task.result_future.cancelled() and not task.result_future.done():
                 task.result_future.set_exception(e)
             logger.error(f"💥 Fatal error processing {task.task_id}: {e}")
-        finally:
-            # Ensure session is closed
-            if session:
-                try:
-                    await session.close()
-                except Exception as e:
-                    logger.debug(f"Error closing session for {task.task_id}: {e}")
-            
     def get_stats(self) -> Dict[str, Any]:
         """Get queue statistics."""
         active_workers = [task for task in self.worker_tasks if not task.done()]

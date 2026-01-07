@@ -1,6 +1,9 @@
 """Public interface routes."""
 
 import logging
+import asyncio
+import os
+from time import monotonic
 from fastapi import APIRouter, Request, Query, Depends, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, FileResponse
 from fastapi.templating import Jinja2Templates
@@ -26,6 +29,21 @@ from .services.data_service import DataService, get_data_service
 router = APIRouter()
 templates = Jinja2Templates(directory="web/templates")
 
+_FEED_CACHE_TTL_SECONDS = int(os.getenv("PUBLIC_FEED_CACHE_TTL_SECONDS", "30"))
+_FEED_CACHE_MAX_ENTRIES = int(os.getenv("PUBLIC_FEED_CACHE_MAX_ENTRIES", "200"))
+_FEED_CACHE: dict[tuple, tuple[float, dict]] = {}
+_FEED_CACHE_LOCK = asyncio.Lock()
+
+
+def _make_feed_cache_key(
+    limit: int,
+    offset: int,
+    since_hours: Optional[int],
+    category: Optional[str],
+    source: Optional[str],
+    hide_ads: bool,
+) -> tuple:
+    return (limit, offset, since_hours, category, source, hide_ads)
 
 
 def extract_images_from_content(content: str) -> list:
@@ -112,6 +130,21 @@ async def get_public_feed(
     """Public feed endpoint using unified DataService."""
 
     try:
+        if _FEED_CACHE_TTL_SECONDS > 0:
+            cache_key = _make_feed_cache_key(
+                limit=limit,
+                offset=offset,
+                since_hours=since_hours,
+                category=category,
+                source=source,
+                hide_ads=hide_ads,
+            )
+            now = monotonic()
+            async with _FEED_CACHE_LOCK:
+                cached = _FEED_CACHE.get(cache_key)
+                if cached and cached[0] > now:
+                    return cached[1]
+
         # Use DataService for clean database access
         articles_data = await data_service.get_articles_feed(
             limit=limit,
@@ -121,13 +154,21 @@ async def get_public_feed(
             source=source,
             hide_ads=hide_ads
         )
-        
-        return {
+
+        response_payload = {
             "articles": articles_data,
             "total": len(articles_data),
             "limit": limit,
             "offset": offset
         }
+
+        if _FEED_CACHE_TTL_SECONDS > 0:
+            async with _FEED_CACHE_LOCK:
+                if len(_FEED_CACHE) >= _FEED_CACHE_MAX_ENTRIES:
+                    _FEED_CACHE.pop(next(iter(_FEED_CACHE)))
+                _FEED_CACHE[cache_key] = (monotonic() + _FEED_CACHE_TTL_SECONDS, response_payload)
+
+        return response_payload
     
     except Exception as e:
         # If DB fails, return mock data
