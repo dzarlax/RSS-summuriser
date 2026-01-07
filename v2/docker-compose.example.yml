@@ -35,6 +35,12 @@ services:
       - MAX_WORKERS=5
       - CACHE_TTL=86400
       - CACHE_DIR=/app/cache
+
+      # Scheduler settings (optional)
+      - SCHEDULER_CHECK_INTERVAL_SECONDS=60
+      - SCHEDULER_RESET_EVERY_CHECKS=10
+      - SCHEDULER_STUCK_HOURS=4
+      - SCHEDULER_TASK_TIMEOUT_SECONDS=0
       
       # Admin Authentication (ОБЯЗАТЕЛЬНО УСТАНОВИТЕ!)
       - ADMIN_USERNAME=admin

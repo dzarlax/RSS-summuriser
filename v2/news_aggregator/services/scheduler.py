@@ -8,15 +8,12 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 
 import pytz
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import AsyncSessionLocal
 from ..database_helpers import fetch_all, execute_custom_write
 from ..models import ScheduleSettings
 from ..orchestrator import NewsOrchestrator
-from ..services.ai_client import get_ai_client
-from ..services.telegram_service import get_telegram_service
 
 
 logger = logging.getLogger(__name__)
@@ -101,9 +98,17 @@ class TaskScheduler:
         self.orchestrator = NewsOrchestrator()
         self.running = False
         self._tasks: Dict[str, asyncio.Task] = {}
-        self._check_interval = 60  # Check every minute
+        self._check_interval = max(
+            1, int(os.getenv("SCHEDULER_CHECK_INTERVAL_SECONDS", "60"))
+        )
         self._reset_counter = 0
-        self._reset_every = 10  # Reset stuck tasks every 10 checks (10 minutes)
+        self._reset_every = max(
+            1, int(os.getenv("SCHEDULER_RESET_EVERY_CHECKS", "10"))
+        )
+        self._stuck_hours = max(1, int(os.getenv("SCHEDULER_STUCK_HOURS", "4")))
+        self._task_timeout_seconds = max(
+            0, int(os.getenv("SCHEDULER_TASK_TIMEOUT_SECONDS", "0"))
+        )
         self._max_concurrent_tasks = max(
             1, int(os.getenv("SCHEDULER_MAX_CONCURRENT_TASKS", "1"))
         )
@@ -180,13 +185,16 @@ class TaskScheduler:
             async def reset_operation(session):
                 from sqlalchemy import update
                 
-                # Find tasks running for more than 4 hours
-                cutoff_time = datetime.utcnow() - timedelta(hours=4)
+                # Find tasks running for too long (or with missing last_run)
+                cutoff_time = datetime.utcnow() - timedelta(hours=self._stuck_hours)
                 
                 # Get stuck tasks first for logging
                 query = select(ScheduleSettings).where(
                     ScheduleSettings.is_running == True,
-                    ScheduleSettings.last_run < cutoff_time
+                    or_(
+                        ScheduleSettings.last_run < cutoff_time,
+                        ScheduleSettings.last_run.is_(None),
+                    )
                 )
                 result = await session.execute(query)
                 stuck_tasks = result.scalars().all()
@@ -200,7 +208,10 @@ class TaskScheduler:
                     # Reset them
                     stmt = update(ScheduleSettings).where(
                         ScheduleSettings.is_running == True,
-                        ScheduleSettings.last_run < cutoff_time
+                        or_(
+                            ScheduleSettings.last_run < cutoff_time,
+                            ScheduleSettings.last_run.is_(None),
+                        )
                     ).values(is_running=False)
                     
                     await session.execute(stmt)
@@ -330,22 +341,38 @@ class TaskScheduler:
         try:
             print(f"Executing task: {task_name}")
             logger.info(f"Executing task: {task_name}")
-            
+
+            timeout_seconds = self._task_timeout_seconds
+            if isinstance(task_config, dict):
+                try:
+                    override = int(task_config.get("timeout_seconds", 0))
+                    if override > 0:
+                        timeout_seconds = override
+                except Exception:
+                    pass
+
+            task_coro = None
             if task_name == "telegram_digest":
-                await self._run_telegram_digest(task_config)
+                task_coro = self._run_telegram_digest(task_config)
             elif task_name == "news_processing":
-                await self._run_news_processing(task_config)
+                task_coro = self._run_news_processing(task_config)
             elif task_name == "daily_summaries":
-                await self._run_daily_summaries(task_config)
+                task_coro = self._run_daily_summaries(task_config)
             elif task_name == "backup":
-                await self._run_backup_task(task_config)
+                task_coro = self._run_backup_task(task_config)
             elif task_name == "reprocess_failed":
-                await self._run_reprocess_failed(task_config)
+                task_coro = self._run_reprocess_failed(task_config)
             elif task_name == "news_digest":
-                await self._run_news_digest_cycle(task_config)
+                task_coro = self._run_news_digest_cycle(task_config)
             else:
                 print(f"Unknown task type: {task_name}")
                 logger.warning(f"Unknown task type: {task_name}")
+
+            if task_coro is not None:
+                if timeout_seconds > 0:
+                    await asyncio.wait_for(task_coro, timeout=timeout_seconds)
+                else:
+                    await task_coro
                 
             duration = (datetime.utcnow() - start_time).total_seconds()
             print(f"Task completed successfully: {task_name} (took {duration:.1f}s)")
