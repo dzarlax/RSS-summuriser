@@ -1,4 +1,4 @@
-"""Main orchestrator for RSS Summarizer v2."""
+"""Main orchestrator for Evening News v2."""
 
 import asyncio
 import logging

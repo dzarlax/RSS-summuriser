@@ -244,7 +244,7 @@ from news_aggregator.migrations.universal_migration_manager import create_migrat
 from news_aggregator.database import AsyncSessionLocal
 
 # Create migration manager
-migration_manager = create_migration_manager(AsyncSessionLocal, "RSS Summarizer v2")
+migration_manager = create_migration_manager(AsyncSessionLocal, "Evening News v2")
 
 # Register migrations
 migration_manager.register_table_migration(

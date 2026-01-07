@@ -163,7 +163,7 @@ class TelegraphService:
             response = self.telegraph.create_page(
                 title=page_title,
                 html_content=content_html,
-                author_name="RSS Summarizer",
+                author_name="Evening News",
                 author_url="https://dzarlax.dev"
             )
             

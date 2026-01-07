@@ -1,8 +1,8 @@
-"""Custom exceptions for RSS Summarizer v2."""
+"""Custom exceptions for Evening News v2."""
 
 
 class NewsAggregatorError(Exception):
-    """Base exception for RSS Summarizer."""
+    """Base exception for Evening News."""
     pass
 
 

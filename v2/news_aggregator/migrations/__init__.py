@@ -1,5 +1,5 @@
 """
-Database migrations system for RSS Summarizer v2.
+Database migrations system for Evening News v2.
 """
 
 # Универсальная система миграций

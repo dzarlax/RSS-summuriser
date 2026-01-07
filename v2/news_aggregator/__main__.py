@@ -1,4 +1,4 @@
-"""Main entry point for RSS Summarizer v2."""
+"""Main entry point for Evening News v2."""
 
 import sys
 from .cli import cli

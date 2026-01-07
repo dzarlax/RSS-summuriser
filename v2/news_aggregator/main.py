@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 # Create migration manager
-migration_manager = create_migration_manager(AsyncSessionLocal, "RSS Summarizer v2")
+migration_manager = create_migration_manager(AsyncSessionLocal, "Evening News v2")
 
 # Register migrations
 # MediaFilesMigration removed - media caching functionality disabled
@@ -153,7 +153,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="RSS Summarizer v2",
+    title="Evening News v2",
     description="Modern news aggregator with deduplication and web management",
     version="2.0.0",
     lifespan=lifespan,

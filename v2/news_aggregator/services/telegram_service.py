@@ -171,7 +171,7 @@ class TelegramService:
             True if connection is successful, False otherwise
         """
         try:
-            test_message = f"🧪 Test message from RSS Summarizer v2\n⏰ {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC"
+            test_message = f"🧪 Test message from Evening News v2\n⏰ {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC"
             return await self.send_message(test_message)
             
         except Exception as e:

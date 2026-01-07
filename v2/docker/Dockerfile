@@ -10,9 +10,9 @@ ARG REVISION
 LABEL org.opencontainers.image.created=$BUILDTIME \
       org.opencontainers.image.version=$VERSION \
       org.opencontainers.image.revision=$REVISION \
-      org.opencontainers.image.title="RSS News Aggregator" \
+      org.opencontainers.image.title="Evening News" \
       org.opencontainers.image.description="AI-powered news aggregation system with web interface" \
-      org.opencontainers.image.source="https://github.com/dzarlax/RSS-summuriser" \
+      org.opencontainers.image.source="https://github.com/dzarlax/evening-news" \
       org.opencontainers.image.vendor="Dzarlax" \
       org.opencontainers.image.licenses="MIT"
 

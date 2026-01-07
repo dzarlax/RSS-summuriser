@@ -1,1 +1,1 @@
-"""Utility modules for RSS Summarizer v2."""
+"""Utility modules for Evening News v2."""

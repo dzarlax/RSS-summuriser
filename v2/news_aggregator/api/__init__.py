@@ -1,4 +1,4 @@
-"""API routers package for RSS Summarizer v2."""
+"""API routers package for Evening News v2."""
 
 from fastapi import APIRouter, Depends
 from ..database import get_db

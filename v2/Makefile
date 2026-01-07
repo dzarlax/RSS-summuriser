@@ -1,9 +1,9 @@
-# RSS Summarizer v2 Makefile
+# Evening News v2 Makefile
 
 .PHONY: help dev prod stop clean logs shell db-shell migrate test lint format backup restore export import migration-prepare
 
 help: ## Show this help message
-	@echo "RSS Summarizer v2 Commands:"
+	@echo "Evening News v2 Commands:"
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
 ##@ Development
@@ -99,7 +99,7 @@ format: ## Format code
 ##@ Setup
 
 setup: ## Initial setup
-	@echo "🔧 Setting up RSS Summarizer v2..."
+	@echo "🔧 Setting up Evening News v2..."
 	cp .env.example .env 2>/dev/null || echo "⚠️ .env.example not found, create .env manually"
 	@echo "📝 Please edit .env file with your configuration"
 	@echo "🔗 Database: External MariaDB at 192.168.50.5:3306"
@@ -147,7 +147,7 @@ migration-prepare: ## Prepare for migration to new server
 	@echo "✅ Migration package ready in ./backups/"
 	@echo ""
 	@echo "📋 Instructions for new server:"
-	@echo "   1. Copy RSS Summarizer v2 source code"
+	@echo "   1. Copy Evening News v2 source code"
 	@echo "   2. Copy latest backup archive from ./backups/"
 	@echo "   3. Run: make restore BACKUP=backup.tar.gz"
 

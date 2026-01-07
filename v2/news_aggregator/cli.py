@@ -1,4 +1,4 @@
-"""Command line interface for RSS Summarizer v2."""
+"""Command line interface for Evening News v2."""
 
 import asyncio
 import sys
@@ -28,7 +28,7 @@ def async_command(f):
 @click.group()
 @click.version_option(version="2.0.0")
 def cli():
-    """RSS Summarizer v2 - Modern news aggregator."""
+    """Evening News v2 - Modern news aggregator."""
     pass
 
 
@@ -244,7 +244,7 @@ async def stats(days: int):
 @cli.command()
 async def config():
     """Show current configuration."""
-    console.print("[bold blue]RSS Summarizer v2 Configuration:[/bold blue]")
+    console.print("[bold blue]Evening News v2 Configuration:[/bold blue]")
     
     # Show key settings (without secrets)
     table = Table()

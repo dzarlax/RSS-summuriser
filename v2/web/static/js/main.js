@@ -1,4 +1,4 @@
-// RSS Summarizer v2 JavaScript - Enhanced Admin Interface
+// Evening News v2 JavaScript - Enhanced Admin Interface
 
 // Простая функция для AJAX запросов (make it global)
 async function apiRequest(url, options = {}) {
@@ -33,7 +33,7 @@ window.NewsAggregator = {
 };
 
 document.addEventListener('DOMContentLoaded', function() {
-    console.log('RSS Summarizer v2 Enhanced Admin loaded');
+    console.log('Evening News v2 Enhanced Admin loaded');
     
     // Initialize admin interface enhancements
     initAdminEnhancements();

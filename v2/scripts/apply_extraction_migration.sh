@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# RSS Summarizer v2 - Apply Extraction Learning Migration
+# Evening News v2 - Apply Extraction Learning Migration
 # Применяет миграцию для добавления таблиц AI-enhanced extraction learning
 
 set -e
@@ -8,7 +8,7 @@ set -e
 CONTAINER_NAME="v2-postgres-1"
 MIGRATION_FILE="./db/migrations/001_add_extraction_learning_tables.sql"
 
-echo "🔧 RSS Summarizer v2 - Applying Extraction Learning Migration..."
+echo "🔧 Evening News v2 - Applying Extraction Learning Migration..."
 echo "📄 Migration: $MIGRATION_FILE"
 
 # Проверяем наличие файла миграции

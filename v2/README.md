@@ -7,17 +7,7 @@ A production-ready news aggregation system with AI summarization, web interface,
 ### Docker (Production)
 ```bash
 cd v2
-# Configure environment variables
-cp docker-compose.override.yml.example docker-compose.override.yml
-# Edit variables in docker-compose.override.yml
 docker-compose up -d
-```
-
-### Docker (Development)
-```bash
-cd v2
-# Use dev configuration with auto-reload
-docker-compose -f docker-compose.dev.yml up -d
 ```
 
 ### Local Development
@@ -215,12 +205,6 @@ MAX_CONTENT_LENGTH=8000
 MIN_CONTENT_LENGTH=200
 BROWSER_CONCURRENCY=2
 PLAYWRIGHT_TIMEOUT_FIRST_MS=25000
-```
-
-### Docker Compose Override
-```bash
-cp docker-compose.override.yml.example docker-compose.override.yml
-# Edit environment variables
 ```
 
 ## 🎨 Category Management System

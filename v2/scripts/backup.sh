@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# RSS Summarizer v2 - Backup Script (MariaDB version)
+# Evening News v2 - Backup Script (MariaDB version)
 # Создает полное резервное копирование всех данных для переноса сервиса
 
 set -e
@@ -16,7 +16,7 @@ DB_PASS=""
 DB_NAME_PROD="newsdb"
 DB_NAME_DEV="newsdbdev"
 
-echo "🗄️ RSS Summarizer v2 - Backup Starting..."
+echo "🗄️ Evening News v2 - Backup Starting..."
 echo "📁 Backup directory: $BACKUP_DIR"
 
 # Создаем директорию для бэкапа
@@ -81,7 +81,7 @@ fi
 # 4. Создаем метаданные резервной копии
 echo "📋 Creating backup metadata..."
 cat > "$BACKUP_DIR/backup_info.txt" << EOF
-RSS Summarizer v2 - Backup Information
+Evening News v2 - Backup Information
 ======================================
 Backup Date: $(date)
 Database: $DB_NAME (MariaDB @ $DB_HOST:$DB_PORT)

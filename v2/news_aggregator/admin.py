@@ -32,7 +32,7 @@ async def admin_dashboard(request: Request, admin_user: str = Depends(get_curren
     """Admin dashboard."""
     response = templates.TemplateResponse("admin/dashboard.html", {
         "request": request,
-        "title": "RSS Summarizer v2 - Admin",
+        "title": "Evening News v2 - Admin",
         "admin_user": admin_user,
         "active_menu": "dashboard"
     })

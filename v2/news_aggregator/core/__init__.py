@@ -1,1 +1,1 @@
-"""Core modules for RSS Summarizer v2."""
+"""Core modules for Evening News v2."""

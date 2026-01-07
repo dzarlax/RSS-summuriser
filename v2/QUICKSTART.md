@@ -10,8 +10,7 @@
 
 2. **Настройте переменные окружения:**
    ```bash
-   cp docker-compose.override.yml.example docker-compose.override.yml
-   # Отредактируйте docker-compose.override.yml с вашими настройками:
+   # Настройте переменные окружения в docker-compose.example.yml:
    # - DATABASE_URL
    # - CONSTRUCTOR_KM_API_KEY
    # - TELEGRAM_TOKEN
@@ -150,18 +149,6 @@ TELEGRAM_CHAT_ID=your_chat_id
 
 # Telegraph (optional)
 TELEGRAPH_ACCESS_TOKEN=your_telegraph_token
-```
-
-### Docker Compose Override
-```yaml
-# docker-compose.override.yml
-version: '3.8'
-services:
-  web:
-    environment:
-      - CONSTRUCTOR_KM_API_KEY=your_actual_key
-      - TELEGRAM_TOKEN=your_actual_token
-      - TELEGRAM_CHAT_ID=your_actual_chat_id
 ```
 
 ## 🎯 Статус системы

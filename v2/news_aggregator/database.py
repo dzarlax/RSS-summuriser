@@ -14,7 +14,7 @@ if db_url.startswith("postgresql://"):
     db_url = db_url.replace("postgresql://", "postgresql+asyncpg://")
     connect_args = {
         "server_settings": {
-            "application_name": "RSS_Aggregator_V2",
+            "application_name": "Evening_News_V2",
             "statement_timeout": str(settings.db_statement_timeout),
         },
         "command_timeout": 60,

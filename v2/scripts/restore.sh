@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# RSS Summarizer v2 - Restore Script
+# Evening News v2 - Restore Script
 # Восстанавливает данные из резервной копии
 
 set -e
@@ -26,7 +26,7 @@ else
     BACKUP_DIR="$BACKUP_SOURCE"
 fi
 
-echo "🔄 RSS Summarizer v2 - Restore Starting..."
+echo "🔄 Evening News v2 - Restore Starting..."
 echo "📁 Restore from: $BACKUP_DIR"
 
 # Проверяем что директория с бэкапом существует

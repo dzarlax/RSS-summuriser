@@ -1,4 +1,4 @@
-"""Content extraction components for RSS Summarizer v2."""
+"""Content extraction components for Evening News v2."""
 
 import asyncio
 import weakref

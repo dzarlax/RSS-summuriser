@@ -1,4 +1,4 @@
--- RSS Summarizer v2 Database Schema
+-- Evening News v2 Database Schema
 
 -- Источники новостей
 CREATE TABLE sources (

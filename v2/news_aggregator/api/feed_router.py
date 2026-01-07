@@ -114,7 +114,7 @@ def clean_summary_text(raw_summary: str) -> str:
 async def api_root():
     """API root endpoint with available endpoints."""
     return {
-        "message": "RSS Summarizer v2 API",
+        "message": "Evening News v2 API",
         "version": "2.0.0",
         "endpoints": {
             "feed": "/api/v1/feed - Get news feed",
@@ -266,7 +266,7 @@ async def get_main_feed(
     
     return {
         "version": "2.0",
-        "title": "RSS Summarizer v2 Feed",
+        "title": "Evening News v2 Feed",
         "updated_at": datetime.utcnow().isoformat(),
         "items": feed_items,
         "pagination": {
@@ -296,10 +296,10 @@ async def get_rss_feed(
     channel = SubElement(rss, "channel")
     
     # Channel metadata
-    SubElement(channel, "title").text = "RSS Summarizer v2"
+    SubElement(channel, "title").text = "Evening News v2"
     SubElement(channel, "link").text = "http://localhost:8000"
     SubElement(channel, "description").text = "Aggregated news feed"
-    SubElement(channel, "generator").text = "RSS Summarizer v2.0"
+    SubElement(channel, "generator").text = "Evening News v2.0"
     SubElement(channel, "lastBuildDate").text = datetime.utcnow().strftime("%a, %d %b %Y %H:%M:%S GMT")
     
     # Add items
