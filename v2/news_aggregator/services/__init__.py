@@ -5,6 +5,8 @@ from .source_manager import SourceManager
 from .extraction_memory import ExtractionMemoryService, get_extraction_memory
 from .domain_stability_tracker import DomainStabilityTracker, get_stability_tracker
 from .ai_extraction_optimizer import AIExtractionOptimizer, get_ai_extraction_optimizer
+from .summary_generator import SummaryGenerator
+from .article_limiter import ArticleLimiter, get_article_limiter
 
 __all__ = [
     'AIClient',
@@ -15,5 +17,8 @@ __all__ = [
     'DomainStabilityTracker',
     'get_stability_tracker',
     'AIExtractionOptimizer',
-    'get_ai_extraction_optimizer'
+    'get_ai_extraction_optimizer',
+    'SummaryGenerator',
+    'ArticleLimiter',
+    'get_article_limiter',
 ]

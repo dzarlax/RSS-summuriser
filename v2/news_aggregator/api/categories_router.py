@@ -81,9 +81,10 @@ class CategoryMappingUpdateResponse(BaseModel):
 # Categories Endpoints
 # ============================================================================
 
-@router.get("")
+@router.get("/")
 async def get_categories(db: AsyncSession = Depends(get_db)):
     """Get all available categories with article counts."""
+    print(f"[DEBUG] GET /api/v1/categories/ called")  # Debug
 
     # Get categories from new table with article counts
     result = await db.execute(
@@ -136,11 +137,13 @@ async def get_categories(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/", response_model=CategoryResponse)
+@router.post("", response_model=CategoryResponse)  # Alternative path without trailing slash
 async def create_category(
     payload: CategoryCreateRequest,
     db: AsyncSession = Depends(get_db)
 ):
     """Create a main category (admin)."""
+    print(f"[DEBUG] POST /api/v1/categories/ called with payload: {payload}")  # Debug
     # TODO: Add admin auth when security is fixed
     
     # Check if category already exists
@@ -539,15 +542,15 @@ async def analyze_categories_with_ai(
     # Get unmapped AI categories with examples
     query = text("""
         SELECT DISTINCT ac.ai_category, COUNT(*) as usage_count,
-               string_agg(DISTINCT a.title, ' | ') as example_titles
-        FROM article_categories ac 
+               GROUP_CONCAT(DISTINCT a.title SEPARATOR ' | ') as example_titles
+        FROM article_categories ac
         JOIN articles a ON ac.article_id = a.id
-        LEFT JOIN category_mapping cm ON LOWER(ac.ai_category) = LOWER(cm.ai_category) 
+        LEFT JOIN category_mapping cm ON LOWER(ac.ai_category) = LOWER(cm.ai_category)
             AND cm.is_active = true
-        WHERE ac.ai_category IS NOT NULL 
+        WHERE ac.ai_category IS NOT NULL
           AND ac.ai_category != ''
           AND cm.ai_category IS NULL
-        GROUP BY ac.ai_category 
+        GROUP BY ac.ai_category
         ORDER BY usage_count DESC, ac.ai_category
         LIMIT :limit
     """)

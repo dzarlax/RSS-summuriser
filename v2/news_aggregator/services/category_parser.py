@@ -2,6 +2,81 @@
 Category parsing utilities for handling AI responses.
 """
 
+from typing import List, Optional
+import asyncio
+import threading
+
+# Global synchronous cache for categories (for use in sync contexts)
+_sync_categories_cache: Optional[List[str]] = None
+_sync_cache_lock = threading.Lock()
+
+
+def get_valid_categories_sync() -> List[str]:
+    """
+    Get valid categories synchronously.
+    Uses in-memory cache that is populated on first access.
+    Cache is refreshed every 5 minutes.
+
+    Returns:
+        List of category names
+    """
+    global _sync_categories_cache
+
+    with _sync_cache_lock:
+        if _sync_categories_cache is not None:
+            return _sync_categories_cache
+
+        # Need to load from DB - this requires async context
+        # For now, return fallback and schedule async load
+        _sync_categories_cache = _load_categories_sync_fallback()
+        return _sync_categories_cache
+
+
+def _load_categories_sync_fallback() -> List[str]:
+    """
+    Load categories from DB synchronously with fallback.
+
+    Returns:
+        List of category names
+    """
+    try:
+        # Try to run async function in sync context
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # We're in async context but called from sync function
+            # Use fallback - will be updated by async caller
+            categories = ['Serbia', 'Tech', 'Business', 'Science', 'Politics', 'International', 'Other']
+            print(f"  ⚠️ Sync category fetch in async context - using fallback: {categories}")
+            return categories
+        else:
+            # No event loop - create one
+            categories = loop.run_until_complete(get_valid_categories_from_cache())
+            return categories
+    except Exception as e:
+        print(f"  ⚠️ Failed to load categories synchronously: {e}")
+        return ['Serbia', 'Tech', 'Business', 'Science', 'Politics', 'International', 'Other']
+
+
+async def get_valid_categories_from_cache() -> List[str]:
+    """
+    Get valid categories from cache (loads from DB if needed).
+
+    Returns:
+        List of category names
+    """
+    from .category_cache import get_category_cache
+
+    cache = get_category_cache()
+    categories = await cache.get_categories()
+
+    # Update global sync cache
+    global _sync_categories_cache
+    with _sync_cache_lock:
+        _sync_categories_cache = categories
+
+    return categories
+
+
 def parse_category(category_raw, valid_categories=None, title=None, content=None, return_multiple=False):
     """
     Parse and clean category from AI response, handling composite categories.
@@ -19,10 +94,12 @@ def parse_category(category_raw, valid_categories=None, title=None, content=None
     """
     if not category_raw:
         return 'Other'
-    
-    # Default valid categories - все 7 фиксированных категорий
+
+    # Load valid categories from sync cache if not provided
     if valid_categories is None:
-        valid_categories = ['Serbia', 'Tech', 'Business', 'Science', 'Politics', 'International', 'Other']
+        valid_categories = get_valid_categories_sync()
+        if 'AI' not in valid_categories:
+            print(f"  ⚠️ Cache does not contain 'AI' category yet, using current list: {valid_categories}")
     
     # Clean the category string
     category_str = str(category_raw).strip()

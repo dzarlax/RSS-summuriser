@@ -1,254 +1,367 @@
 """Digest builder for creating combined daily news digests."""
 
-import asyncio
 import datetime
 from typing import List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from ..models import DailySummary
+from ..config import get_settings
+from ..utils import TelegramMessageSplitter, get_logger, log_operation
+from ..services.summary_generator import SummaryGenerator
+
+logger = get_logger(__name__, 'DIGEST_BUILDER')
 
 
 class DigestBuilder:
     """Handles building daily news digests from category summaries."""
-    
+
     def __init__(self):
-        self.telegram_limit = 3600  # Safe limit considering Telegraph button overhead (~200 chars)
-    
-    async def create_combined_digest(self, db: AsyncSession, date: datetime.date) -> str:
-        """Create digest by combining ready category summaries (no AI needed)."""
+        """Initialize digest builder with configuration and services."""
+        self.settings = get_settings()
+        # Initialize Telegram message splitter with proper limits
+        # TelegramMessageSplitter has max_length=4096, we calculate safety_margin to get effective_limit=3600
+        safety_margin = 4096 - self.settings.digest_telegram_limit
+        self.splitter = TelegramMessageSplitter(safety_margin=safety_margin)
+        self.summary_generator = SummaryGenerator()
+
+    async def create_combined_digest(
+        self,
+        db: AsyncSession,
+        date: datetime.date
+    ) -> str:
+        """
+        Create digest by combining ready category summaries (no AI needed).
+
+        Args:
+            db: Database session
+            date: Date for the digest
+
+        Returns:
+            Combined digest text or "SPLIT_NEEDED" marker
+        """
+        log_operation(
+            logger,
+            'create_combined_digest',
+            'started',
+            date=date.strftime('%Y-%m-%d')
+        )
+
         try:
             # Get all category summaries for today
             result = await db.execute(
-                select(DailySummary).where(DailySummary.date == date)
-                .order_by(DailySummary.articles_count.desc())  # Order by importance
+                select(DailySummary)
+                .where(DailySummary.date == date)
+                .order_by(DailySummary.articles_count.desc())
             )
             summaries = result.scalars().all()
 
             # Filter out empty summaries
-            valid_summaries = [s for s in summaries if s.summary_text and len(s.summary_text.strip()) >= 20]
+            valid_summaries = [
+                s for s in summaries
+                if s.summary_text and len(s.summary_text.strip()) >= self.settings.digest_min_summary_length
+            ]
 
             if not valid_summaries:
+                logger.warning(f"No valid summaries found for {date}")
                 return "Сводки новостей пока не готовы."
 
-            # Calculate total articles (only from valid summaries)
+            # Calculate statistics
             total_articles = sum(s.articles_count for s in valid_summaries)
             categories_count = len(valid_summaries)
 
-            # Build header
+            log_operation(
+                logger,
+                'create_combined_digest',
+                'processing',
+                categories=categories_count,
+                articles=total_articles
+            )
+
+            # Build components for message splitter
             header = f"<b>Сводка новостей за {date.strftime('%d.%m.%Y')}</b>"
-            digest_parts = [header, ""]
-
-            # Add category summaries (only valid ones)
-            for summary in valid_summaries:
-                category_block = f"<b>{summary.category}</b>\n{summary.summary_text.strip()}\n"
-                digest_parts.append(category_block)
-            
-            # Add footer with stats
             footer = f"\n📊 Всего: {total_articles} новостей в {categories_count} категориях"
-            digest_parts.append(footer)
-            
-            combined_digest = "\n".join(digest_parts)
-            
-            # Check length and return single message or flag for splitting
-            if len(combined_digest) <= self.telegram_limit:
-                return combined_digest  # Single message
+
+            content_blocks = [
+                (summary.category, summary.summary_text.strip())
+                for summary in valid_summaries
+            ]
+
+            metadata = {
+                "total_articles": total_articles,
+                "categories_count": categories_count
+            }
+
+            # Use message splitter to check if splitting needed
+            split_result = self.splitter.split_digest(
+                header=header,
+                content_blocks=content_blocks,
+                footer=footer,
+                metadata=metadata
+            )
+
+            if not split_result.was_split:
+                log_operation(
+                    logger,
+                    'create_combined_digest',
+                    'completed',
+                    single_message=True,
+                    length=split_result.original_length
+                )
+                return split_result.parts[0].content
             else:
-                # Return special marker indicating splitting needed
-                print(f"  📄 Digest too long ({len(combined_digest)} chars), needs splitting by categories")
+                log_operation(
+                    logger,
+                    'create_combined_digest',
+                    'splitting_needed',
+                    total_parts=split_result.total_parts,
+                    length=split_result.original_length
+                )
                 return "SPLIT_NEEDED"
-                
+
         except Exception as e:
-            print(f"  ❌ Error creating combined digest: {e}")
+            log_operation(
+                logger,
+                'create_combined_digest',
+                'failed',
+                error=str(e),
+                date=date.strftime('%Y-%m-%d')
+            )
             return f"<b>Сводка новостей за {date.strftime('%d.%m.%Y')}</b>\n\nОшибка при создании сводки."
-    
-    def split_digest_into_parts(self, header: str, summaries, footer: str, 
-                               total_articles: int, categories_count: int) -> List[str]:
-        """Split digest into multiple parts that fit Telegram limits."""
+
+    async def create_digest_parts(
+        self,
+        db: AsyncSession,
+        date: datetime.date
+    ) -> List[str]:
+        """
+        Create and split digest into multiple parts.
+
+        Args:
+            db: Database session
+            date: Date for the digest
+
+        Returns:
+            List of message parts ready for sending
+        """
+        log_operation(
+            logger,
+            'create_digest_parts',
+            'started',
+            date=date.strftime('%Y-%m-%d')
+        )
+
         try:
-            parts = []
-            
-            # Split summaries into groups that fit telegram limit
-            current_part_categories = []
-            current_part_length = len(header) + 2  # header + empty line
-            
-            for i, summary in enumerate(summaries):
-                category_block = f"<b>{summary.category}</b>\n{summary.summary_text.strip()}\n\n"
-                
-                # Check if adding this category would exceed limit
-                estimated_footer = f"\n📊 Часть {len(parts)+1} • {len(current_part_categories)+1} категорий"
-                
-                if current_part_length + len(category_block) + len(estimated_footer) + 50 <= self.telegram_limit:
-                    # Fits in current part
-                    current_part_categories.append(summary)
-                    current_part_length += len(category_block)
-                else:
-                    # Start new part
-                    if current_part_categories:
-                        # Save current part
-                        parts.append(self._build_digest_part(
-                            header, current_part_categories, total_articles, 
-                            categories_count, len(parts) + 1, 
-                            is_final=False
-                        ))
-                        
-                        # Start new part
-                        current_part_categories = [summary]
-                        current_part_length = len(header) + 2 + len(category_block)
-                    else:
-                        # Single category too long - include anyway
-                        current_part_categories = [summary]
-                        current_part_length = len(header) + 2 + len(category_block)
-            
-            # Add final part
-            if current_part_categories:
-                parts.append(self._build_digest_part(
-                    header, current_part_categories, total_articles,
-                    categories_count, len(parts) + 1,
-                    is_final=True, footer=footer
-                ))
-            
-            print(f"  📄 Split digest into {len(parts)} parts")
-            return parts
-            
+            # Get all category summaries for today
+            result = await db.execute(
+                select(DailySummary)
+                .where(DailySummary.date == date)
+                .order_by(DailySummary.articles_count.desc())
+            )
+            summaries = result.scalars().all()
+
+            # Filter out empty summaries
+            valid_summaries = [
+                s for s in summaries
+                if s.summary_text and len(s.summary_text.strip()) >= self.settings.digest_min_summary_length
+            ]
+
+            if not valid_summaries:
+                logger.warning(f"No valid summaries found for {date}")
+                return ["Сводки новостей пока не готовы."]
+
+            # Calculate statistics
+            total_articles = sum(s.articles_count for s in valid_summaries)
+            categories_count = len(valid_summaries)
+
+            # Build components for message splitter
+            header = f"<b>Сводка новостей за {date.strftime('%d.%m.%Y')}</b>"
+            footer = f"\n📊 Всего: {total_articles} новостей в {categories_count} категориях"
+
+            content_blocks = [
+                (summary.category, summary.summary_text.strip())
+                for summary in valid_summaries
+            ]
+
+            metadata = {
+                "total_articles": total_articles,
+                "categories_count": categories_count
+            }
+
+            # Split digest into parts
+            split_result = self.splitter.split_digest(
+                header=header,
+                content_blocks=content_blocks,
+                footer=footer,
+                metadata=metadata
+            )
+
+            # Extract message contents
+            message_parts = [part.content for part in split_result.parts]
+
+            log_operation(
+                logger,
+                'create_digest_parts',
+                'completed',
+                parts=len(message_parts),
+                total_length=split_result.original_length
+            )
+
+            return message_parts
+
         except Exception as e:
-            print(f"  ❌ Error splitting digest: {e}")
-            # Fallback to single part with truncation
-            fallback = header + "\n\n" + summaries[0].summary_text[:3000] + "...\n" + footer
-            return [fallback]
-    
-    def _build_digest_part(self, header: str, categories, total_articles: int, 
-                          total_categories: int, part_number: int, 
-                          is_final: bool = False, footer: str = "") -> str:
-        """Build a single digest part."""
-        part_content = [header, ""]
-        
-        # Add categories
-        for summary in categories:
-            category_block = f"<b>{summary.category}</b>\n{summary.summary_text.strip()}\n"
-            part_content.append(category_block)
-        
-        # Add appropriate footer
-        if is_final:
-            part_content.append(footer)
-        else:
-            part_footer = f"\n📊 Часть {part_number} • {len(categories)} из {total_categories} категорий"
-            part_content.append(part_footer) 
-            part_content.append("\n💬 Продолжение следует...")
-        
-        return "\n".join(part_content)
-    
-    async def generate_and_save_daily_summaries(self, db: AsyncSession, date: datetime.date, categories: Dict[str, List]):
-        """Generate and save daily summaries by category."""
-        from ..services.ai_client import get_ai_client
-        
-        ai_client = get_ai_client()
-        
-        for category, articles in categories.items():
-            if not articles:
-                continue
+            log_operation(
+                logger,
+                'create_digest_parts',
+                'failed',
+                error=str(e),
+                date=date.strftime('%Y-%m-%d')
+            )
+            return [f"<b>Сводка новостей за {date.strftime('%d.%m.%Y')}</b>\n\nОшибка при создании сводки."]
 
-            try:
-                print(f"  📝 Generating summary for {category} category ({len(articles)} articles)...")
+    async def generate_and_save_daily_summaries(
+        self,
+        db: AsyncSession,
+        date: datetime.date,
+        categories: Dict[str, List]
+    ) -> Dict[str, int]:
+        """
+        Generate and save daily summaries by category.
 
-                # Prepare article content for AI
-                articles_text = []
-                for article in articles[:10]:  # Limit to 10 most recent articles
-                    article_text = f"Заголовок: {article.title}\nСодержание: {(article.summary or article.content or '')[:500]}"
-                    articles_text.append(article_text)
+        This method delegates to the SummaryGenerator service which handles
+        both sequential and parallel processing based on configuration.
 
-                combined_content = "\n\n---\n\n".join(articles_text)
+        Args:
+            db: Database session
+            date: Date for the summaries
+            categories: Dictionary mapping category names to article lists
 
-                max_retries = 2
-                summary_text = None
+        Returns:
+            Statistics dictionary about generated summaries
+        """
+        log_operation(
+            logger,
+            'generate_and_save_daily_summaries',
+            'started',
+            date=date.strftime('%Y-%m-%d'),
+            categories=len(categories)
+        )
 
-                for attempt in range(max_retries):
-                    try:
-                        # Generate category summary using AI
-                        summary_prompt = f"""Создай краткую сводку новостей для категории "{category}" на русском языке.
+        try:
+            stats = await self.summary_generator.generate_and_save_summaries(
+                db=db,
+                date=date,
+                categories=categories
+            )
 
-Статьи:
-{combined_content}
+            log_operation(
+                logger,
+                'generate_and_save_daily_summaries',
+                'completed',
+                successful=stats.get('successful', 0),
+                failed=stats.get('failed', 0),
+                fallback=stats.get('fallback_used', 0)
+            )
 
-Требования:
-- Максимум 3-4 предложения
-- Сосредоточься на главных событиях
-- Используй деловой стиль
-- Начинай с "В сфере {category.lower()}..."
-- Не повторяй одну и ту же информацию
-Requirements:
-- End with a complete sentence
-- Do not cut words
-- Avoid trailing ellipsis"""
+            return stats
 
-                        summary_text = await ai_client._call_summary_llm(summary_prompt, max_tokens=1500)
-                        if summary_text:
-                            summary_text = ai_client._clean_summary_text(summary_text)
+        except Exception as e:
+            log_operation(
+                logger,
+                'generate_and_save_daily_summaries',
+                'failed',
+                error=str(e),
+                date=date.strftime('%Y-%m-%d')
+            )
+            raise
 
-                        # Check if summary is valid
-                        if summary_text and len(summary_text.strip()) >= 20:
-                            break  # Success, exit retry loop
-                        else:
-                            print(f"  ⚠️ Attempt {attempt + 1}/{max_retries}: AI returned empty/short summary for {category}")
-                            if attempt < max_retries - 1:
-                                await asyncio.sleep(1)  # Wait before retry
+    async def validate_digest_quality(
+        self,
+        db: AsyncSession,
+        date: datetime.date
+    ) -> Dict[str, Any]:
+        """
+        Validate the quality of generated digest for a date.
 
-                    except Exception as e:
-                        print(f"  ⚠️ Attempt {attempt + 1}/{max_retries}: Error generating summary for {category}: {e}")
-                        if attempt == max_retries - 1:
-                            # Last attempt failed, use fallback
-                            raise
+        Args:
+            db: Database session
+            date: Date to validate
 
-                # Save or update daily summary (with fallback if all retries failed)
-                if not summary_text or len(summary_text.strip()) < 20:
-                    print(f"  ⚠️ All retries failed for {category}, using fallback")
-                    summary_text = f"В сфере {category.lower()} произошли важные события. Обработано {len(articles)} новостей."
+        Returns:
+            Dictionary with validation results
+        """
+        result = await db.execute(
+            select(DailySummary)
+            .where(DailySummary.date == date)
+        )
+        summaries = result.scalars().all()
 
-                existing_result = await db.execute(
-                    select(DailySummary).where(
-                        DailySummary.date == date,
-                        DailySummary.category == category
-                    )
-                )
-                existing_summary = existing_result.scalar_one_or_none()
+        validation = {
+            "date": date.strftime('%Y-%m-%d'),
+            "total_categories": len(summaries),
+            "valid_summaries": 0,
+            "empty_summaries": 0,
+            "short_summaries": 0,
+            "total_articles": 0,
+            "is_valid": False
+        }
 
-                if existing_summary:
-                    # Update existing
-                    existing_summary.summary_text = summary_text
-                    existing_summary.articles_count = len(articles)
-                    print(f"  ✅ Updated summary for {category}")
-                else:
-                    # Create new
-                    new_summary = DailySummary(
-                        date=date,
-                        category=category,
-                        summary_text=summary_text,
-                        articles_count=len(articles)
-                    )
-                    db.add(new_summary)
-                    print(f"  ✅ Created summary for {category}")
+        for summary in summaries:
+            validation["total_articles"] += summary.articles_count
 
-            except Exception as e:
-                print(f"  ❌ Error generating summary for {category}: {e}")
-                # Create fallback summary
-                fallback_text = f"В сфере {category.lower()} произошли важные события. Обработано {len(articles)} новостей."
+            if not summary.summary_text or len(summary.summary_text.strip()) < 10:
+                validation["empty_summaries"] += 1
+            elif len(summary.summary_text.strip()) < self.settings.digest_min_summary_length:
+                validation["short_summaries"] += 1
+            else:
+                validation["valid_summaries"] += 1
 
-                existing_result = await db.execute(
-                    select(DailySummary).where(
-                        DailySummary.date == date,
-                        DailySummary.category == category
-                    )
-                )
-                existing_summary = existing_result.scalar_one_or_none()
+        # Consider digest valid if we have at least one good summary
+        validation["is_valid"] = validation["valid_summaries"] > 0
 
-                if not existing_summary:
-                    fallback_summary = DailySummary(
-                        date=date,
-                        category=category,
-                        summary_text=fallback_text,
-                        articles_count=len(articles)
-                    )
-                    db.add(fallback_summary)
-        
-        await db.commit()
-        print(f"  ✅ Daily summaries saved for {date}")
+        return validation
+
+    async def get_digest_statistics(
+        self,
+        db: AsyncSession,
+        date: datetime.date
+    ) -> Dict[str, Any]:
+        """
+        Get statistics about digest for a specific date.
+
+        Args:
+            db: Database session
+            date: Date to get statistics for
+
+        Returns:
+            Dictionary with digest statistics
+        """
+        result = await db.execute(
+            select(DailySummary)
+            .where(DailySummary.date == date)
+            .order_by(DailySummary.articles_count.desc())
+        )
+        summaries = result.scalars().all()
+
+        if not summaries:
+            return {
+                "date": date.strftime('%Y-%m-%d'),
+                "categories": 0,
+                "total_articles": 0,
+                "avg_summary_length": 0,
+                "longest_summary": 0,
+                "shortest_summary": 0
+            }
+
+        total_articles = sum(s.articles_count for s in summaries)
+        summary_lengths = [len(s.summary_text) for s in summaries if s.summary_text]
+
+        return {
+            "date": date.strftime('%Y-%m-%d'),
+            "categories": len(summaries),
+            "total_articles": total_articles,
+            "avg_summary_length": sum(summary_lengths) / len(summary_lengths) if summary_lengths else 0,
+            "longest_summary": max(summary_lengths) if summary_lengths else 0,
+            "shortest_summary": min(summary_lengths) if summary_lengths else 0,
+            "categories_by_name": {s.category: s.articles_count for s in summaries}
+        }

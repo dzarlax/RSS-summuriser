@@ -21,6 +21,7 @@ from .processing.stats_collector import StatsCollector
 from .services.ai_client import get_ai_client
 from .services.telegram_service import get_telegram_service
 from .services.database_queue import get_database_queue, DatabaseQueueManager
+from .services.article_limiter import get_article_limiter, ArticleLimiter
 from .core.exceptions import NewsAggregatorError
 from .config import settings
 
@@ -33,16 +34,21 @@ class NewsOrchestrator:
         self.ai_processor = AIProcessor()
         self.ai_client = get_ai_client()
         self.telegram_service = get_telegram_service()
-        
+
         # Use new universal database queue system
         self.db_queue_manager = get_database_queue()
-        
+
         # Initialize specialized processors
         self.summarization_processor = SummarizationProcessor()
         self.categorization_processor = CategorizationProcessor()
         self.digest_builder = DigestBuilder()
         self.stats_collector = StatsCollector()
-        
+
+        # Article limiter for processing limits
+        self.article_limiter = get_article_limiter()
+        # Log limit status on startup
+        self.article_limiter.log_limit_status()
+
         # Legacy queue for backward compatibility (will be removed)
         self.db_queue = None
     
@@ -168,30 +174,11 @@ class NewsOrchestrator:
                 digest_content = await self.digest_builder.create_combined_digest(db, today)
 
                 if digest_content == "SPLIT_NEEDED":
-                    from .models import DailySummary
-                    from sqlalchemy import select
+                    # Use new method that handles splitting internally
+                    digest_parts = await self.digest_builder.create_digest_parts(db, today)
 
-                    result = await db.execute(
-                        select(DailySummary).where(DailySummary.date == today)
-                        .order_by(DailySummary.articles_count.desc())
-                    )
-                    summaries = result.scalars().all()
-
-                    # Filter out empty summaries
-                    valid_summaries = [s for s in summaries if s.summary_text and len(s.summary_text.strip()) >= 20]
-
-                    if not valid_summaries:
+                    if not digest_parts or digest_parts[0] == "Сводки новостей пока не готовы.":
                         return {'error': 'No valid summaries found'}
-
-                    total_articles = sum(s.articles_count for s in valid_summaries)
-                    categories_count = len(valid_summaries)
-
-                    header = f"<b>Сводка новостей за {today.strftime('%d.%m.%Y')}</b>"
-                    footer = f"\n📊 Всего: {total_articles} новостей в {categories_count} категориях"
-
-                    digest_parts = self.digest_builder.split_digest_into_parts(
-                        header, valid_summaries, footer, total_articles, categories_count
-                    )
 
                     return {'digest_parts': digest_parts, 'split': True}
 
@@ -230,7 +217,8 @@ class NewsOrchestrator:
                     ai_key = (item['ai_category'] or 'Other').strip() or 'Other'
                     if ai_key not in category_cache:
                         display = await category_display_service.map_ai_category_to_display(ai_key)
-                        category_cache[ai_key] = display.get('display_name') or display.get('name') or ai_key
+                        # Use English name for database storage, not display_name (Russian)
+                        category_cache[ai_key] = display.get('name') or display.get('display_name') or ai_key
 
                     category_name = category_cache[ai_key]
                     if category_name not in articles_by_category:
@@ -288,13 +276,19 @@ class NewsOrchestrator:
             async def processing_operation(db):
                 # Get unprocessed articles with eager loading of source relationship
                 from sqlalchemy.orm import selectinload
+
+                # Build base query
                 unprocessed_query = select(Article).options(
                     selectinload(Article.source)  # Eager load source to avoid lazy loading issues
                 ).where(
                     (Article.summary_processed == False) |
                     (Article.category_processed == False) |
                     (Article.ad_processed == False)
-                ).limit(50)
+                )
+
+                # Apply article limits from configuration
+                unprocessed_query = self.article_limiter.apply_limits_to_query(unprocessed_query)
+                unprocessed_query = self.article_limiter.apply_date_filters_to_query(unprocessed_query)
                 
                 result = await db.execute(unprocessed_query)
                 unprocessed_articles = result.scalars().all()
@@ -427,7 +421,8 @@ class NewsOrchestrator:
                     ai_key = (item['ai_category'] or 'Other').strip() or 'Other'
                     if ai_key not in category_cache:
                         display = await category_display_service.map_ai_category_to_display(ai_key)
-                        category_cache[ai_key] = display.get('display_name') or display.get('name') or ai_key
+                        # Use English name for database storage, not display_name (Russian)
+                        category_cache[ai_key] = display.get('name') or display.get('display_name') or ai_key
 
                     category_name = category_cache[ai_key]
                     categories.setdefault(category_name, []).append(article)

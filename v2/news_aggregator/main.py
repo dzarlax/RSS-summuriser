@@ -76,6 +76,17 @@ async def lifespan(app: FastAPI):
         import traceback
         traceback.print_exc()
         # Don't prevent app startup on queue errors
+
+    # Pre-warm category cache
+    from .services.category_cache import get_category_cache
+    try:
+        print("🔄 Loading category cache...")
+        category_cache = get_category_cache()
+        categories = await category_cache.get_categories(force_refresh=True)
+        print(f"✅ Category cache loaded with {len(categories)} categories")
+    except Exception as e:
+        print(f"⚠️ Category cache preload warning: {e}")
+        # Don't prevent app startup
     
     # Start task scheduler
     from .services.scheduler import start_scheduler

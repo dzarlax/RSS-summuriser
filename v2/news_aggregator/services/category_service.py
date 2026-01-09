@@ -8,24 +8,14 @@ from sqlalchemy import select, delete, func
 from sqlalchemy.orm import selectinload
 
 from ..models import Article, Category, ArticleCategory
-from .category_parser import parse_category
+from .category_parser import parse_category, get_valid_categories_from_cache
 
 
 class CategoryService:
     """Service for managing article categories."""
-    
-    # Fixed list of allowed categories (only these 7 categories allowed)
-    ALLOWED_CATEGORIES = {
-        'Serbia': 'Сербия',
-        'Tech': 'Технологии', 
-        'Business': 'Бизнес',
-        'Science': 'Наука',
-        'Politics': 'Политика',
-        'International': 'Международные',
-        'Other': 'Прочее'
-    }
-    
-    # Mapping of common category names to our fixed categories
+
+    # Legacy hardcoded category mappings (kept as fallback for backward compatibility)
+    # NOTE: Main category list is now loaded dynamically from database via category_cache
     CATEGORY_MAPPING = {
         # International relations
         'russia': 'International',
@@ -74,9 +64,10 @@ class CategoryService:
         """Normalize category name to one of the allowed categories using database mappings."""
         if not category_name:
             return 'Other'
-            
-        # Check if it's already an allowed category
-        if category_name in self.ALLOWED_CATEGORIES:
+
+        # Check if it's already an allowed category (loaded from cache)
+        valid_categories = await get_valid_categories_from_cache()
+        if category_name in valid_categories:
             return category_name
             
         # Try database mapping first
@@ -165,21 +156,25 @@ class CategoryService:
     ) -> List[Dict]:
         """
         Parse and assign multiple categories to an article.
-        
+
         Args:
             article_id: Article ID
             category_raw: Raw category string from AI
             title: Article title for context
             content: Article content for context
-            
+
         Returns:
             List of assigned categories with confidence scores
         """
+        # Load valid categories from cache
+        valid_categories = await get_valid_categories_from_cache()
+
         # Parse categories with confidence scores
         categories_data = parse_category(
-            category_raw, 
-            title=title, 
-            content=content, 
+            category_raw,
+            valid_categories=valid_categories,
+            title=title,
+            content=content,
             return_multiple=True
         )
         
@@ -204,14 +199,20 @@ class CategoryService:
                 print(f"⚠️ Category '{category_name}' not found, skipping")
                 continue
             
-            # Create article-category relationship
-            article_category = ArticleCategory(
-                article_id=article_id,
-                category_id=category.id,
-                confidence=confidence
+            # Check for duplicates before creating article-category relationship
+            existing = await self.db.execute(
+                select(ArticleCategory).where(
+                    ArticleCategory.article_id == article_id,
+                    ArticleCategory.category_id == category.id
+                )
             )
-            
-            self.db.add(article_category)
+            if existing.scalar_one_or_none() is None:
+                article_category = ArticleCategory(
+                    article_id=article_id,
+                    category_id=category.id,
+                    confidence=confidence
+                )
+                self.db.add(article_category)
             assigned_categories.append({
                 'name': category.name,
                 'display_name': category.display_name,
@@ -267,14 +268,22 @@ class CategoryService:
                 print(f"  ❌ Category '{normalized_category_name}' not found in database - this should not happen!")
                 continue
             
-            # Create article-category relationship
-            article_category = ArticleCategory(
-                article_id=article_id,
-                category_id=category.id,
-                confidence=confidence,
-                ai_category=ai_category  # Store original AI category
+            # Create article-category relationship (check for duplicates)
+            # Check if this relationship already exists
+            existing = await self.db.execute(
+                select(ArticleCategory).where(
+                    ArticleCategory.article_id == article_id,
+                    ArticleCategory.category_id == category.id
+                )
             )
-            self.db.add(article_category)
+            if existing.scalar_one_or_none() is None:
+                article_category = ArticleCategory(
+                    article_id=article_id,
+                    category_id=category.id,
+                    confidence=confidence,
+                    ai_category=ai_category  # Store original AI category
+                )
+                self.db.add(article_category)
             
             assigned_categories.append({
                 'id': category.id,
@@ -314,24 +323,35 @@ class CategoryService:
         # Find articles that were categorized with this specific AI category
         # Now we can be precise - update only articles that originally had this AI category
         from sqlalchemy import text
-        
-        # Update articles that have the specific AI category, regardless of current category
-        result = await self.db.execute(text('''
-            UPDATE article_categories 
-            SET category_id = :new_category_id
+
+        # First count affected articles (MariaDB doesn't support RETURNING)
+        # Only count articles that need updating (not already mapped to target category)
+        count_result = await self.db.execute(text('''
+            SELECT COUNT(*) FROM article_categories
             WHERE ai_category = :ai_category
-            RETURNING article_id
+            AND category_id != :new_category_id
         '''), {
             'ai_category': ai_category,
             'new_category_id': new_category.id
         })
-        
-        updated_articles = result.fetchall()
+        count = count_result.scalar() or 0
+
+        # Update articles that have the specific AI category, regardless of current category
+        # Skip articles already in target category to avoid duplicates
+        await self.db.execute(text('''
+            UPDATE article_categories
+            SET category_id = :new_category_id
+            WHERE ai_category = :ai_category
+            AND category_id != :new_category_id
+        '''), {
+            'ai_category': ai_category,
+            'new_category_id': new_category.id
+        })
+
         await self.db.commit()
-        
-        count = len(updated_articles)
+
         print(f"✅ Updated {count} articles from {old_fixed_category} to {new_fixed_category}")
-        
+
         return count
     
     async def apply_new_mapping_to_existing_articles(self, ai_category: str, fixed_category: str) -> int:
@@ -355,22 +375,49 @@ class CategoryService:
         
         # Find all articles that have this AI category and update their category_id
         from sqlalchemy import text
-        result = await self.db.execute(text('''
-            UPDATE article_categories 
-            SET category_id = :new_category_id
-            WHERE ai_category = :ai_category
-            RETURNING article_id
+
+        # Simpler approach: Delete ALL non-target category entries for articles that will be updated
+        # This prevents (article_id, category_id) duplicates
+        await self.db.execute(text('''
+            DELETE ac1 FROM article_categories ac1
+            WHERE ac1.category_id = :new_category_id
+            AND EXISTS (
+                SELECT 1 FROM article_categories ac2
+                WHERE ac2.ai_category = :ai_category
+                AND ac2.article_id = ac1.article_id
+            )
+            AND ac1.ai_category != :ai_category
         '''), {
             'ai_category': ai_category,
             'new_category_id': new_category.id
         })
-        
-        updated_articles = result.fetchall()
+
+        # Count affected articles (not already mapped to target category)
+        count_result = await self.db.execute(text('''
+            SELECT COUNT(*) FROM article_categories
+            WHERE ai_category = :ai_category
+            AND category_id != :new_category_id
+        '''), {
+            'ai_category': ai_category,
+            'new_category_id': new_category.id
+        })
+        count = count_result.scalar() or 0
+
+        # Update remaining articles
+        await self.db.execute(text('''
+            UPDATE article_categories
+            SET category_id = :new_category_id
+            WHERE ai_category = :ai_category
+            AND category_id != :new_category_id
+        '''), {
+            'ai_category': ai_category,
+            'new_category_id': new_category.id
+        })
+
         await self.db.commit()
-        
-        count = len(updated_articles)
+
         print(f"✅ Applied new mapping to {count} articles: {ai_category} → {fixed_category}")
-        
+
         return count
     
     async def bulk_recategorize_by_mapping(self, ai_category: str) -> int:

@@ -1,7 +1,8 @@
 """Configuration management."""
 
 import os
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
+from datetime import datetime, timedelta
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings
@@ -76,8 +77,25 @@ class Settings(BaseSettings):
 
     # Database init safety
     allow_create_all: bool = Field(default=True, alias="ALLOW_CREATE_ALL")
-    
-    
+
+    # Digest Builder Configuration
+    digest_telegram_limit: int = Field(default=3600, alias="DIGEST_TELEGRAM_LIMIT")
+    digest_max_summary_retries: int = Field(default=2, alias="DIGEST_MAX_SUMMARY_RETRIES")
+    digest_retry_delay: int = Field(default=1, alias="DIGEST_RETRY_DELAY")
+    digest_max_articles_per_category: int = Field(default=10, alias="DIGEST_MAX_ARTICLES_PER_CATEGORY")
+    digest_min_summary_length: int = Field(default=20, alias="DIGEST_MIN_SUMMARY_LENGTH")
+    digest_max_summary_tokens: int = Field(default=1500, alias="DIGEST_MAX_SUMMARY_TOKENS")
+    digest_parallel_categories: bool = Field(default=True, alias="DIGEST_PARALLEL_CATEGORIES")
+
+    # News Processing Limits
+    news_limit_enabled: bool = Field(default=False, alias="NEWS_LIMIT_ENABLED")
+    news_limit_days: int = Field(default=1, alias="NEWS_LIMIT_DAYS")
+    news_limit_max_articles: int = Field(default=50, alias="NEWS_LIMIT_MAX_ARTICLES")
+    news_limit_per_source: int = Field(default=50, alias="NEWS_LIMIT_PER_SOURCE")
+    news_limit_oldest_date: Optional[str] = Field(default=None, alias="NEWS_LIMIT_OLDEST_DATE")
+    news_limit_newest_date: Optional[str] = Field(default=None, alias="NEWS_LIMIT_NEWEST_DATE")
+
+
     class Config:
         env_file = ".env"
         case_sensitive = False
@@ -103,6 +121,58 @@ class Settings(BaseSettings):
             "TELEGRAPH_ACCESS_TOKEN": self.telegraph_access_token,
         }
         return legacy_mapping.get(key)
+
+    def get_news_limit_config(self) -> Dict[str, Any]:
+        """
+        Get news processing limits configuration.
+
+        Returns:
+            Dictionary with limit settings for article processing
+        """
+        if not self.news_limit_enabled:
+            return {
+                'enabled': False,
+                'max_articles': None,
+                'per_source': None,
+                'days': None,
+                'oldest_date': None,
+                'newest_date': None
+            }
+
+        config = {
+            'enabled': True,
+            'max_articles': self.news_limit_max_articles,
+            'per_source': self.news_limit_per_source,
+            'days': self.news_limit_days,
+            'oldest_date': None,
+            'newest_date': None
+        }
+
+        # Parse oldest date if provided
+        if self.news_limit_oldest_date:
+            try:
+                config['oldest_date'] = datetime.strptime(
+                    self.news_limit_oldest_date,
+                    '%Y-%m-%d'
+                )
+            except ValueError:
+                pass  # Invalid date format, ignore
+
+        # Parse newest date if provided
+        if self.news_limit_newest_date:
+            try:
+                config['newest_date'] = datetime.strptime(
+                    self.news_limit_newest_date,
+                    '%Y-%m-%d'
+                )
+            except ValueError:
+                pass  # Invalid date format, ignore
+
+        # Calculate date range based on days if provided
+        if self.news_limit_days and self.news_limit_days > 0:
+            config['date_from'] = datetime.now() - timedelta(days=self.news_limit_days)
+
+        return config
 
 
 # Глобальный экземпляр настроек
