@@ -1,5 +1,6 @@
 """Digest builder for creating combined daily news digests."""
 
+import asyncio
 import datetime
 from typing import List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,20 +24,23 @@ class DigestBuilder:
                 .order_by(DailySummary.articles_count.desc())  # Order by importance
             )
             summaries = result.scalars().all()
-            
-            if not summaries:
+
+            # Filter out empty summaries
+            valid_summaries = [s for s in summaries if s.summary_text and len(s.summary_text.strip()) >= 20]
+
+            if not valid_summaries:
                 return "Сводки новостей пока не готовы."
-            
-            # Calculate total articles
-            total_articles = sum(s.articles_count for s in summaries)
-            categories_count = len(summaries)
-            
+
+            # Calculate total articles (only from valid summaries)
+            total_articles = sum(s.articles_count for s in valid_summaries)
+            categories_count = len(valid_summaries)
+
             # Build header
             header = f"<b>Сводка новостей за {date.strftime('%d.%m.%Y')}</b>"
             digest_parts = [header, ""]
-            
-            # Add category summaries  
-            for summary in summaries:
+
+            # Add category summaries (only valid ones)
+            for summary in valid_summaries:
                 category_block = f"<b>{summary.category}</b>\n{summary.summary_text.strip()}\n"
                 digest_parts.append(category_block)
             
@@ -143,21 +147,26 @@ class DigestBuilder:
         for category, articles in categories.items():
             if not articles:
                 continue
-            
-            print(f"  📝 Generating summary for {category} category ({len(articles)} articles)...")
-            
-            # Prepare article content for AI
-            articles_text = []
-            for article in articles[:10]:  # Limit to 10 most recent articles
-                article_text = f"Заголовок: {article.title}\nСодержание: {(article.summary or article.content or '')[:500]}"
-                articles_text.append(article_text)
-            
-            combined_content = "\n\n---\n\n".join(articles_text)
-            
+
             try:
-                # Generate category summary using AI
-                summary_prompt = f"""Создай краткую сводку новостей для категории "{category}" на русском языке.
-                
+                print(f"  📝 Generating summary for {category} category ({len(articles)} articles)...")
+
+                # Prepare article content for AI
+                articles_text = []
+                for article in articles[:10]:  # Limit to 10 most recent articles
+                    article_text = f"Заголовок: {article.title}\nСодержание: {(article.summary or article.content or '')[:500]}"
+                    articles_text.append(article_text)
+
+                combined_content = "\n\n---\n\n".join(articles_text)
+
+                max_retries = 2
+                summary_text = None
+
+                for attempt in range(max_retries):
+                    try:
+                        # Generate category summary using AI
+                        summary_prompt = f"""Создай краткую сводку новостей для категории "{category}" на русском языке.
+
 Статьи:
 {combined_content}
 
@@ -171,12 +180,30 @@ Requirements:
 - End with a complete sentence
 - Do not cut words
 - Avoid trailing ellipsis"""
-                
-                summary_text = await ai_client._call_summary_llm(summary_prompt, max_tokens=1500)
-                if summary_text:
-                    summary_text = ai_client._clean_summary_text(summary_text)
-                
-                # Save or update daily summary
+
+                        summary_text = await ai_client._call_summary_llm(summary_prompt, max_tokens=1500)
+                        if summary_text:
+                            summary_text = ai_client._clean_summary_text(summary_text)
+
+                        # Check if summary is valid
+                        if summary_text and len(summary_text.strip()) >= 20:
+                            break  # Success, exit retry loop
+                        else:
+                            print(f"  ⚠️ Attempt {attempt + 1}/{max_retries}: AI returned empty/short summary for {category}")
+                            if attempt < max_retries - 1:
+                                await asyncio.sleep(1)  # Wait before retry
+
+                    except Exception as e:
+                        print(f"  ⚠️ Attempt {attempt + 1}/{max_retries}: Error generating summary for {category}: {e}")
+                        if attempt == max_retries - 1:
+                            # Last attempt failed, use fallback
+                            raise
+
+                # Save or update daily summary (with fallback if all retries failed)
+                if not summary_text or len(summary_text.strip()) < 20:
+                    print(f"  ⚠️ All retries failed for {category}, using fallback")
+                    summary_text = f"В сфере {category.lower()} произошли важные события. Обработано {len(articles)} новостей."
+
                 existing_result = await db.execute(
                     select(DailySummary).where(
                         DailySummary.date == date,
@@ -184,7 +211,7 @@ Requirements:
                     )
                 )
                 existing_summary = existing_result.scalar_one_or_none()
-                
+
                 if existing_summary:
                     # Update existing
                     existing_summary.summary_text = summary_text
@@ -200,12 +227,12 @@ Requirements:
                     )
                     db.add(new_summary)
                     print(f"  ✅ Created summary for {category}")
-                    
+
             except Exception as e:
                 print(f"  ❌ Error generating summary for {category}: {e}")
                 # Create fallback summary
                 fallback_text = f"В сфере {category.lower()} произошли важные события. Обработано {len(articles)} новостей."
-                
+
                 existing_result = await db.execute(
                     select(DailySummary).where(
                         DailySummary.date == date,
@@ -213,7 +240,7 @@ Requirements:
                     )
                 )
                 existing_summary = existing_result.scalar_one_or_none()
-                
+
                 if not existing_summary:
                     fallback_summary = DailySummary(
                         date=date,

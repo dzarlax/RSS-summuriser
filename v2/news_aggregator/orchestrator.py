@@ -177,14 +177,20 @@ class NewsOrchestrator:
                     )
                     summaries = result.scalars().all()
 
-                    total_articles = sum(s.articles_count for s in summaries)
-                    categories_count = len(summaries)
+                    # Filter out empty summaries
+                    valid_summaries = [s for s in summaries if s.summary_text and len(s.summary_text.strip()) >= 20]
+
+                    if not valid_summaries:
+                        return {'error': 'No valid summaries found'}
+
+                    total_articles = sum(s.articles_count for s in valid_summaries)
+                    categories_count = len(valid_summaries)
 
                     header = f"<b>Сводка новостей за {today.strftime('%d.%m.%Y')}</b>"
                     footer = f"\n📊 Всего: {total_articles} новостей в {categories_count} категориях"
 
                     digest_parts = self.digest_builder.split_digest_into_parts(
-                        header, summaries, footer, total_articles, categories_count
+                        header, valid_summaries, footer, total_articles, categories_count
                     )
 
                     return {'digest_parts': digest_parts, 'split': True}
