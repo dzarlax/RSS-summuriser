@@ -93,7 +93,7 @@ class AsyncHTTPClient:
         """Make GET request with retries."""
         if not self.session or self.session.closed:
             await self.start()
-        
+
         return await self.session.get(url, headers=headers, **kwargs)
     
     @retry(

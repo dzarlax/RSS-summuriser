@@ -12,11 +12,13 @@ from ..config import settings
 
 
 class FileCache:
-    """File-based cache with TTL support."""
-    
+    """File-based cache with TTL support and size limits."""
+
     def __init__(self, cache_dir: Union[str, Path] = None, default_ttl: int = None):
         self.cache_dir = Path(cache_dir or settings.cache_dir)
         self.default_ttl = default_ttl or settings.cache_ttl
+        self.max_size_mb = settings.cache_max_size_mb
+        self.max_entries = settings.cache_max_entries
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._lock = asyncio.Lock()
     
@@ -55,26 +57,93 @@ class FileCache:
             except FileNotFoundError:
                 pass
             return None
-    
+
+    async def _check_and_enforce_limits(self) -> None:
+        """Check cache limits and remove old entries if needed."""
+        try:
+            stats = await self.get_stats()
+
+            # Check if we exceed the number of entries limit
+            if stats['total_files'] > self.max_entries:
+                # Remove oldest entries first
+                entries = []
+                for cache_file in self.cache_dir.glob("*.json"):
+                    try:
+                        stat = cache_file.stat()
+                        entries.append((cache_file, stat.st_mtime))
+                    except FileNotFoundError:
+                        continue
+
+                # Sort by modification time (oldest first)
+                entries.sort(key=lambda x: x[1])
+
+                # Remove oldest entries to get under limit
+                entries_to_remove = len(entries) - self.max_entries
+                for cache_file, _ in entries[:entries_to_remove]:
+                    try:
+                        cache_file.unlink()
+                    except FileNotFoundError:
+                        continue
+
+                print(f"Cache limit enforced: removed {entries_to_remove} old entries")
+
+            # Check if we exceed the size limit
+            if stats['total_size_mb'] > self.max_size_mb:
+                # Clean expired entries first
+                await self.cleanup_expired()
+
+                # If still over limit, remove oldest entries
+                stats = await self.get_stats()
+                if stats['total_size_mb'] > self.max_size_mb:
+                    entries = []
+                    for cache_file in self.cache_dir.glob("*.json"):
+                        try:
+                            stat = cache_file.stat()
+                            entries.append((cache_file, stat.st_mtime, stat.st_size))
+                        except FileNotFoundError:
+                            continue
+
+                    # Sort by modification time (oldest first)
+                    entries.sort(key=lambda x: x[1])
+
+                    # Remove oldest entries until under size limit
+                    current_size = stats['total_size_bytes']
+                    for cache_file, _, file_size in entries:
+                        if current_size <= self.max_size_mb * 1024 * 1024:
+                            break
+                        try:
+                            cache_file.unlink()
+                            current_size -= file_size
+                        except FileNotFoundError:
+                            continue
+
+                    print(f"Cache size limit enforced: removed entries to get under {self.max_size_mb}MB")
+
+        except Exception as e:
+            print(f"Warning: Failed to enforce cache limits: {e}")
+
     async def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
-        """Set value in cache."""
+        """Set value in cache with size and entry limits."""
         cache_path = self._get_cache_path(key)
         expires_at = time.time() + (ttl or self.default_ttl)
-        
+
         data = {
             'value': value,
             'created_at': time.time(),
             'expires_at': expires_at,
             'key': key  # For debugging
         }
-        
+
         async with self._lock:
+            # Check and enforce limits before adding new entry
+            await self._check_and_enforce_limits()
+
             try:
                 # Write to temporary file first, then rename (atomic operation)
                 temp_path = cache_path.with_suffix('.tmp')
                 async with aiofiles.open(temp_path, 'w', encoding='utf-8') as f:
                     await f.write(json.dumps(data, ensure_ascii=False, indent=2))
-                
+
                 temp_path.rename(cache_path)
             except Exception as e:
                 # Clean up temporary file if it exists

@@ -45,7 +45,7 @@ def _load_categories_sync_fallback() -> List[str]:
         if loop.is_running():
             # We're in async context but called from sync function
             # Use fallback - will be updated by async caller
-            categories = ['Serbia', 'Tech', 'Business', 'Science', 'Politics', 'International', 'Other']
+            categories = ['AI', 'Serbia', 'Tech', 'Business', 'Science', 'Nature', 'Marketing', 'Other']
             print(f"  ⚠️ Sync category fetch in async context - using fallback: {categories}")
             return categories
         else:
@@ -54,7 +54,7 @@ def _load_categories_sync_fallback() -> List[str]:
             return categories
     except Exception as e:
         print(f"  ⚠️ Failed to load categories synchronously: {e}")
-        return ['Serbia', 'Tech', 'Business', 'Science', 'Politics', 'International', 'Other']
+        return ['AI', 'Serbia', 'Tech', 'Business', 'Science', 'Nature', 'Marketing', 'Other']
 
 
 async def get_valid_categories_from_cache() -> List[str]:

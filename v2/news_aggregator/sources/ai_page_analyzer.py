@@ -42,19 +42,26 @@ class AIPageAnalyzer:
             return self.analysis_cache[cache_key]
         
         try:
-            print(f"🤖 AI analyzing page structure for {url}")
-            
+            # Extract domain for tracking
+            from urllib.parse import urlparse
+            domain = urlparse(url).netloc if url else "unknown"
+            print(f"🤖 AI analyzing page structure for {url} (domain: {domain})")
+
             # Prepare HTML for analysis (reduce size)
             clean_html = self._prepare_html_for_analysis(html)
-            
+
             # Build AI prompt for structure analysis
             prompt = self._build_structure_analysis_prompt(url, clean_html, context)
-            
+
             # Get AI analysis
             from ..services.ai_client import get_ai_client
             ai_client = get_ai_client()
-            response = await ai_client._make_raw_ai_request(prompt, model=ai_client.summarization_model)
-            
+            response = await ai_client._make_raw_ai_request(
+                prompt,
+                model=ai_client.summarization_model,
+                domain=domain  # Pass domain for tracking
+            )
+
             if response and 'choices' in response:
                 analysis_text = response['choices'][0]['message']['content']
                 analysis = self._parse_ai_analysis(analysis_text, url)

@@ -308,15 +308,397 @@ class SourceManager:
                 await db.rollback()
             raise SourceError(f"Failed to fetch from source {source.name}: {e}")
     
-    async def fetch_from_all_sources(self, db: AsyncSession, 
-                                   max_concurrent: int = 5) -> Dict[str, List[Article]]:
-        """Fetch articles from all enabled sources concurrently."""
-        sources = await self.get_sources(db, enabled_only=True)
+    async def get_sources_from_db(self) -> List[Source]:
+        """Quick fetch of enabled sources from database."""
+        from sqlalchemy import select
+        from ..database_helpers import fetch_all
+
+        # Define query
+        query = select(Source).where(Source.enabled == True)
+
+        # Fetch using database queue
+        return await fetch_all(query)
+
+    async def fetch_from_all_sources_no_db(self, sources: List[Source],
+                                           max_concurrent: int = 5) -> Dict[str, List[Article]]:
+        """
+        Fetch articles from sources via HTTP - NO DATABASE ACCESS.
+        This is purely I/O bound HTTP fetching, no semaphore locks.
+        """
         results = {}
-        
+
         # Create semaphore to limit concurrent fetches
         semaphore = asyncio.Semaphore(max_concurrent)
-        
+
+        async def fetch_source_raw(source: Source):
+            """Fetch articles from source without DB access."""
+            async with semaphore:
+                try:
+                    source_instance = await self.get_source_instance(source)
+                    articles = []
+
+                    async for article in source_instance.fetch_articles():
+                        articles.append(article)
+
+                    return source.name, articles
+                except Exception as e:
+                    print(f"Error fetching from {source.name}: {e}")
+                    return source.name, []
+
+        # Execute fetches concurrently (HTTP only, no DB lock)
+        tasks = [fetch_source_raw(source) for source in sources]
+        fetch_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Process results
+        for result in fetch_results:
+            if isinstance(result, Exception):
+                print(f"Fetch task failed: {result}")
+                continue
+
+            source_name, articles = result
+            results[source_name] = articles
+
+        return results
+
+    async def save_fetched_articles_with_sources(self, raw_articles: Dict[str, List[Article]],
+                                                  source_map: Dict[str, Source], db: AsyncSession) -> Dict[str, List[Article]]:
+        """
+        Save fetched articles to database using provided source mapping.
+        This is pure DB writes, no HTTP fetching.
+        """
+        results = {}
+
+        for source_name, articles in raw_articles.items():
+            try:
+                # Get source from mapping
+                source = source_map.get(source_name)
+                if not source:
+                    print(f"Source {source_name} not found in mapping, skipping save")
+                    results[source_name] = []
+                    continue
+
+                # Update fetch time
+                source.last_fetch = datetime.utcnow()
+
+                saved_articles = []
+                seen_urls_in_batch: set[str] = set()
+                seen_titles_in_batch: set[str] = set()
+
+                for article in articles:
+                    # Check if article already exists
+                    urls_to_check = [article.url]
+                    try:
+                        if getattr(article, 'raw_data', None):
+                            telegram_url = article.raw_data.get('telegram_url') or article.raw_data.get('message_url')
+                            original_link = article.raw_data.get('original_link')
+                            for u in (telegram_url, original_link):
+                                if u and u not in urls_to_check:
+                                    urls_to_check.append(u)
+                    except Exception:
+                        pass
+
+                    # Fast in-memory batch-level dedup by URLs
+                    if any(u in seen_urls_in_batch for u in urls_to_check if u):
+                        continue
+
+                    # Fast in-memory batch-level dedup by normalized title per source
+                    normalized_title = (article.title or "").strip().lower()
+                    if normalized_title and normalized_title in seen_titles_in_batch:
+                        continue
+
+                    # Check existence in DB
+                    existing = await db.execute(
+                        select(Article).where(Article.url.in_(urls_to_check)).limit(1)
+                    )
+                    existing_article = existing.scalars().first()
+
+                    if existing_article is not None:
+                        # Article exists - check if it was processed
+                        # If already has summary and processed=True, skip it
+                        if existing_article.summary and existing_article.processed:
+                            continue  # Skip already processed articles
+
+                        # Article exists but not processed - update it
+                        print(f"  🔄 Updating existing unprocessed article: {existing_article.url[:50]}...")
+                        existing_article.title = article.title or existing_article.title
+                        existing_article.content = article.content or existing_article.content
+                        existing_article.url = article.url or existing_article.url
+                        existing_article.image_url = article.image_url or existing_article.image_url
+                        existing_article.published_at = article.published_at or existing_article.published_at
+                        existing_article.hash_content = self._calculate_content_hash(article) or existing_article.hash_content
+                        # Keep processed=False so it will be re-processed
+                        saved_articles.append(existing_article)
+                        # Add to seen sets to avoid duplicates
+                        for u in urls_to_check:
+                            if u:
+                                seen_urls_in_batch.add(u)
+                        if normalized_title:
+                            seen_titles_in_batch.add(normalized_title)
+                        continue
+
+                    # Additional near-duplicate guard for Telegram
+                    try:
+                        from sqlalchemy import func, and_
+                        if normalized_title:
+                            title_dup_q = select(Article.id).where(
+                                and_(
+                                    Article.source_id == source.id,
+                                    func.lower(Article.title) == normalized_title,
+                                )
+                            ).limit(1)
+                            title_dup = await db.execute(title_dup_q)
+                            if title_dup.scalars().first() is not None:
+                                continue  # Skip near-duplicate by title within same source
+                    except Exception:
+                        pass
+
+                    # Create article record
+                    db_article = Article(
+                        source_id=source.id,
+                        title=article.title,
+                        url=article.url,
+                        content=article.content,
+                        summary=article.summary,
+                        image_url=article.image_url,
+                        media_files=article.media_files or [],
+                        published_at=article.published_at,
+                        processed=False,
+                        hash_content=self._calculate_content_hash(article)
+                    )
+
+                    # If source already performed advertising detection
+                    try:
+                        raw = getattr(article, 'raw_data', None)
+                        if isinstance(raw, dict):
+                            if 'advertising_detection' in raw or 'is_advertisement' in raw:
+                                db_article.is_advertisement = bool(raw.get('is_advertisement', False))
+                                if 'ad_confidence' in raw:
+                                    db_article.ad_confidence = float(raw.get('ad_confidence') or 0.0)
+                                if 'ad_type' in raw:
+                                    db_article.ad_type = raw.get('ad_type')
+                                if 'ad_reasoning' in raw:
+                                    db_article.ad_reasoning = raw.get('ad_reasoning')
+                                if 'ad_markers' in raw:
+                                    db_article.ad_markers = raw.get('ad_markers')
+                                db_article.ad_processed = True
+                    except Exception:
+                        pass
+
+                    db.add(db_article)
+                    saved_articles.append(db_article)
+
+                    # Record into batch dedup sets
+                    for u in urls_to_check:
+                        if u:
+                            seen_urls_in_batch.add(u)
+                    if normalized_title:
+                        seen_titles_in_batch.add(normalized_title)
+
+                results[source_name] = saved_articles
+
+            except Exception as e:
+                print(f"Error saving articles for {source_name}: {e}")
+                results[source_name] = []
+
+        return results
+
+    async def fetch_from_all_sources_raw(self, db: AsyncSession,
+                                         max_concurrent: int = 5) -> Dict[str, List[Article]]:
+        """
+        Fetch articles from all enabled sources WITHOUT saving to database.
+        Returns raw article data that can be saved later.
+        This method only does HTTP fetching, no DB writes.
+        """
+        sources = await self.get_sources(db, enabled_only=True)
+        results = {}
+
+        # Create semaphore to limit concurrent fetches
+        semaphore = asyncio.Semaphore(max_concurrent)
+
+        async def fetch_source_raw(source: Source):
+            """Fetch articles from source without DB writes."""
+            async with semaphore:
+                try:
+                    source_instance = await self.get_source_instance(source)
+                    articles = []
+
+                    async for article in source_instance.fetch_articles():
+                        articles.append(article)
+
+                    return source.name, articles
+                except Exception as e:
+                    print(f"Error fetching from {source.name}: {e}")
+                    return source.name, []
+
+        # Execute fetches concurrently (HTTP only, no DB lock)
+        tasks = [fetch_source_raw(source) for source in sources]
+        fetch_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Process results
+        for result in fetch_results:
+            if isinstance(result, Exception):
+                print(f"Fetch task failed: {result}")
+                continue
+
+            source_name, articles = result
+            results[source_name] = articles
+
+        return results
+
+    async def save_fetched_articles(self, raw_articles: Dict[str, List[Article]], db: AsyncSession) -> Dict[str, List[Article]]:
+        """
+        Save fetched articles to database in batch.
+        This method only does DB writes, no HTTP fetching.
+        """
+        results = {}
+
+        for source_name, articles in raw_articles.items():
+            try:
+                # Get source
+                source_query = select(Source).where(Source.name == source_name).limit(1)
+                source_result = await db.execute(source_query)
+                source = source_result.scalar_one_or_none()
+
+                if not source:
+                    print(f"Source {source_name} not found, skipping save")
+                    results[source_name] = []
+                    continue
+
+                # Update fetch time
+                source.last_fetch = datetime.utcnow()
+
+                saved_articles = []
+                seen_urls_in_batch: set[str] = set()
+                seen_titles_in_batch: set[str] = set()
+
+                for article in articles:
+                    # Check if article already exists
+                    urls_to_check = [article.url]
+                    try:
+                        if getattr(article, 'raw_data', None):
+                            telegram_url = article.raw_data.get('telegram_url') or article.raw_data.get('message_url')
+                            original_link = article.raw_data.get('original_link')
+                            for u in (telegram_url, original_link):
+                                if u and u not in urls_to_check:
+                                    urls_to_check.append(u)
+                    except Exception:
+                        pass
+
+                    # Fast in-memory batch-level dedup by URLs
+                    if any(u in seen_urls_in_batch for u in urls_to_check if u):
+                        continue
+
+                    # Fast in-memory batch-level dedup by normalized title per source
+                    normalized_title = (article.title or "").strip().lower()
+                    if normalized_title and normalized_title in seen_titles_in_batch:
+                        continue
+
+                    # Check existence in DB
+                    existing = await db.execute(
+                        select(Article).where(Article.url.in_(urls_to_check)).limit(1)
+                    )
+                    existing_article = existing.scalars().first()
+
+                    if existing_article is not None:
+                        # Article exists - check if it was processed
+                        # If already has summary and processed=True, skip it
+                        if existing_article.summary and existing_article.processed:
+                            continue  # Skip already processed articles
+
+                        # Article exists but not processed - update it
+                        print(f"  🔄 Updating existing unprocessed article: {existing_article.url[:50]}...")
+                        existing_article.title = article.title or existing_article.title
+                        existing_article.content = article.content or existing_article.content
+                        existing_article.url = article.url or existing_article.url
+                        existing_article.image_url = article.image_url or existing_article.image_url
+                        existing_article.published_at = article.published_at or existing_article.published_at
+                        existing_article.hash_content = self._calculate_content_hash(article) or existing_article.hash_content
+                        # Keep processed=False so it will be re-processed
+                        saved_articles.append(existing_article)
+                        # Add to seen sets to avoid duplicates
+                        for u in urls_to_check:
+                            if u:
+                                seen_urls_in_batch.add(u)
+                        if normalized_title:
+                            seen_titles_in_batch.add(normalized_title)
+                        continue
+
+                    # Additional near-duplicate guard for Telegram
+                    try:
+                        from sqlalchemy import func, and_
+                        recent_window_days = 7
+                        if normalized_title:
+                            title_dup_q = select(Article.id).where(
+                                and_(
+                                    Article.source_id == source.id,
+                                    func.lower(Article.title) == normalized_title,
+                                )
+                            ).limit(1)
+                            title_dup = await db.execute(title_dup_q)
+                            if title_dup.scalars().first() is not None:
+                                continue  # Skip near-duplicate by title within same source
+                    except Exception:
+                        pass
+
+                    # Create article record
+                    db_article = Article(
+                        source_id=source.id,
+                        title=article.title,
+                        url=article.url,
+                        content=article.content,
+                        summary=article.summary,
+                        image_url=article.image_url,
+                        media_files=article.media_files or [],
+                        published_at=article.published_at,
+                        processed=False,
+                        hash_content=self._calculate_content_hash(article)
+                    )
+
+                    # If source already performed advertising detection
+                    try:
+                        raw = getattr(article, 'raw_data', None)
+                        if isinstance(raw, dict):
+                            if 'advertising_detection' in raw or 'is_advertisement' in raw:
+                                db_article.is_advertisement = bool(raw.get('is_advertisement', False))
+                                if 'ad_confidence' in raw:
+                                    db_article.ad_confidence = float(raw.get('ad_confidence') or 0.0)
+                                if 'ad_type' in raw:
+                                    db_article.ad_type = raw.get('ad_type')
+                                if 'ad_reasoning' in raw:
+                                    db_article.ad_reasoning = raw.get('ad_reasoning')
+                                if 'ad_markers' in raw:
+                                    db_article.ad_markers = raw.get('ad_markers')
+                                db_article.ad_processed = True
+                    except Exception:
+                        pass
+
+                    db.add(db_article)
+                    saved_articles.append(db_article)
+
+                    # Record into batch dedup sets
+                    for u in urls_to_check:
+                        if u:
+                            seen_urls_in_batch.add(u)
+                    if normalized_title:
+                        seen_titles_in_batch.add(normalized_title)
+
+                results[source_name] = saved_articles
+
+            except Exception as e:
+                print(f"Error saving articles for {source_name}: {e}")
+                results[source_name] = []
+
+        return results
+
+    async def fetch_from_all_sources(self, db: AsyncSession,
+                                   max_concurrent: int = 5) -> Dict[str, List[Article]]:
+        """Fetch articles from all enabled sources concurrently (legacy method)."""
+        sources = await self.get_sources(db, enabled_only=True)
+        results = {}
+
+        # Create semaphore to limit concurrent fetches
+        semaphore = asyncio.Semaphore(max_concurrent)
+
         async def fetch_source(source: Source):
             async with semaphore:
                 try:
@@ -327,26 +709,26 @@ class SourceManager:
                         fresh_source = await task_db.get(Source, source.id)
                         if not fresh_source:
                             return source.name, []
-                        
+
                         articles = await self.fetch_from_source(task_db, fresh_source)
                         return source.name, articles
                 except Exception as e:
                     print(f"Error fetching from {source.name}: {e}")
                     return source.name, []
-        
+
         # Execute fetches concurrently
         tasks = [fetch_source(source) for source in sources]
         fetch_results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         # Process results
         for result in fetch_results:
             if isinstance(result, Exception):
                 print(f"Fetch task failed: {result}")
                 continue
-            
+
             source_name, articles = result
             results[source_name] = articles
-        
+
         return results
     
     def _calculate_content_hash(self, article) -> str:

@@ -47,19 +47,78 @@ class CoreExtractor:
     async def close_browser(self):
         """Close browser if open."""
         await self.strategies.close_browser()
-    
+
+    def _is_valid_url(self, url: str) -> bool:
+        """
+        Validate URL format and scheme.
+
+        Args:
+            url: URL to validate
+
+        Returns:
+            True if URL is valid for extraction, False otherwise
+        """
+        if not url or not isinstance(url, str):
+            return False
+
+        # Check URL scheme
+        if not url.startswith(('http://', 'https://')):
+            return False
+
+        # Basic URL format validation
+        from urllib.parse import urlparse
+        try:
+            parsed = urlparse(url)
+
+            # Must have scheme and netloc
+            if not parsed.scheme or not parsed.netloc:
+                return False
+
+            # Scheme must be http or https
+            if parsed.scheme not in ('http', 'https'):
+                return False
+
+            # Netloc must have a domain (at least one dot)
+            if '.' not in parsed.netloc:
+                return False
+
+            # Skip known non-content URLs
+            skip_patterns = [
+                '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.ico',
+                '.mp4', '.avi', '.mov', '.wmv', '.flv',
+                '.mp3', '.wav', '.ogg', '.flac',
+                '.zip', '.rar', '.tar', '.gz',
+                '.pdf', '.doc', '.docx', '.xls', '.xlsx'
+            ]
+
+            lower_path = parsed.path.lower()
+            if any(lower_path.endswith(pattern) for pattern in skip_patterns):
+                return False
+
+            return True
+
+        except Exception:
+            return False
+
     async def extract_article_content_with_metadata(self, url: str, retry_count: int = 3) -> Dict[str, Optional[str]]:
         """
         Extract article content along with metadata (title, publication date, author).
-        
+
         Args:
             url: URL to extract from
             retry_count: Number of retry attempts
-            
+
         Returns:
             Dict with content, title, publication_date, author, description, method_used
         """
         if not url:
+            logger.warning("Empty URL provided for extraction")
+            return {'content': None, 'title': None, 'publication_date': None,
+                   'author': None, 'description': None, 'method_used': None}
+
+        # Validate URL scheme and format
+        if not self._is_valid_url(url):
+            logger.warning(f"Invalid URL format: {url[:100]}")
             return {'content': None, 'title': None, 'publication_date': None,
                    'author': None, 'description': None, 'method_used': None}
 

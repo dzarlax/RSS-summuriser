@@ -295,11 +295,33 @@ class AIProcessor:
                         print(f"  ❌ Failed to extract content from external URL: {e}")
             
             start_time = time.time()
-            
+
+            # Validate article content before AI processing
+            article_content = article_data.get('content') or ''
+            article_title = article_data.get('title') or ''
+
+            # Skip AI processing if content is too short
+            if len(article_content.strip()) < 50 and len(article_title.strip()) < 20:
+                print(f"  ⚠️ Content too short for AI processing (content: {len(article_content)} chars, title: {len(article_title)} chars)")
+                # Use fallback values
+                update_fields = {
+                    'summary': article_title or 'No summary available',
+                    'summary_processed': True,
+                    'category_processed': True,
+                    'is_advertisement': False,
+                    'ad_confidence': 0.0,
+                    'ad_type': 'news_article',
+                    'ad_reasoning': 'Content too short for AI processing',
+                    'ad_processed': True,
+                    'processed': True
+                }
+                await self._save_article_fields(article_id, update_fields)
+                return {**article_data, **update_fields, 'success': True, 'skipped_reason': 'content_too_short'}
+
             # Get combined analysis
             ai_result = await self.ai_client.analyze_article_complete(
-                title=article_data.get('title') or '',
-                content=article_data.get('content') or '',
+                title=article_title,
+                content=article_content,
                 url=article_data.get('url') or ''
             )
             
@@ -655,32 +677,62 @@ class AIProcessor:
         # Process summary if needed
         if needs_summary:
             print(f"  📄 Starting summarization...")
-            try:
-                start_time = time.time()
-                # Create a temporary Article-like object for compatibility
-                class TempArticle:
-                    def __init__(self, data):
-                        self.url = data['url']
-                        self.title = data['title']
-                        self.content = data['content']
-                
-                temp_article = TempArticle(article_data)
-                summary = await self.get_summary_by_source_type(temp_article, source_type, stats)
-                elapsed_time = time.time() - start_time
-                print(f"  ✅ Summary generated in {elapsed_time:.1f}s: {summary[:100] if summary else 'None'}...")
-                
-                # Save summary immediately
+
+            # Validate article content before AI processing
+            article_content = article_data.get('content') or ''
+            article_title = article_data.get('title') or ''
+
+            # Skip AI summarization if content is too short
+            if len(article_content.strip()) < 50 and len(article_title.strip()) < 20:
+                print(f"  ⚠️ Content too short for AI summarization (content: {len(article_content)} chars, title: {len(article_title)} chars)")
+                # Use title as fallback
+                fallback_summary = article_title or 'No summary available'
                 await self._save_article_fields(article_id, {
-                    'summary': summary,
+                    'summary': fallback_summary,
                     'summary_processed': True
                 })
-                stats['api_calls_made'] += 1
-                print(f"  💾 Summary saved to database")
-                
-            except Exception as e:
-                print(f"  ❌ Summarization failed: {e}")
-                # Mark as processed even on failure to avoid retries
-                await self._save_article_fields(article_id, {'summary_processed': True})
+                print(f"  💾 Fallback summary saved to database")
+            else:
+                try:
+                    start_time = time.time()
+                    # Create a temporary Article-like object for compatibility
+                    class TempArticle:
+                        def __init__(self, data):
+                            self.url = data['url']
+                            self.title = data['title']
+                            self.content = data['content']
+
+                    temp_article = TempArticle(article_data)
+                    summary = await self.get_summary_by_source_type(temp_article, source_type, stats)
+                    elapsed_time = time.time() - start_time
+                    print(f"  ✅ Summary generated in {elapsed_time:.1f}s: {summary[:100] if summary else 'None'}...")
+
+                    # Save summary immediately
+                    await self._save_article_fields(article_id, {
+                        'summary': summary,
+                        'summary_processed': True
+                    })
+                    stats['api_calls_made'] += 1
+                    print(f"  💾 Summary saved to database")
+
+                except Exception as e:
+                    print(f"  ❌ Summarization failed: {e}")
+                    # Improved fallback: try RSS description, then title
+                    fallback_summary = article_title
+                    rss_content = article_data.get('raw_description') or article_data.get('description') or article_content
+
+                    if rss_content and len(rss_content.strip()) > len(fallback_summary) * 1.5:
+                        # Use first 300 chars of RSS content as fallback
+                        from ..extraction.extraction_utils import ExtractionUtils
+                        utils = ExtractionUtils()
+                        fallback_summary = utils.smart_truncate(rss_content, 300)
+                        print(f"  📝 Using RSS description as fallback summary ({len(fallback_summary)} chars)")
+
+                    await self._save_article_fields(article_id, {
+                        'summary': fallback_summary,
+                        'summary_processed': True
+                    })
+                    print(f"  💾 Fallback summary saved to database")
         
         # Process category if needed  
         if needs_category:

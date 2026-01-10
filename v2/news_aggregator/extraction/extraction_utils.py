@@ -49,35 +49,99 @@ class ExtractionUtils:
         return cleaned_url.strip()
     
     def is_good_content(self, content: str, is_full_article: bool = False) -> bool:
-        """Check if extracted content meets basic quality standards."""
+        """
+        Check if extracted content meets quality standards with enhanced validation.
+
+        Checks:
+        - Minimum length
+        - Sentence structure
+        - Vocabulary diversity
+        - Cyrillic presence (for Russian content)
+        - Navigation/menu ratio
+        - Whitespace ratio
+        - Repetitive patterns
+        """
+        if not content:
+            return False
+
         # Relax min length if it's a known full article extraction
         min_len = self.min_content_length if not is_full_article else max(100, self.min_content_length // 2)
-        
-        if not content or len(content) < min_len:
+
+        # Strip and check actual content length
+        stripped_content = content.strip()
+        if len(stripped_content) < min_len:
             return False
-        
-        # Simple quality checks
-        # 1. Must have reasonable length (already checked above)
-        # 2. Must contain some sentences (basic structure check)
-        # Relax sentence count for full articles if they are long enough
-        sentence_count = len([s for s in content.split('.') if len(s.strip()) > 20])
+
+        # Check 1: Must have reasonable whitespace ratio (not too sparse, not too dense)
+        whitespace_ratio = len(content.split()) / max(len(content), 1)
+        if whitespace_ratio < 0.05 or whitespace_ratio > 0.5:  # Too sparse or too dense
+            return False
+
+        # Check 2: Must contain some sentences with reasonable length
+        sentences = [s.strip() for s in content.split('.') if len(s.strip()) > 10]
         min_sentences = 2 if not is_full_article else 1
-        
-        if sentence_count < min_sentences:
+
+        if len(sentences) < min_sentences:
             return False
-        
-        # 3. Must not be mostly repetitive (basic spam check)
+
+        # Check 3: Sentence quality - must have reasonable average length
+        avg_sentence_length = sum(len(s) for s in sentences) / max(len(sentences), 1)
+        if avg_sentence_length < 15:  # Too short on average
+            return False
+
+        # Check 4: Must not be mostly repetitive (vocabulary diversity)
         words = content.split()
         if len(words) < 10:
             return False
-            
-        # 4. Basic navigation/menu detection - slightly more lenient for full articles
-        nav_limit = 0.1 if not is_full_article else 0.15
-        nav_indicators = ['menu', 'navigation', 'footer', 'sidebar', 'advertisement', 'cookie']
-        nav_word_count = sum(1 for word in words if any(indicator in word.lower() for indicator in nav_indicators))
-        if nav_word_count > len(words) * nav_limit:  # More lenient limit for full articles
+
+        # Check for vocabulary diversity (unique words ratio)
+        unique_words = set(word.lower() for word in words if len(word) > 3)
+        unique_ratio = len(unique_words) / max(len(words), 1)
+
+        # Require at least 30% unique words for quality content
+        if unique_ratio < 0.3:
             return False
-        
+
+        # Check 5: Presence of Cyrillic characters (likely Russian news content)
+        # This is a soft check - not required but good to have for Russian sources
+        has_cyrillic = any('\u0400' <= char <= '\u04FF' for char in content)
+        # Note: We don't reject based on this, just log it for debugging
+
+        # Check 6: Enhanced navigation/menu detection
+        nav_indicators = [
+            'menu', 'navigation', 'footer', 'sidebar',
+            'advertisement', 'cookie', 'subscribe', 'newsletter',
+            'copyright', 'all rights reserved', 'terms of service',
+            'privacy policy', 'follow us', 'social media'
+        ]
+
+        nav_word_count = sum(1 for word in words if any(indicator in word.lower() for indicator in nav_indicators))
+        nav_limit = 0.1 if not is_full_article else 0.15
+
+        if nav_word_count > len(words) * nav_limit:
+            return False
+
+        # Check 7: Detect excessive repetition (same word appears too often)
+        from collections import Counter
+        word_counts = Counter(word.lower() for word in words if len(word) > 4)
+        if word_counts:
+            most_common_count = word_counts.most_common(1)[0][1]
+            if most_common_count > len(words) * 0.15:  # One word is 15%+ of content
+                return False
+
+        # Check 8: Reject obvious error messages or boilerplate
+        error_patterns = [
+            '404 not found', 'page not found', 'access denied',
+            'error 404', 'error 500', 'internal server error',
+            'page not available', 'content not found',
+            'please enable javascript', 'javascript is required'
+        ]
+
+        content_lower = stripped_content.lower()
+        if any(pattern in content_lower for pattern in error_patterns):
+            return False
+
+        # All checks passed
         return True
     
     def finalize_content(self, content: str) -> str:

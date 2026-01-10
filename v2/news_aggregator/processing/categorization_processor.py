@@ -99,22 +99,83 @@ class CategorizationProcessor:
         """Get default category."""
         return "Other"
     
-    def get_fallback_category(self, title: str) -> str:
-        """Get fallback category based on title keywords."""
-        title_lower = title.lower()
-        
-        # Simple keyword-based categorization
-        if any(word in title_lower for word in ['tech', 'technology', 'software', 'AI', 'artificial intelligence', 'digital', 'computer', 'internet']):
-            return "Tech"
-        elif any(word in title_lower for word in ['business', 'economy', 'market', 'finance', 'money', 'investment', 'stock']):
-            return "Business"
-        elif any(word in title_lower for word in ['science', 'research', 'study', 'scientist', 'discovery']):
-            return "Science"
-        elif any(word in title_lower for word in ['nature', 'environment', 'climate', 'wildlife', 'ecology']):
-            return "Nature"
-        elif any(word in title_lower for word in ['serbia', 'serbian', 'belgrade', 'novi sad', 'srbija']):
-            return "Serbia"
-        elif any(word in title_lower for word in ['marketing', 'advertising', 'brand', 'campaign']):
-            return "Marketing"
-        else:
-            return self.get_default_category()
+    def get_fallback_category(self, title: str, content: str = "") -> str:
+        """
+        Get fallback category based on title and content keywords.
+
+        Uses weighted keyword scoring for better accuracy within the original category set.
+        """
+        # Combine title and content for better accuracy
+        text_to_analyze = f"{title} {content}".lower()
+
+        # Enhanced keyword mapping for original categories with weights
+        category_keywords = {
+            "AI": {
+                "high": ["gpt", "chatgpt", "openai", "gemini", "claude", "llm", "large language model", "generative ai"],
+                "medium": ["artificial intelligence", "machine learning", "neural network", "deep learning", "transformer", "ai model", "llms"],
+                "low": ["ai", "a.i.", "automated", "intelligent", "machine learning"]
+            },
+            "Tech": {
+                "high": ["blockchain", "cryptocurrency", "cybersecurity", "cloud computing", "software development"],
+                "medium": ["software", "algorithm", "programming", "coding", "developer", "api", "cloud", "startup", "app"],
+                "low": ["tech", "technology", "digital", "computer", "internet", "data", "online", "platform"]
+            },
+            "Business": {
+                "high": ["stock market", "ipo", "merger", "acquisition", "bankruptcy", "ceo", "startup funding"],
+                "medium": ["economy", "economic", "financial", "investment", "revenue", "profit", "startup", "trading"],
+                "low": ["business", "company", "money", "market", "trade", "finance", "economic"]
+            },
+            "Science": {
+                "high": ["quantum", "genomics", "nanotechnology", "astrophysics", "biochemistry", "breakthrough"],
+                "medium": ["research", "study", "scientist", "discovery", "experiment", "hypothesis", "published", "journal"],
+                "low": ["science", "scientific", "physics", "chemistry", "biology", "research", "study"]
+            },
+            "Nature": {
+                "high": ["biodiversity", "ecosystem", "climate change", "conservation", "endangered species", "species"],
+                "medium": ["environment", "wildlife", "ecology", "animal", "forest", "ocean", "carbon", "emissions"],
+                "low": ["nature", "natural", "earth", "planet", "green", "climate", "environmental"]
+            },
+            "Serbia": {
+                "high": ["belgrade", "novi sad", "niš", "kragujevac", "vojvodina", "srbija"],
+                "medium": ["serbian", "beograd", "republic of serbia", "serbia's", "serbs", "serbian"],
+                "low": ["serbia", "serb", "belgrade"]
+            },
+            "Marketing": {
+                "high": ["advertising campaign", "brand strategy", "social media marketing", "influencer", "digital marketing"],
+                "medium": ["marketing", "advertising", "brand", "promotion", "seo", "campaign", "social media"],
+                "low": ["ad", "commercial", "branding", "promotion"]
+            }
+        }
+
+        # Score each category
+        category_scores = {}
+
+        for category, keywords in category_keywords.items():
+            score = 0
+
+            # High weight keywords (3 points)
+            for keyword in keywords.get("high", []):
+                if keyword in text_to_analyze:
+                    score += 3
+
+            # Medium weight keywords (2 points)
+            for keyword in keywords.get("medium", []):
+                if keyword in text_to_analyze:
+                    score += 2
+
+            # Low weight keywords (1 point)
+            for keyword in keywords.get("low", []):
+                if keyword in text_to_analyze:
+                    score += 1
+
+            if score > 0:
+                category_scores[category] = score
+
+        # Return category with highest score, or default
+        if category_scores:
+            best_category = max(category_scores, key=category_scores.get)
+            # Only use if confidence is reasonable (at least 2 points)
+            if category_scores[best_category] >= 2:
+                return best_category
+
+        return self.get_default_category()

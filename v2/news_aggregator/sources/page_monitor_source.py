@@ -198,7 +198,10 @@ class PageMonitorSource(BaseSource):
         """Fetch new articles by monitoring page changes."""
         try:
             print(f"🔍 Monitoring page: {self.config.url}")
-            
+
+            # Load learned structure before processing
+            await self._load_learned_structure()
+
             # Get current page snapshot
             current_snapshot = await self._take_page_snapshot()
             

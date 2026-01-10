@@ -11,6 +11,7 @@ from ..config import settings
 from ..core.http_client import get_http_client
 from ..core.cache import cached
 from ..core.exceptions import APIError
+from ..core.circuit_breaker import CircuitBreakerError, ai_service_breaker
 
 logger = logging.getLogger(__name__)
 
@@ -381,10 +382,10 @@ class AIClient:
     async def _make_gemini_request(self, prompt: str, model: str,
                                    analysis_type: str, domain: str,
                                    temperature: float = 0.1, max_tokens: int = 2000) -> dict:
-        """Make request to Gemini API and adapt response to OpenAI-like structure."""
+        """Make request to Gemini API and adapt response to OpenAI-like structure with circuit breaker protection."""
         # Check if model is Gemini 3 (contains "gemini-3")
         is_gemini_3 = "gemini-3" in model.lower()
-        
+
         # Use v1beta endpoint for Gemini 3, v1 for others
         if is_gemini_3:
             endpoint_base = str(self.endpoint).replace("/v1/models", "/v1beta/models")
@@ -415,60 +416,67 @@ class AIClient:
         print(f"  🏷️ Domain: {domain}")
         print(f"  📝 Prompt length: {len(prompt)} chars")
 
-        async with get_http_client() as client:
-            response = await client.post(url, json=payload, params=params, timeout=30)
+        async def _make_request():
+            async with get_http_client() as client:
+                response = await client.post(url, json=payload, params=params, timeout=30)
 
-            async with response:
-                if response.status == 200:
-                    raw = await response.json()
-                    print(f"  📄 Gemini raw response keys: {list(raw.keys())}")
+                async with response:
+                    if response.status == 200:
+                        raw = await response.json()
+                        print(f"  📄 Gemini raw response keys: {list(raw.keys())}")
 
-                    candidates = raw.get("candidates") or []
-                    if not candidates:
+                        candidates = raw.get("candidates") or []
+                        if not candidates:
+                            raise APIError(
+                                "Empty Gemini response",
+                                status_code=200,
+                                response_text=json.dumps(raw)[:500]
+                            )
+
+                        first = candidates[0]
+                        content = first.get("content") or {}
+                        parts = content.get("parts") or []
+                        text = ""
+                        if parts:
+                            text = (parts[0].get("text") or "").strip()
+
+                        usage = self._normalize_gemini_usage(raw)
+
+                        # Adapt to OpenAI-like structure
+                        data = {
+                            "choices": [
+                                {
+                                    "message": {
+                                        "content": text
+                                    }
+                                }
+                            ],
+                            "usage": usage
+                        }
+
+                        self._track_ai_usage(data, analysis_type, domain)
+                        return data
+                    elif response.status == 429:
+                        raise APIError("Rate limit exceeded", status_code=429)
+                    else:
+                        error_text = await response.text()
+                        print(f"  ❌ Gemini API error {response.status}: {error_text[:500]}...")
                         raise APIError(
-                            "Empty Gemini response",
-                            status_code=200,
-                            response_text=json.dumps(raw)[:500]
+                            f"Gemini API error: {response.status}",
+                            status_code=response.status,
+                            response_text=error_text
                         )
 
-                    first = candidates[0]
-                    content = first.get("content") or {}
-                    parts = content.get("parts") or []
-                    text = ""
-                    if parts:
-                        text = (parts[0].get("text") or "").strip()
-
-                    usage = self._normalize_gemini_usage(raw)
-
-                    # Adapt to OpenAI-like structure
-                    data = {
-                        "choices": [
-                            {
-                                "message": {
-                                    "content": text
-                                }
-                            }
-                        ],
-                        "usage": usage
-                    }
-
-                    self._track_ai_usage(data, analysis_type, domain)
-                    return data
-                elif response.status == 429:
-                    raise APIError("Rate limit exceeded", status_code=429)
-                else:
-                    error_text = await response.text()
-                    print(f"  ❌ Gemini API error {response.status}: {error_text[:500]}...")
-                    raise APIError(
-                        f"Gemini API error: {response.status}",
-                        status_code=response.status,
-                        response_text=error_text
-                    )
+        try:
+            return await ai_service_breaker.call(_make_request)
+        except CircuitBreakerError as e:
+            logger.error(f"Circuit breaker is OPEN: {e}")
+            raise APIError(f"AI service temporarily unavailable: {e}", status_code=503)
     
     async def _make_structured_ai_request(self, prompt: str, model: str, schema: dict,
                                           analysis_type: str, domain: str) -> dict:
         """
-        Make structured AI request using Gemini's native structured output.
+        Make structured AI request using Gemini's native structured output with circuit breaker protection.
 
         Args:
             prompt: Prompt text
@@ -482,7 +490,7 @@ class AIClient:
         """
         # Check if model is Gemini 3 (contains "gemini-3")
         is_gemini_3 = "gemini-3" in model.lower()
-        
+
         # Use v1beta endpoint for Gemini 3, v1 for others
         # See: https://ai.google.dev/gemini-api/docs/gemini-3
         if is_gemini_3:
@@ -521,71 +529,78 @@ class AIClient:
         print(f"  🔍 Is Gemini 3: {is_gemini_3}")
         print(f"  📝 Payload generationConfig keys: {list(payload['generationConfig'].keys())}")
 
-        async with get_http_client() as client:
-            response = await client.post(url, json=payload, params=params, timeout=40)
+        async def _make_request():
+            async with get_http_client() as client:
+                response = await client.post(url, json=payload, params=params, timeout=40)
 
-            async with response:
-                if response.status == 200:
-                    raw = await response.json()
+                async with response:
+                    if response.status == 200:
+                        raw = await response.json()
 
-                    candidates = raw.get("candidates") or []
-                    if not candidates:
-                        raise APIError(
-                            "Empty Gemini response",
-                            status_code=200,
-                            response_text=str(raw)[:500]
-                        )
-
-                    first = candidates[0]
-                    content = first.get("content") or {}
-                    parts = content.get("parts") or []
-
-                    if not parts or "text" not in parts[0]:
-                        raise APIError(
-                            "Gemini structured response missing text",
-                            status_code=200,
-                            response_text=str(raw)[:500]
-                        )
-
-                    # Text should already be valid JSON according to schema
-                    text_response = parts[0]["text"].strip()
-                    try:
-                        structured = json.loads(text_response)
-                    except json.JSONDecodeError as e:
-                        print(f"  ⚠️ Failed to parse JSON from Gemini structured response: {e}")
-                        print(f"  📄 Response preview: {text_response[:500]}...")
-                        # Fallback: try to extract JSON from markdown if needed
-                        try:
-                            json_str = self._extract_json_from_response(text_response)
-                            structured = json.loads(json_str)
-                            print(f"  ✅ Extracted JSON from markdown code block")
-                        except Exception as e2:
+                        candidates = raw.get("candidates") or []
+                        if not candidates:
                             raise APIError(
-                                f"Failed to parse JSON from Gemini structured response: {e2}",
+                                "Empty Gemini response",
                                 status_code=200,
-                                response_text=text_response[:500]
+                                response_text=str(raw)[:500]
                             )
 
-                    usage = self._normalize_gemini_usage(raw)
+                        first = candidates[0]
+                        content = first.get("content") or {}
+                        parts = content.get("parts") or []
 
-                    data = {
-                        "result": structured,
-                        "usage": usage
-                    }
+                        if not parts or "text" not in parts[0]:
+                            raise APIError(
+                                "Gemini structured response missing text",
+                                status_code=200,
+                                response_text=str(raw)[:500]
+                            )
 
-                    self._track_ai_usage(data, analysis_type, domain)
-                    return data
+                        # Text should already be valid JSON according to schema
+                        text_response = parts[0]["text"].strip()
+                        try:
+                            structured = json.loads(text_response)
+                        except json.JSONDecodeError as e:
+                            print(f"  ⚠️ Failed to parse JSON from Gemini structured response: {e}")
+                            print(f"  📄 Response preview: {text_response[:500]}...")
+                            # Fallback: try to extract JSON from markdown if needed
+                            try:
+                                json_str = self._extract_json_from_response(text_response)
+                                structured = json.loads(json_str)
+                                print(f"  ✅ Extracted JSON from markdown code block")
+                            except Exception as e2:
+                                raise APIError(
+                                    f"Failed to parse JSON from Gemini structured response: {e2}",
+                                    status_code=200,
+                                    response_text=text_response[:500]
+                                )
 
-                elif response.status == 429:
-                    raise APIError("Rate limit exceeded", status_code=429)
-                else:
-                    error_text = await response.text()
-                    print(f"  ❌ Gemini API error {response.status}: {error_text[:500]}...")
-                    raise APIError(
-                        f"Gemini API error: {response.status}",
-                        status_code=response.status,
-                        response_text=error_text
-                    )
+                        usage = self._normalize_gemini_usage(raw)
+
+                        data = {
+                            "result": structured,
+                            "usage": usage
+                        }
+
+                        self._track_ai_usage(data, analysis_type, domain)
+                        return data
+
+                    elif response.status == 429:
+                        raise APIError("Rate limit exceeded", status_code=429)
+                    else:
+                        error_text = await response.text()
+                        print(f"  ❌ Gemini API error {response.status}: {error_text[:500]}...")
+                        raise APIError(
+                            f"Gemini API error: {response.status}",
+                            status_code=response.status,
+                            response_text=error_text
+                        )
+
+        try:
+            return await ai_service_breaker.call(_make_request)
+        except CircuitBreakerError as e:
+            logger.error(f"Circuit breaker is OPEN: {e}")
+            raise APIError(f"AI service temporarily unavailable: {e}", status_code=503)
 
     def _track_ai_usage(self, response_data: dict, analysis_type: str, domain: str):
         """Track AI API usage to database (fire-and-forget)."""
@@ -860,7 +875,11 @@ class AIClient:
                     )
                     result = response_data.get("result") or {}
                     print(f"  ✅ Combined analysis (structured) successful")
-                    return self._validate_analysis_result(result, title, content)
+                    # Load valid categories from cache
+                    from .category_cache import get_category_cache
+                    category_cache = get_category_cache()
+                    valid_categories = await category_cache.get_categories()
+                    return self._validate_analysis_result(result, title, content, valid_categories)
 
                 # Constructor / other: fallback to text parsing
                 response_data = await self._make_raw_ai_request(
@@ -887,7 +906,11 @@ class AIClient:
                     print(f"  ✅ Combined analysis successful")
 
                     # Validate and clean results
-                    return self._validate_analysis_result(result, title, content)
+                    # Load valid categories from cache
+                    from .category_cache import get_category_cache
+                    category_cache = get_category_cache()
+                    valid_categories = await category_cache.get_categories()
+                    return self._validate_analysis_result(result, title, content, valid_categories)
 
                 except json.JSONDecodeError as e:
                     print(f"  ⚠️ JSON parsing error: {e}")
@@ -916,7 +939,7 @@ class AIClient:
         return await NewsPrompts.unified_article_analysis_enhanced(title, content, url, source_context)
     
     
-    def _validate_analysis_result(self, result: Dict[str, Any], title: str = None, content: str = None) -> Dict[str, Any]:
+    def _validate_analysis_result(self, result: Dict[str, Any], title: str = None, content: str = None, valid_categories = None) -> Dict[str, Any]:
         """Validate and clean analysis result."""
         # Safe float conversion with fallback
         def safe_float(value, default=0.0):
@@ -926,10 +949,10 @@ class AIClient:
                 return float(value)
             except (TypeError, ValueError):
                 return default
-        
+
         # Import category parser
         from .category_parser import parse_category
-        
+
         # Extract categories from new format (categories array) or fallback to old format
         categories = result.get('categories', [])
         if not categories:
@@ -949,7 +972,7 @@ class AIClient:
             'category_confidences': result.get('category_confidences', []),  # New: confidence scores
             'category_confidence': max(0.0, min(1.0, safe_float(result.get('category_confidence'), 0.8))),
             'summary_confidence': max(0.0, min(1.0, safe_float(result.get('summary_confidence'), 0.8))),
-            'categories_parsed': parse_category(primary_category, title=title, content=content[:500] if content else None, return_multiple=True),
+            'categories_parsed': parse_category(primary_category, valid_categories=valid_categories, title=title, content=content[:500] if content else None, return_multiple=True),
             'original_categories': result.get('original_categories', []),  # Enhanced: AI descriptive categories before mapping
             'is_advertisement': bool(result.get('is_advertisement', False)),
             'ad_type': result.get('ad_type', 'news_article'),

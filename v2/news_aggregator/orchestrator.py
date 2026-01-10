@@ -86,21 +86,52 @@ class NewsOrchestrator:
             # Step 1: Sync sources and fetch articles
             print("📥 Step 1: Syncing sources and fetching articles...")
             sync_start = time.time()
-            
-            # Use database queue for sync operation
-            async def sync_operation(db):
-                return await self.source_manager.fetch_from_all_sources(db)
-            
-            sync_result = await self.db_queue_manager.execute_write(sync_operation)
+
+            # Step 1a: Get sources list (quick DB read)
+            print("  📋 Getting enabled sources...")
+            sources = await self.source_manager.get_sources_from_db()
+            print(f"  ✅ Found {len(sources)} enabled sources")
+
+            # Step 1b: HTTP fetching (NO DB transaction - semaphore free!)
+            print("  🌐 Fetching articles via HTTP (no DB lock)...")
+            fetch_start = time.time()
+
+            # HTTP fetching happens here WITHOUT database lock
+            raw_articles = await self.source_manager.fetch_from_all_sources_no_db(sources)
+
+            fetch_duration = time.time() - fetch_start
+            print(f"  ✅ HTTP fetching completed in {fetch_duration:.1f}s")
+
+            # Step 1c: Save articles to database (quick DB write)
+            print("  💾 Saving articles to database...")
+            save_start = time.time()
+
+            async def save_operation(db):
+                # Refresh sources with DB session
+                from sqlalchemy import select
+                source_query = select(Source).where(Source.enabled == True)
+                result = await db.execute(source_query)
+                sources_db = result.scalars().all()
+
+                # Create source name -> source mapping
+                source_map = {s.name: s for s in sources_db}
+
+                return await self.source_manager.save_fetched_articles_with_sources(raw_articles, source_map, db)
+
+            sync_result = await self.db_queue_manager.execute_write(save_operation, timeout=30.0)
             total_articles = sum(len(articles) for articles in sync_result.values())
+
+            save_duration = time.time() - save_start
+            print(f"  ✅ Saved {total_articles} articles in {save_duration:.1f}s")
+
             stats.update({
                 'sources_synced': len(sync_result),
                 'articles_fetched': total_articles
             })
-            
+
             sync_duration = time.time() - sync_start
             stats['performance']['sync_duration'] = sync_duration
-            print(f"  ✅ Synced {stats['sources_synced']} sources, fetched {stats['articles_fetched']} articles in {sync_duration:.1f}s")
+            print(f"  ✅ Total sync: {stats['sources_synced']} sources, {stats['articles_fetched']} articles in {sync_duration:.1f}s")
             
             # Step 2: Process articles with AI
             print("🤖 Step 2: Processing articles with AI...")
@@ -138,8 +169,10 @@ class NewsOrchestrator:
             return stats
             
         except Exception as e:
-            error_msg = f"Error in full processing cycle: {e}"
+            import traceback
+            error_msg = f"Error in full processing cycle: {str(e)}"
             print(f"❌ {error_msg}")
+            print(f"📍 Traceback:\n{traceback.format_exc()}")
             stats['errors'].append(error_msg)
             return stats
     
@@ -272,111 +305,162 @@ class NewsOrchestrator:
     async def _process_unprocessed_articles(self, stats: Dict[str, Any]) -> Dict[str, Any]:
         """Process unprocessed articles using specialized processors."""
         try:
-            # Use database queue for processing operation
-            async def processing_operation(db):
-                # Get unprocessed articles with eager loading of source relationship
-                from sqlalchemy.orm import selectinload
+            # Step 1: Get articles from database (quick transaction)
+            print("  📋 Fetching unprocessed articles from database...")
+            from sqlalchemy.orm import selectinload
 
+            async def fetch_articles_operation(db):
                 # Build base query
                 unprocessed_query = select(Article).options(
-                    selectinload(Article.source)  # Eager load source to avoid lazy loading issues
+                    selectinload(Article.source)  # Eager load source
                 ).where(
+                    (Article.processed == False) |
                     (Article.summary_processed == False) |
                     (Article.category_processed == False) |
                     (Article.ad_processed == False)
                 )
 
-                # Apply article limits from configuration
+                # Apply limits
                 unprocessed_query = self.article_limiter.apply_limits_to_query(unprocessed_query)
                 unprocessed_query = self.article_limiter.apply_date_filters_to_query(unprocessed_query)
-                
+
                 result = await db.execute(unprocessed_query)
-                unprocessed_articles = result.scalars().all()
-                
-                if not unprocessed_articles:
-                    return {'articles_processed': 0, 'articles_summarized': 0, 'articles_categorized': 0}
-                
-                print(f"  🔄 Processing {len(unprocessed_articles)} unprocessed articles...")
-                
-                processed_count = 0
-                summarized_count = 0
-                categorized_count = 0
-                
-                for article in unprocessed_articles:
-                    try:
-                        # Get source type for processing
-                        source_type = 'rss'  # Default
-                        if hasattr(article, 'source') and article.source:
-                            source_type = article.source.source_type
-                        elif article.url:
-                            # Determine source type from URL if no source is linked
-                            if 't.me' in article.url:
-                                source_type = 'telegram'
-                            elif any(domain in article.url for domain in ['reddit.com', 'redd.it']):
-                                source_type = 'reddit'
-                            # Add more URL-based detection as needed
-                        
-                        # Use unified AI processor for complete processing (includes title optimization)
-                        article_data = {
-                            'id': article.id,
-                            'title': article.title,
-                            'content': article.content,
-                            'url': article.url,
-                            'summary': article.summary,
-                            'summary_processed': article.summary_processed,
-                            'category_processed': article.category_processed,
-                            'ad_processed': article.ad_processed,
-                            'source_type': source_type,
-                            'source_name': article.source.name if article.source else 'Unknown'
-                        }
-                        
-                        # Process with AI processor (handles title optimization, summary, categories, ads)
-                        processed_data = await self.ai_processor.process_article_combined(
-                            article_data, stats, force_processing=False, db=db
+                articles = result.scalars().all()
+
+                # Convert to list of dicts for processing outside transaction
+                return [
+                    {
+                        'id': a.id,
+                        'title': a.title,
+                        'url': a.url,
+                        'content': a.content,
+                        'summary': a.summary,
+                        'source_id': a.source_id,
+                        'source_type': a.source.source_type if a.source else 'rss',
+                        'published_at': a.published_at,
+                        'summary_processed': a.summary_processed,
+                        'category_processed': a.category_processed,
+                        'ad_processed': a.ad_processed,
+                    }
+                    for a in articles
+                ]
+
+            articles_data = await self.db_queue_manager.execute_read(fetch_articles_operation, timeout=10.0)
+
+            if not articles_data:
+                return {'articles_processed': 0, 'articles_summarized': 0, 'articles_categorized': 0}
+
+            print(f"  🔄 Processing {len(articles_data)} unprocessed articles (transaction closed)...")
+
+            # Step 2: Process with AI (NO database transaction - semaphore is free!)
+            processed_count = 0
+            summarized_count = 0
+            categorized_count = 0
+
+            for article_data in articles_data:
+                try:
+                    source_type = article_data['source_type']
+                    article_url = article_data['url']
+                    article_id = article_data['id']
+
+                    # Process summary if needed
+                    if not article_data['summary_processed']:
+                        stats['api_calls_made'] += 1
+
+                        # Create temp article object for compatibility
+                        class TempArticle:
+                            def __init__(self, data):
+                                self.id = data['id']
+                                self.url = data['url']
+                                self.title = data['title']
+                                self.content = data['content']
+                                self.summary = data['summary']
+                                self.published_at = data['published_at']
+
+                        temp_article = TempArticle(article_data)
+                        summary = await self.ai_processor.get_summary_by_source_type(
+                            temp_article, source_type, stats
                         )
-                        
-                        # Update article with processed data
-                        if processed_data.get('optimized_title'):
-                            article.title = processed_data['optimized_title']
-                            print(f"  🏷️ Updated title: {processed_data['optimized_title'][:100]}...")
-                        
-                        if processed_data.get('summary') and not article.summary_processed:
-                            article.summary = processed_data['summary']
-                            article.summary_processed = True
+
+                        if summary:
+                            article_data['summary'] = summary
                             summarized_count += 1
-                        
-                        if processed_data.get('categories') and not article.category_processed:
-                            # Save AI categories directly to database (no mapping at storage level)
-                            await self._save_ai_categories_to_database(db, article.id, processed_data['categories'])
-                            article.category_processed = True
+
+                    # Process category if needed
+                    if not article_data['category_processed']:
+                        stats['api_calls_made'] += 1
+
+                        class TempArticle2:
+                            def __init__(self, data):
+                                self.id = data['id']
+                                self.url = data['url']
+                                self.title = data['title']
+                                self.content = data['content']
+                                self.summary = data.get('summary') or data['content']
+                                self.published_at = data['published_at']
+
+                        temp_article2 = TempArticle2(article_data)
+                        categories = await self.categorization_processor.categorize_by_source_type_new(
+                            temp_article2, source_type, stats
+                        )
+
+                        if categories:
+                            article_data['categories'] = categories
                             categorized_count += 1
-                            
-                            # Track categories found (use AI category names for stats)
-                            for cat in processed_data['categories']:
-                                stats['categories_found'].add(cat.get('name', 'Other'))
-                        
-                        if not article.ad_processed:
-                            article.is_advertisement = processed_data.get('is_advertisement', False)
-                            article.ad_confidence = processed_data.get('ad_confidence', 0.0)
-                            article.ad_type = processed_data.get('ad_type', 'news_article')
-                            article.ad_reasoning = processed_data.get('ad_reasoning', 'AI processed')
-                            article.ad_processed = True
-                        
-                        processed_count += 1
-                        
+
+                    article_data['summary_processed'] = True
+                    article_data['category_processed'] = True
+                    article_data['ad_processed'] = True  # Mark as processed
+                    processed_count += 1
+
+                except Exception as e:
+                    print(f"  ⚠️ Error processing article {article_url}: {e}")
+                    continue
+
+            print(f"  ✅ AI processing completed: {processed_count} articles, {summarized_count} summaries, {categorized_count} categories")
+
+            # Step 3: Save results to database (new transaction, only writes)
+            print("  💾 Saving processed results to database...")
+
+            async def save_results_operation(db):
+                updated_count = 0
+                for article_data in articles_data:
+                    try:
+                        # Get article
+                        article = await db.get(Article, article_data['id'])
+                        if not article:
+                            continue
+
+                        # Update fields (don't update categories - handled separately)
+                        if article_data.get('summary') and article_data['summary'] != article.summary:
+                            article.summary = article_data['summary']
+
+                        article.summary_processed = article_data['summary_processed']
+                        article.category_processed = article_data['category_processed']
+                        article.ad_processed = article_data['ad_processed']
+                        article.processed = all([
+                            article_data['summary_processed'],
+                            article_data['category_processed'],
+                            article_data['ad_processed']
+                        ])
+
+                        updated_count += 1
+
                     except Exception as e:
-                        print(f"  ⚠️ Error processing article {article.id}: {e}")
-                        stats['errors'].append(f"Article {article.id}: {str(e)}")
-                
-                # Commit will be handled by database queue
-                return {
-                    'articles_processed': processed_count,
-                    'articles_summarized': summarized_count,
-                    'articles_categorized': categorized_count
-                }
-            
-            return await self.db_queue_manager.execute_write(processing_operation)
-            
+                        print(f"  ⚠️ Error saving article {article_data['id']}: {e}")
+                        continue
+
+                return updated_count
+
+            saved_count = await self.db_queue_manager.execute_write(save_results_operation, timeout=30.0)
+            print(f"  ✅ Saved {saved_count} processed articles to database")
+
+            return {
+                'articles_processed': processed_count,
+                'articles_summarized': summarized_count,
+                'articles_categorized': categorized_count
+            }
+
         except Exception as e:
             error_msg = f"Error processing unprocessed articles: {e}"
             print(f"  ❌ {error_msg}")

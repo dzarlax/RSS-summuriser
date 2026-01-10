@@ -64,6 +64,9 @@ class DatabaseQueueManager:
             'total_processed': 0
         }
 
+        # Track active tasks for debugging
+        self.active_tasks: Dict[str, Dict[str, Any]] = {}
+
     def _log_unhealthy_workers(self):
         active_workers = [task for task in self.worker_tasks if not task.done()]
         expected = self.read_workers + self.write_workers
@@ -171,12 +174,31 @@ class DatabaseQueueManager:
             else:
                 return await result_future
         except asyncio.TimeoutError:
+            # Enhanced logging with semaphore state and active tasks
+            read_sem_value = getattr(self.read_semaphore, '_value', 'unknown')
+            write_sem_value = getattr(self.write_semaphore, '_value', 'unknown')
+
             logger.error(
-                "Database operation timed out: %s (read_queue=%s, write_queue=%s)",
+                "Database operation timed out: %s (read_queue=%s, write_queue=%s, read_sem=%s/%s, write_sem=%s/%s, timeout=%s)",
                 task.task_id,
                 self.read_queue.qsize(),
                 self.write_queue.qsize(),
+                read_sem_value,
+                self.read_semaphore._value if hasattr(self.read_semaphore, '_value') else '?',
+                write_sem_value,
+                self.write_semaphore._value if hasattr(self.write_semaphore, '_value') else '?',
+                timeout
             )
+            logger.error(f"Task details: type={task.operation_type}, operation={task.operation.__name__ if hasattr(task.operation, '__name__') else 'unknown'}")
+
+            # Log active tasks if any
+            if self.active_tasks:
+                logger.error(f"⚠️ Active tasks ({len(self.active_tasks)}):")
+                now = datetime.now()
+                for task_id, info in self.active_tasks.items():
+                    duration = (now - info['started_at']).total_seconds()
+                    logger.error(f"  - {task_id} ({info['operation']}) running for {duration:.1f}s on {info['worker']}")
+
             raise
             
     async def _read_worker(self, worker_id: int):
@@ -228,15 +250,25 @@ class DatabaseQueueManager:
             logger.error(f"Fatal error in {worker_name}: {e}")
             
     async def _process_task(self, task: DatabaseTask, semaphore: Semaphore, worker_name: str):
-        """Process a database task."""
+        """Process a database task with active tracking."""
         start_time = datetime.now()
         session = None
-        
+
         # Check if task was already cancelled before processing
         if task.result_future.cancelled():
             logger.debug(f"⚠️ Task {task.task_id} was cancelled before processing")
             return
-        
+
+        # Track active task
+        operation_name = task.operation.__name__ if hasattr(task.operation, '__name__') else 'unknown'
+        self.active_tasks[task.task_id] = {
+            'worker': worker_name,
+            'operation': operation_name,
+            'type': task.operation_type.value,
+            'started_at': start_time,
+            'timeout': task.timeout
+        }
+
         try:
             # Acquire connection semaphore
             async with semaphore:
@@ -251,6 +283,15 @@ class DatabaseQueueManager:
                             try:
                                 # Execute operation
                                 result = await task.operation(session)
+
+                                # Check execution time
+                                duration = (datetime.now() - start_time).total_seconds()
+
+                                # Log slow tasks (> 10 seconds)
+                                if duration > 10:
+                                    logger.warning(
+                                        f"⚠️ Slow DB task: {task.task_id} ({operation_name}) took {duration:.1f}s"
+                                    )
 
                                 # Success! Double-check task wasn't cancelled
                                 if not task.result_future.cancelled() and not task.result_future.done():
@@ -319,12 +360,18 @@ class DatabaseQueueManager:
                         if not task.result_future.cancelled() and not task.result_future.done():
                             task.result_future.set_exception(outer_e)
                         break
-                        
+
         except Exception as e:
             # This shouldn't happen, but just in case
             if not task.result_future.cancelled() and not task.result_future.done():
                 task.result_future.set_exception(e)
             logger.error(f"💥 Fatal error processing {task.task_id}: {e}")
+
+        finally:
+            # Always remove from active tasks
+            if task.task_id in self.active_tasks:
+                duration = (datetime.now() - start_time).total_seconds()
+                del self.active_tasks[task.task_id]
     def get_stats(self) -> Dict[str, Any]:
         """Get queue statistics."""
         active_workers = [task for task in self.worker_tasks if not task.done()]

@@ -262,8 +262,8 @@ class TaskScheduler:
                 
                 if should_run:
                     try:
-                        # Use a small timeout to avoid blocking the loop; timeout=0 is too strict.
-                        await asyncio.wait_for(self._task_semaphore.acquire(), timeout=0.1)
+                        # Wait longer for semaphore to avoid skipping important tasks
+                        await asyncio.wait_for(self._task_semaphore.acquire(), timeout=5.0)
                     except asyncio.TimeoutError:
                         logger.info(
                             "Scheduler capacity reached (%s max); delaying %s",

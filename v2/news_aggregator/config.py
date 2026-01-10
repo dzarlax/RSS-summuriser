@@ -50,6 +50,8 @@ class Settings(BaseSettings):
     max_workers: int = Field(default=5, alias="MAX_WORKERS")
     cache_ttl: int = Field(default=86400, alias="CACHE_TTL")
     cache_dir: str = Field(default="/tmp/rss_cache", alias="CACHE_DIR")
+    cache_max_size_mb: float = Field(default=500.0, alias="CACHE_MAX_SIZE_MB")  # Maximum cache size in MB
+    cache_max_entries: int = Field(default=10000, alias="CACHE_MAX_ENTRIES")  # Maximum number of cache entries
     
     # API Rate Limiting
     api_rate_limit: int = Field(default=3, alias="RPS")  # Requests per second

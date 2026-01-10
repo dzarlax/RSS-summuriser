@@ -86,7 +86,7 @@ class CategoryCache:
 
     def _get_fallback_categories(self) -> List[str]:
         """Get fallback hardcoded categories."""
-        categories = ['Serbia', 'Tech', 'Business', 'Science', 'Politics', 'International', 'Other']
+        categories = ['AI', 'Serbia', 'Tech', 'Business', 'Science', 'Nature', 'Marketing', 'Other']
         print(f"  ⚠️ Using hardcoded fallback categories (DB unavailable): {categories}")
         return categories
 
