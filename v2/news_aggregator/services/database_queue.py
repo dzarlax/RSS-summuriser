@@ -136,7 +136,8 @@ class DatabaseQueueManager:
                                 timeout: Optional[float], priority: int) -> Any:
         """Execute database operation through appropriate queue."""
         if not self.running:
-            raise RuntimeError("Database queue is not running")
+            logger.warning("Database queue is not running — attempting auto-restart")
+            await self.start()
 
         self._log_unhealthy_workers()
             
