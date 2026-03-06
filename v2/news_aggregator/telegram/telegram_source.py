@@ -184,8 +184,14 @@ class TelegramSource(BaseSource):
         
         try:
             if not self.browser:
+                from ..config import settings
                 self._playwright = await async_playwright().start()
-                self.browser = await self._playwright.chromium.launch(headless=True)
+                ws_endpoint = settings.browser_ws_endpoint
+                if ws_endpoint:
+                    self.browser = await self._playwright.chromium.connect(ws_endpoint=ws_endpoint)
+                    logger.info(f"  🔗 Connected to remote browser at {ws_endpoint}")
+                else:
+                    self.browser = await self._playwright.chromium.launch(headless=True)
             
             context = await self.browser.new_context()
             page = await context.new_page()

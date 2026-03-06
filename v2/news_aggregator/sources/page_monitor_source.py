@@ -175,17 +175,22 @@ class PageMonitorSource(BaseSource):
     async def __aenter__(self):
         """Initialize browser if needed."""
         if self.config.use_browser and not self.browser:
+            from ..config import settings
             self._playwright = await async_playwright().start()
-            self.browser = await self._playwright.chromium.launch(
-                headless=True,
-                args=[
-                    '--no-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-blink-features=AutomationControlled',
-                    '--disable-web-security',
-                    '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
-                ]
-            )
+            ws_endpoint = settings.browser_ws_endpoint
+            if ws_endpoint:
+                self.browser = await self._playwright.chromium.connect(ws_endpoint=ws_endpoint)
+            else:
+                self.browser = await self._playwright.chromium.launch(
+                    headless=True,
+                    args=[
+                        '--no-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-blink-features=AutomationControlled',
+                        '--disable-web-security',
+                        '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+                    ]
+                )
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):

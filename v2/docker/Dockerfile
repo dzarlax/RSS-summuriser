@@ -1,5 +1,5 @@
-# Use official Playwright image with Python 3.12
-FROM mcr.microsoft.com/playwright/python:v1.40.0-jammy
+# Lightweight Python base — Playwright browser runs in a separate container
+FROM python:3.12-slim
 
 # Build arguments for metadata
 ARG BUILDTIME
@@ -29,12 +29,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy requirements first (changes less often than app code)
 COPY requirements.txt .
 
-# Install Python dependencies including playwright package
+# Install Python dependencies
+# Note: playwright package is installed for the client API only — no browser binaries here.
+# The browser runs in a separate container (see docker-compose browser service).
 RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
-
-# Install Playwright browsers AFTER pip (uses the installed playwright package)
-# Using only headless-shell to reduce image size (~500MB savings)
-RUN playwright install chromium-headless-shell --with-deps
 
 # Create directories with proper permissions
 RUN mkdir -p /app/logs /app/data /app/cache /app/backups /app/exports && \

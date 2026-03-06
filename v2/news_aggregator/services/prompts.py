@@ -17,22 +17,40 @@ class NewsPrompts:
     
     @staticmethod
     async def get_available_categories():
-        """Get available categories from database for prompt enhancement."""
+        """Get available categories from database, enriched with accumulated mapping examples."""
         try:
+            from collections import defaultdict
             from ..database import AsyncSessionLocal
-            from ..models import Category
+            from ..models import Category, CategoryMapping
             from sqlalchemy import select
-            
+
             async with AsyncSessionLocal() as session:
-                result = await session.execute(
-                    select(Category.name, Category.display_name)
-                    .order_by(Category.name)
+                # Fetch categories
+                cat_result = await session.execute(
+                    select(Category.name, Category.display_name).order_by(Category.name)
                 )
-                categories = result.all()
-                
-                return [f"{name} ({display_name})" for name, display_name in categories]
-                
-        except Exception as e:
+                categories = cat_result.all()
+
+                # Fetch top mappings per category (by usage_count desc), max 5 examples each
+                map_result = await session.execute(
+                    select(CategoryMapping.ai_category, CategoryMapping.fixed_category)
+                    .order_by(CategoryMapping.fixed_category, CategoryMapping.usage_count.desc())
+                )
+                examples: dict = defaultdict(list)
+                for ai_cat, fixed_cat in map_result.all():
+                    if len(examples[fixed_cat]) < 5:
+                        examples[fixed_cat].append(ai_cat)
+
+                result = []
+                for name, display_name in categories:
+                    cats = examples.get(name, [])
+                    if cats:
+                        result.append(f"{name} ({display_name}) — e.g.: {', '.join(cats)}")
+                    else:
+                        result.append(f"{name} ({display_name})")
+                return result
+
+        except Exception:
             # Fallback to default categories if database is unavailable
             return ['Business (Бизнес)', 'Tech (Технологии)', 'Science (Наука)', 'Serbia (Сербия)', 'Other (Прочее)']
     

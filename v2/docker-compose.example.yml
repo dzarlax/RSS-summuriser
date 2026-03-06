@@ -55,6 +55,9 @@ services:
       - ALLOWED_ORIGINS=https://your-domain.com,http://localhost:8000
       - TRUSTED_HOSTS=your-domain.com,localhost,127.0.0.1
 
+      # Playwright remote browser (see browser service below)
+      - BROWSER_WS_ENDPOINT=ws://browser:3000/playwright
+
       # Database init (allow create_all for fresh installs; set false in prod)
       - ALLOW_CREATE_ALL=true
       
@@ -64,6 +67,8 @@ services:
     
     depends_on:
       mariadb:
+        condition: service_healthy
+      browser:
         condition: service_healthy
     
     volumes:
@@ -114,6 +119,20 @@ services:
       retries: 5
       start_period: 30s
 
+
+  # Playwright browser server — приложение подключается к нему по WebSocket
+  browser:
+    image: mcr.microsoft.com/playwright:v1.58.2-jammy
+    command: ["npx", "playwright", "run-server", "--port", "3000", "--host", "0.0.0.0", "--path", "/playwright"]
+    networks:
+      - news_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
 # Named Volumes для персистентного хранения данных
 volumes:
