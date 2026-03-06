@@ -52,8 +52,26 @@ Use `func.date(Article.fetched_at) == date` (NOT `Article.fetched_at >= date`).
 
 - `rss` — RSS/Atom via feedparser (`sources/rss_source.py`)
 - `telegram` — Public channel HTML scraping (`telegram/telegram_source.py` + `telegram/message_parser.py`)
-- `custom` — Page Monitor with CSS selectors (`sources/page_monitor_adapter.py`)
+- `custom` — Page Monitor with CSS selectors (`sources/page_monitor_source.py` + `sources/page_monitor_adapter.py`)
 - No generic/reddit/twitter sources (deleted)
+
+## Playwright / Browser
+
+Browser runs in a **separate Docker container** (`mcr.microsoft.com/playwright:v1.58.2-jammy`).
+App connects via WebSocket — controlled by `BROWSER_WS_ENDPOINT` env var.
+
+- Set: `chromium.connect(ws_endpoint=...)` — production / dev-container mode
+- Unset: `chromium.launch(headless=True)` — local dev fallback (needs Chromium installed)
+
+Three files use the browser: `extraction/extraction_strategies.py`, `telegram/telegram_source.py`, `sources/page_monitor_source.py` — all follow the same remote/local pattern.
+
+Browser image version **must match** the pip `playwright` package version exactly.
+Current: `playwright==1.58.2` → `mcr.microsoft.com/playwright:v1.58.2-jammy`.
+
+## Category Mapping Enrichment
+
+`services/prompts.py` → `get_available_categories()` enriches the AI prompt with accumulated examples from the `CategoryMapping` table (up to 5 examples per category, sorted by `usage_count` desc).
+This means the more corrections you make in the admin UI, the better the AI categorizes automatically.
 
 ## Telegram Message Parsing
 
