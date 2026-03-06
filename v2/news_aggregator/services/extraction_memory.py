@@ -1,3 +1,4 @@
+import logging
 """Extraction memory service with database persistence."""
 
 import asyncio
@@ -8,6 +9,8 @@ from decimal import Decimal
 
 from sqlalchemy import text
 from ..database import AsyncSessionLocal
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -72,9 +75,9 @@ class ExtractionMemoryService:
             try:
                 await self._load_patterns_from_db()
                 self._initialized = True
-                print(f"  ✅ Loaded {sum(len(p) for p in self._patterns.values())} patterns from database")
+                logger.info(f"  ✅ Loaded {sum(len(p) for p in self._patterns.values())} patterns from database")
             except Exception as e:
-                print(f"  ⚠️ Failed to load patterns from DB, using empty cache: {e}")
+                logger.warning(f"  ⚠️ Failed to load patterns from DB, using empty cache: {e}")
                 self._initialized = True
 
     async def _load_patterns_from_db(self):
@@ -165,8 +168,7 @@ class ExtractionMemoryService:
                 })
                 await session.commit()
         except Exception as e:
-            print(f"  ⚠️ Failed to save pattern to DB: {e}")
-
+            logger.warning(f"  ⚠️ Failed to save pattern to DB: {e}")
     async def _save_attempt_to_db(self, attempt: ExtractionAttempt):
         """Save extraction attempt to database for analytics."""
         try:
@@ -196,8 +198,7 @@ class ExtractionMemoryService:
                 })
                 await session.commit()
         except Exception as e:
-            print(f"  ⚠️ Failed to save attempt to DB: {e}")
-    
+            logger.warning(f"  ⚠️ Failed to save attempt to DB: {e}")
     async def record_extraction_attempt(self, attempt: ExtractionAttempt) -> bool:
         """Record an extraction attempt."""
         try:
@@ -245,11 +246,11 @@ class ExtractionMemoryService:
 
                 stats['methods'][method]['attempts'] += 1
 
-            print(f"  📝 Recorded {attempt.extraction_strategy} {'success' if attempt.success else 'failure'} for {domain}")
+            logger.info(f"  📝 Recorded {attempt.extraction_strategy} {'success' if attempt.success else 'failure'} for {domain}")
             return True
 
         except Exception as e:
-            print(f"❌ Error recording extraction attempt: {e}")
+            logger.error(f"❌ Error recording extraction attempt: {e}")
             return False
     
     async def _add_successful_pattern(
@@ -318,8 +319,7 @@ class ExtractionMemoryService:
             # Save to database
             asyncio.create_task(self._save_pattern_to_db(pattern))
         
-        print(f"  🎯 Updated pattern: {selector[:40]}... for {domain}")
-
+        logger.info(f"  🎯 Updated pattern: {selector[:40]}... for {domain}")
     async def _add_failed_pattern(
         self, domain: str, selector: str, strategy: str
     ) -> None:
@@ -369,10 +369,9 @@ class ExtractionMemoryService:
         """Public API to decrease a selector's weight after poor result."""
         try:
             await self._add_failed_pattern(domain, selector, strategy)
-            print(f"  ⬇️ Degraded pattern for {domain}: {selector[:40]}... ({strategy})")
+            logger.info(f"  ⬇️ Degraded pattern for {domain}: {selector[:40]}... ({strategy})")
         except Exception as e:
-            print(f"❌ Error degrading pattern: {e}")
-
+            logger.error(f"❌ Error degrading pattern: {e}")
     async def record_date_selector_success(self, domain: str, selector: str) -> None:
         """Record successful date extraction using a selector (stored as 'date_selector')."""
         await self._add_successful_pattern(domain, selector, 'date_selector', quality_score=0.0, content_length=0)
@@ -538,7 +537,7 @@ class ExtractionMemoryService:
             )
             
         except Exception as e:
-            print(f"❌ Error recording page structure: {e}")
+            logger.error(f"❌ Error recording page structure: {e}")
             return False
 
     async def get_page_structure(self, domain: str) -> Dict[str, List[str]]:
@@ -608,11 +607,11 @@ class ExtractionMemoryService:
                     )
                     self._patterns[domain].append(pattern)
             
-            print(f"  🤖 Recorded {len(patterns)} AI-discovered patterns for {domain}")
+            logger.info(f"  🤖 Recorded {len(patterns)} AI-discovered patterns for {domain}")
             return True
             
         except Exception as e:
-            print(f"❌ Error recording AI patterns: {e}")
+            logger.error(f"❌ Error recording AI patterns: {e}")
             return False
     
     async def get_domains_needing_ai_analysis(self, limit: int = 10) -> List[str]:

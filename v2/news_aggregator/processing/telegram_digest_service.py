@@ -1,3 +1,4 @@
+import logging
 """Telegram Digest Service for news aggregation."""
 
 import math
@@ -11,6 +12,8 @@ from ..database import AsyncSessionLocal
 from ..models import Article, DailySummary
 from ..services.telegram_service import get_telegram_service
 
+logger = logging.getLogger(__name__)
+
 
 class TelegramDigestService:
     """Service for generating and sending Telegram digests."""
@@ -21,8 +24,7 @@ class TelegramDigestService:
     
     async def generate_telegram_digest(self, db: AsyncSession, stats: Dict[str, Any]):
         """Generate and send Telegram digest of today's articles."""
-        print("📲 Generating Telegram digest...")
-        
+        logger.info("📲 Generating Telegram digest...")
         try:
             today = datetime.utcnow().date()
             
@@ -50,14 +52,14 @@ class TelegramDigestService:
             categories = result.fetchall()
             
             if not categories:
-                print("  📭 No articles found for today's digest")
+                logger.info("  📭 No articles found for today's digest")
                 return
             
             # Generate combined digest
             digest_text = await self._create_combined_digest(db, today)
             
             if not digest_text or len(digest_text.strip()) < 100:
-                print("  📭 Generated digest is too short, skipping")
+                logger.info("  📭 Generated digest is too short, skipping")
                 return
             
             # Send digest to Telegram
@@ -71,32 +73,29 @@ class TelegramDigestService:
                 for i, part in enumerate(digest_parts, 1):
                     try:
                         await self.telegram_service.send_message(part)
-                        print(f"  ✅ Sent digest part {i}/{len(digest_parts)}")
-                        
+                        logger.info(f"  ✅ Sent digest part {i}/{len(digest_parts)}")
                         # Small delay between messages
                         if i < len(digest_parts):
                             import asyncio
                             await asyncio.sleep(1)
                             
                     except Exception as e:
-                        print(f"  ❌ Failed to send digest part {i}: {e}")
+                        logger.error(f"  ❌ Failed to send digest part {i}: {e}")
                         stats['errors'].append(f"Telegram digest part {i} failed: {e}")
                 
-                print(f"  📤 Telegram digest sent successfully ({len(digest_parts)} parts)")
+                logger.info(f"  📤 Telegram digest sent successfully ({len(digest_parts)} parts)")
                 stats.setdefault('telegram_digest_sent', 0)
                 stats['telegram_digest_sent'] += 1
             else:
-                print("  ⚠️ Telegram service not available")
-                
+                logger.warning("  ⚠️ Telegram service not available")
         except Exception as e:
             error_msg = f"Telegram digest generation failed: {e}"
-            print(f"  ❌ {error_msg}")
+            logger.error(f"  ❌ {error_msg}")
             stats['errors'].append(error_msg)
 
     async def generate_and_save_daily_summaries(self, db: AsyncSession, date, categories: Dict[str, List]):
         """Generate and save daily summaries for each category."""
-        print(f"📝 Generating daily summaries for {date}...")
-        
+        logger.info(f"📝 Generating daily summaries for {date}...")
         try:
             from ..services.ai_client import get_ai_client
             ai_client = get_ai_client()
@@ -108,8 +107,7 @@ class TelegramDigestService:
                     continue
                 
                 try:
-                    print(f"  🏷️ Processing category: {category_name} ({len(articles)} articles)")
-                    
+                    logger.info(f"  🏷️ Processing category: {category_name} ({len(articles)} articles)")
                     # Prepare articles text for AI
                     articles_text = []
                     for article in articles[:10]:  # Limit to 10 articles per category
@@ -140,23 +138,21 @@ class TelegramDigestService:
                         db.add(daily_summary)
                         saved_summaries += 1
                         
-                        print(f"    ✅ Generated summary for {category_name}")
+                        logger.info(f"    ✅ Generated summary for {category_name}")
                     else:
-                        print(f"    ⚠️ AI generated empty summary for {category_name}")
-                        
+                        logger.warning(f"    ⚠️ AI generated empty summary for {category_name}")
                 except Exception as e:
-                    print(f"    ❌ Failed to generate summary for {category_name}: {e}")
+                    logger.error(f"    ❌ Failed to generate summary for {category_name}: {e}")
                     continue
             
             if saved_summaries > 0:
                 await db.commit()
-                print(f"  💾 Saved {saved_summaries} daily summaries")
+                logger.info(f"  💾 Saved {saved_summaries} daily summaries")
             else:
-                print(f"  📭 No summaries generated")
-                
+                logger.info(f"  📭 No summaries generated")
         except Exception as e:
             await db.rollback()
-            print(f"  ❌ Daily summaries generation failed: {e}")
+            logger.error(f"  ❌ Daily summaries generation failed: {e}")
             raise
 
     async def _create_combined_digest(self, db: AsyncSession, date: datetime.date) -> str:
@@ -187,7 +183,7 @@ class TelegramDigestService:
             return '\n'.join(digest_parts)
             
         except Exception as e:
-            print(f"  ❌ Failed to create combined digest: {e}")
+            logger.error(f"  ❌ Failed to create combined digest: {e}")
             return ""
 
     def _split_digest_into_parts(self, header: str, summaries, footer: str, 

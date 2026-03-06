@@ -1,3 +1,4 @@
+import logging
 """AI-powered page structure analysis for better content extraction."""
 
 import json
@@ -5,6 +6,8 @@ import re
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass
 from bs4 import BeautifulSoup
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -45,8 +48,7 @@ class AIPageAnalyzer:
             # Extract domain for tracking
             from urllib.parse import urlparse
             domain = urlparse(url).netloc if url else "unknown"
-            print(f"🤖 AI analyzing page structure for {url} (domain: {domain})")
-
+            logger.info(f"🤖 AI analyzing page structure for {url} (domain: {domain})")
             # Prepare HTML for analysis (reduce size)
             clean_html = self._prepare_html_for_analysis(html)
 
@@ -69,14 +71,14 @@ class AIPageAnalyzer:
                 if analysis:
                     # Cache successful analysis
                     self.analysis_cache[cache_key] = analysis
-                    print(f"  ✅ AI discovered {len(analysis.content_selectors)} content selectors")
+                    logger.info(f"  ✅ AI discovered {len(analysis.content_selectors)} content selectors")
                     return analysis
             
-            print("  ❌ AI analysis failed to parse response")
+            logger.error("  ❌ AI analysis failed to parse response")
             return None
             
         except Exception as e:
-            print(f"  ❌ AI analysis error: {e}")
+            logger.error(f"  ❌ AI analysis error: {e}")
             return None
     
     def _prepare_html_for_analysis(self, html: str, max_length: int = 8000) -> str:
@@ -179,7 +181,7 @@ Focus on selectors that:
             required_fields = ['content_selectors', 'title_selectors', 'page_type']
             for field in required_fields:
                 if field not in data:
-                    print(f"  ⚠️ Missing required field: {field}")
+                    logger.warning(f"  ⚠️ Missing required field: {field}")
                     return None
             
             # Create analysis object
@@ -196,10 +198,10 @@ Focus on selectors that:
             return analysis
             
         except json.JSONDecodeError as e:
-            print(f"  ❌ Failed to parse AI JSON: {e}")
+            logger.error(f"  ❌ Failed to parse AI JSON: {e}")
             return None
         except Exception as e:
-            print(f"  ❌ Error parsing AI analysis: {e}")
+            logger.error(f"  ❌ Error parsing AI analysis: {e}")
             return None
     
     async def analyze_content_changes(self, old_html: str, new_html: str, context: str = "changelog") -> Dict[str, any]:
@@ -264,7 +266,7 @@ Significance: "high", "medium", "low"
             }
             
         except Exception as e:
-            print(f"❌ AI change analysis failed: {e}")
+            logger.error(f"❌ AI change analysis failed: {e}")
             return {'changes_detected': True, 'change_type': 'unknown'}
     
     def _extract_content_for_comparison(self, html: str) -> str:

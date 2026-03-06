@@ -1,3 +1,4 @@
+import logging
 """Articles API router - handles individual article operations."""
 
 from datetime import datetime
@@ -13,6 +14,8 @@ import sqlalchemy
 from ..database import get_db
 from ..models import Article, ArticleCategory
 from ..orchestrator import NewsOrchestrator
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter()
@@ -66,9 +69,9 @@ async def reprocess_article(
         }
         
         # Re-extract media if requested
-        print(f"🔍 Debug: reextract_media={request.reextract_media}, source={article.source}, source_type={article.source.source_type if article.source else 'None'}")
+        logger.info(f"🔍 Debug: reextract_media={request.reextract_media}, source={article.source}, source_type={article.source.source_type if article.source else 'None'}")
         if request.reextract_media and article.source and article.source.source_type == 'telegram':
-            print(f"🔧 Starting media re-extraction for article {article.id}")
+            logger.info(f"🔧 Starting media re-extraction for article {article.id}")
             try:
                 from ..services.source_manager import SourceManager
                 source_manager = SourceManager()
@@ -80,12 +83,11 @@ async def reprocess_article(
                 from bs4 import BeautifulSoup
                 
                 try:
-                    print(f"🌐 Making HTTP request to {article.url}")
+                    logger.info(f"🌐 Making HTTP request to {article.url}")
                     headers = random.choice(source_instance.BROWSER_HEADERS) if hasattr(source_instance, 'BROWSER_HEADERS') else {
                         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
                     }
-                    print(f"📡 HTTP headers: {headers}")
-                    
+                    logger.info(f"📡 HTTP headers: {headers}")
                     async with aiohttp.ClientSession() as session:
                         async with session.get(article.url, headers=headers, timeout=30) as response:
                             if response.status == 200:
@@ -96,10 +98,9 @@ async def reprocess_article(
                                 if hasattr(source_instance, 'media_extractor'):
                                     # Debug: check what divs are available
                                     all_divs = soup.find_all('div')
-                                    print(f"📋 Found {len(all_divs)} div elements")
+                                    logger.info(f"📋 Found {len(all_divs)} div elements")
                                     div_classes = [div.get('class', []) for div in all_divs[:10]]  # First 10
-                                    print(f"📋 First 10 div classes: {div_classes}")
-                                    
+                                    logger.info(f"📋 First 10 div classes: {div_classes}")
                                     message_div = soup.find('div', class_=['tgme_widget_message', 'message', 'post'])
                                     if not message_div:
                                         # Try alternative selectors
@@ -108,8 +109,7 @@ async def reprocess_article(
                                             message_div = soup.find('div', {'data-post': True})
                                             if not message_div:
                                                 message_div = soup.find('body')  # Use body as fallback
-                                                print(f"🔄 Using body as fallback for article {article.id}")
-                                    
+                                                logger.info(f"🔄 Using body as fallback for article {article.id}")
                                     if message_div:
                                         new_media_files = source_instance.media_extractor.extract_media_files(message_div)
                                         if new_media_files:
@@ -130,9 +130,9 @@ async def reprocess_article(
                                                 )
                                                 await db.execute(update_stmt)
                                                 await db.commit()
-                                                print(f"✅ Re-extracted {len(new_media_files)} media files and saved to DB for article {article.id}")
+                                                logger.info(f"✅ Re-extracted {len(new_media_files)} media files and saved to DB for article {article.id}")
                                             except Exception as save_error:
-                                                print(f"⚠️ Failed to save re-extracted media to DB: {save_error}")
+                                                logger.warning(f"⚠️ Failed to save re-extracted media to DB: {save_error}")
                                         else:
                                             # No new media found, clear media_files if reextract was requested
                                             article_data['media_files'] = []
@@ -144,20 +144,20 @@ async def reprocess_article(
                                                 )
                                                 await db.execute(update_stmt)
                                                 await db.commit()
-                                                print(f"🧹 No media files extracted on re-extraction, cleared media_files for article {article.id}")
+                                                logger.info(f"🧹 No media files extracted on re-extraction, cleared media_files for article {article.id}")
                                             except Exception as save_error:
-                                                print(f"⚠️ Failed to clear media_files in DB: {save_error}")
-                                            print(f"❌ No media files extracted on re-extraction for article {article.id}")
+                                                logger.warning(f"⚠️ Failed to clear media_files in DB: {save_error}")
+                                            logger.error(f"❌ No media files extracted on re-extraction for article {article.id}")
                                     else:
-                                        print(f"❌ No message div found for article {article.id}")
+                                        logger.error(f"❌ No message div found for article {article.id}")
                                 else:
-                                    print(f"❌ No media_extractor available for source {article.source.name}")
+                                    logger.error(f"❌ No media_extractor available for source {article.source.name}")
                             else:
-                                print(f"❌ HTTP {response.status} for article {article.id}")
+                                logger.error(f"❌ HTTP {response.status} for article {article.id}")
                 except Exception as http_error:
-                    print(f"❌ HTTP request failed for article {article.id}: {http_error}")
+                    logger.error(f"❌ HTTP request failed for article {article.id}: {http_error}")
             except Exception as e:
-                print(f"❌ Media re-extraction failed for article {article.id}: {e}")
+                logger.error(f"❌ Media re-extraction failed for article {article.id}: {e}")
                 # Continue with original media_files
         
         
@@ -193,7 +193,7 @@ async def reprocess_article(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Article reprocessing failed: {e}")
+        logger.info(f"Article reprocessing failed: {e}")
         raise HTTPException(status_code=500, detail=f"Reprocessing failed: {str(e)}")
 
 
@@ -256,5 +256,5 @@ async def get_article(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error getting article: {e}")
+        logger.info(f"Error getting article: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get article: {str(e)}")

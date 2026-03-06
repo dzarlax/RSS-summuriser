@@ -1,3 +1,4 @@
+import logging
 """Telegram API router - handles Telegram digest operations."""
 
 from datetime import datetime
@@ -5,6 +6,8 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException
 
 from ..orchestrator import NewsOrchestrator
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter()
@@ -14,8 +17,7 @@ router = APIRouter()
 async def send_telegram_digest():
     """Generate and send Telegram digest."""
     try:
-        print("📱 Generating Telegram digest...")
-        
+        logger.info("📱 Generating Telegram digest...")
         orchestrator = NewsOrchestrator()
         await orchestrator.start()
         
@@ -33,6 +35,6 @@ async def send_telegram_digest():
         }
         
     except Exception as e:
-        print(f"Error sending Telegram digest: {e}")
+        logger.info(f"Error sending Telegram digest: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to send digest: {str(e)}")
 

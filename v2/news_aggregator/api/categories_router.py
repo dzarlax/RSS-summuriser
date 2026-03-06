@@ -1,3 +1,4 @@
+import logging
 """Categories API router - handles categories and category mappings."""
 
 from datetime import datetime
@@ -11,6 +12,8 @@ from sqlalchemy.orm import selectinload
 
 from ..database import get_db
 from ..models import Article, Category, ArticleCategory, CategoryMapping
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter()
@@ -84,7 +87,7 @@ class CategoryMappingUpdateResponse(BaseModel):
 @router.get("/")
 async def get_categories(db: AsyncSession = Depends(get_db)):
     """Get all available categories with article counts."""
-    print(f"[DEBUG] GET /api/v1/categories/ called")  # Debug
+    logger.debug("GET /api/v1/categories/ called")
 
     # Get categories from new table with article counts
     result = await db.execute(
@@ -143,7 +146,7 @@ async def create_category(
     db: AsyncSession = Depends(get_db)
 ):
     """Create a main category (admin)."""
-    print(f"[DEBUG] POST /api/v1/categories/ called with payload: {payload}")  # Debug
+    logger.debug(f"POST /api/v1/categories/ called with payload: {payload}")
     # TODO: Add admin auth when security is fixed
     
     # Check if category already exists
@@ -672,14 +675,14 @@ Requirements:
                     reasoning = "No AI suggestions provided"
                     all_suggestions = [{"category": "Other", "confidence": 0.3, "reasoning": "Fallback suggestion"}]
             except json.JSONDecodeError as json_err:
-                print(f"JSON parsing failed for '{ai_category}'. AI response: {ai_response[:200]}...")
+                logger.info(f"JSON parsing failed for '{ai_category}'. AI response: {ai_response[:200]}...")
                 # Fallback to rule-based suggestion
                 suggested_category = _suggest_fixed_category(ai_category)
                 confidence = 0.3
                 reasoning = f"Fallback to keyword-based analysis (JSON error: {str(json_err)[:50]})"
                 all_suggestions = [{"category": suggested_category, "confidence": 0.3, "reasoning": reasoning}]
             except Exception as parse_err:
-                print(f"Response parsing failed for '{ai_category}': {parse_err}")
+                logger.info(f"Response parsing failed for '{ai_category}': {parse_err}")
                 # Fallback to rule-based suggestion
                 suggested_category = _suggest_fixed_category(ai_category)
                 confidence = 0.3
@@ -706,7 +709,7 @@ Requirements:
             ))
             
         except Exception as e:
-            print(f"AI analysis failed for category '{ai_category}': {type(e).__name__}: {str(e)}")
+            logger.info(f"AI analysis failed for category '{ai_category}': {type(e).__name__}: {str(e)}")
             # Fallback to rule-based suggestion
             fallback_category = _suggest_fixed_category(ai_category)
             fallback_reasoning = f"Keyword-based analysis (AI error: {type(e).__name__})"
@@ -800,7 +803,7 @@ async def approve_ai_category_mapping(
         
     except Exception as e:
         await db.rollback()
-        print(f"Error creating AI category mapping: {e}")
+        logger.info(f"Error creating AI category mapping: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Failed to create category mapping: {str(e)}"

@@ -1,3 +1,4 @@
+import logging
 """Dead Letter Queue for failed article processing."""
 
 import json
@@ -10,6 +11,8 @@ from enum import Enum
 import aiofiles
 
 from ..config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class FailureReason(Enum):
@@ -87,8 +90,7 @@ class DeadLetterQueue:
                 async with aiofiles.open(queue_file, 'a', encoding='utf-8') as f:
                     await f.write(json.dumps(entry, ensure_ascii=False) + '\n')
             except Exception as e:
-                print(f"  ⚠️ Failed to add to DLQ: {e}")
-
+                logger.warning(f"  ⚠️ Failed to add to DLQ: {e}")
     async def get_retryable_entries(
         self,
         reason: Optional[FailureReason] = None,
@@ -199,8 +201,7 @@ class DeadLetterQueue:
             async with aiofiles.open(archive_file, 'a', encoding='utf-8') as f:
                 await f.write(json.dumps(entry, ensure_ascii=False) + '\n')
         except Exception as e:
-            print(f"  ⚠️ Failed to archive permanent failure: {e}")
-
+            logger.warning(f"  ⚠️ Failed to archive permanent failure: {e}")
     def _get_entry_id(self, entry: Dict[str, Any]) -> str:
         """Generate unique ID for entry based on article data."""
         article = entry.get('article_data', {})
@@ -295,8 +296,7 @@ class DeadLetterQueue:
                 continue
 
         if removed > 0:
-            print(f"  🗑️ Cleared {removed} old entries from DLQ (older than {max_age_days} days)")
-
+            logger.info(f"  🗑️ Cleared {removed} old entries from DLQ (older than {max_age_days} days)")
         return removed
 
 

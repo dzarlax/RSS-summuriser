@@ -49,30 +49,28 @@ async def lifespan(app: FastAPI):
     
     # Run automatic migrations
     try:
-        print("🔍 Checking for database migrations...")
+        logger.info("🔍 Checking for database migrations...")
         migration_results = await migration_manager.check_and_run_migrations()
         
         if migration_results['migrations_run']:
-            print(f"✅ Applied {len(migration_results['migrations_run'])} migrations")
+            logger.info(f"✅ Applied {len(migration_results['migrations_run'])} migrations")
             for migration in migration_results['migrations_run']:
-                print(f"   - {migration['id']}: {migration['description']}")
-        
+                logger.info(f"   - {migration['id']}: {migration['description']}")
         if migration_results['errors']:
-            print(f"⚠️ Migration errors: {migration_results['errors']}")
-            
+            logger.warning(f"⚠️ Migration errors: {migration_results['errors']}")
     except Exception as e:
-        print(f"❌ Migration system error: {e}")
+        logger.error(f"❌ Migration system error: {e}")
         # Don't prevent app startup on migration errors
     
     # Start universal database queue system
     from .services.database_queue import get_database_queue
     db_queue = get_database_queue()
     try:
-        print("🔄 Starting database queue...")
+        logger.info("🔄 Starting database queue...")
         await db_queue.start()
-        print("✅ Database queue started successfully")
+        logger.info("✅ Database queue started successfully")
     except Exception as e:
-        print(f"❌ Database queue startup error: {e}")
+        logger.error(f"❌ Database queue startup error: {e}")
         import traceback
         traceback.print_exc()
         # Don't prevent app startup on queue errors
@@ -80,22 +78,22 @@ async def lifespan(app: FastAPI):
     # Pre-warm category cache
     from .services.category_cache import get_category_cache
     try:
-        print("🔄 Loading category cache...")
+        logger.info("🔄 Loading category cache...")
         category_cache = get_category_cache()
         categories = await category_cache.get_categories(force_refresh=True)
-        print(f"✅ Category cache loaded with {len(categories)} categories")
+        logger.info(f"✅ Category cache loaded with {len(categories)} categories")
     except Exception as e:
-        print(f"⚠️ Category cache preload warning: {e}")
+        logger.warning(f"⚠️ Category cache preload warning: {e}")
         # Don't prevent app startup
     
     # Start task scheduler
     from .services.scheduler import start_scheduler
     try:
-        print("🔄 Starting task scheduler...")
+        logger.info("🔄 Starting task scheduler...")
         await start_scheduler()
-        print("✅ Task scheduler started successfully")
+        logger.info("✅ Task scheduler started successfully")
     except Exception as e:
-        print(f"❌ Task scheduler startup error: {e}")
+        logger.error(f"❌ Task scheduler startup error: {e}")
         import traceback
         traceback.print_exc()
         # Don't prevent app startup on scheduler errors
@@ -103,12 +101,11 @@ async def lifespan(app: FastAPI):
     # Start process monitor for hanging Playwright processes
     from .services.process_monitor import start_process_monitor
     try:
-        print("🔍 Starting process monitor...")
+        logger.info("🔍 Starting process monitor...")
         await start_process_monitor()
-        print("✅ Process monitor started successfully")
+        logger.info("✅ Process monitor started successfully")
     except Exception as e:
-        print(f"❌ Process monitor startup error: {e}")
-    
+        logger.error(f"❌ Process monitor startup error: {e}")
     # Start pool cleanup task to prevent connection leaks
     import asyncio
     async def pool_cleanup_task():
@@ -119,8 +116,7 @@ async def lifespan(app: FastAPI):
                 from .database import force_pool_cleanup
                 await force_pool_cleanup()
             except Exception as e:
-                print(f"🧹 Pool cleanup error: {e}")
-    
+                logger.info(f"🧹 Pool cleanup error: {e}")
     # Start cleanup task in background
     cleanup_task = asyncio.create_task(pool_cleanup_task())
     app.state.cleanup_task = cleanup_task
@@ -147,10 +143,9 @@ async def lifespan(app: FastAPI):
     from .extraction import cleanup_content_extractor
     try:
         await cleanup_content_extractor()
-        print("✅ ContentExtractor cleanup completed")
+        logger.info("✅ ContentExtractor cleanup completed")
     except Exception as e:
-        print(f"⚠️ ContentExtractor cleanup error: {e}")
-    
+        logger.warning(f"⚠️ ContentExtractor cleanup error: {e}")
     # Stop database queue system
     await db_queue.stop()
     
@@ -158,11 +153,9 @@ async def lifespan(app: FastAPI):
     try:
         from .database import close_db_engine
         await close_db_engine()
-        print("✅ Database connections closed")
+        logger.info("✅ Database connections closed")
     except Exception as e:
-        print(f"⚠️ Database cleanup error: {e}")
-
-
+        logger.warning(f"⚠️ Database cleanup error: {e}")
 app = FastAPI(
     title="Evening News v2",
     description="Modern news aggregator with deduplication and web management",
@@ -210,11 +203,10 @@ app.include_router(api_router, prefix="/api/v1")
 try:
     from .auth_api import router as auth_router
     app.include_router(auth_router)
-    print("✅ Authentication enabled")
+    logger.info("✅ Authentication enabled")
 except ImportError as e:
-    print(f"⚠️ Authentication disabled (missing dependency): {e}")
-    print("ℹ️ Install PyJWT to enable authentication: pip install PyJWT")
-
+    logger.warning(f"⚠️ Authentication disabled (missing dependency): {e}")
+    logger.info("ℹ️ Install PyJWT to enable authentication: pip install PyJWT")
 # Admin routes (optional - only if auth dependencies are available)
 try:
     from fastapi.responses import RedirectResponse
@@ -226,10 +218,9 @@ try:
     async def redirect_to_admin():
         return RedirectResponse(url="/admin/", status_code=307)
 
-    print("✅ Admin interface enabled")
+    logger.info("✅ Admin interface enabled")
 except ImportError as e:
-    print(f"⚠️ Admin interface disabled (missing dependency): {e}")
-
+    logger.warning(f"⚠️ Admin interface disabled (missing dependency): {e}")
 # Public routes
 from .public import router as public_router
 app.include_router(public_router)
@@ -269,67 +260,6 @@ async def auth_status():
     """Check authentication configuration status."""
     from .auth import get_admin_auth_status
     return get_admin_auth_status()
-
-
-@app.get("/test-db")
-async def test_db():
-    """Test database connection."""
-    from .database import AsyncSessionLocal, get_db_pool_status
-    from .models import Article
-    from sqlalchemy import select, func
-    
-    try:
-        # Get pool status before test
-        pool_status_before = await get_db_pool_status()
-        
-        async with AsyncSessionLocal() as session:
-            # Count articles
-            count_result = await session.execute(select(func.count(Article.id)))
-            count = count_result.scalar()
-            
-            # Get latest articles
-            result = await session.execute(
-                select(Article).order_by(Article.fetched_at.desc()).limit(3)
-            )
-            articles = result.scalars().all()
-            
-            # Get pool status after test
-            pool_status_after = await get_db_pool_status()
-            
-            return {
-                "status": "success",
-                "total_articles": count,
-                "pool_before": pool_status_before,
-                "pool_after": pool_status_after,
-                "latest_articles": [
-                    {
-                        "id": a.id,
-                        "title": a.title[:50] + "..." if len(a.title) > 50 else a.title,
-                        "source_id": a.source_id,
-                        "fetched_at": a.fetched_at.isoformat() if a.fetched_at else None
-                    }
-                    for a in articles
-                ]
-            }
-    except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e)
-        }
-
-
-@app.get("/db-pool-status")
-async def db_pool_status():
-    """Get current database pool status for monitoring."""
-    from .database import get_db_pool_status
-    return await get_db_pool_status()
-
-
-@app.post("/db-pool-cleanup")
-async def db_pool_cleanup():
-    """Force cleanup of database connection pool."""
-    from .database import force_pool_cleanup
-    return await force_pool_cleanup()
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
+import logging
 """Domain stability tracking for content extraction optimization."""
 
 import time
@@ -5,6 +6,8 @@ import json
 from typing import Dict, List, Optional, NamedTuple
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -278,8 +281,7 @@ class DomainStabilityTracker:
         
         self._save_stats()
         
-        print(f"  📈 Consecutive all-methods failures for {domain}: {stats.consecutive_all_methods_failures}")
-    
+        logger.info(f"  📈 Consecutive all-methods failures for {domain}: {stats.consecutive_all_methods_failures}")
     def reset_all_methods_failures(self, domain: str):
         """Reset consecutive failure counter when any method succeeds."""
         if domain not in self.domain_stats:
@@ -287,7 +289,7 @@ class DomainStabilityTracker:
         
         stats = self.domain_stats[domain]
         if stats.consecutive_all_methods_failures > 0:
-            print(f"  ✅ Resetting failure counter for {domain} (was {stats.consecutive_all_methods_failures})")
+            logger.info(f"  ✅ Resetting failure counter for {domain} (was {stats.consecutive_all_methods_failures})")
             stats.consecutive_all_methods_failures = 0
             stats.last_all_methods_failure_timestamp = None
             self._save_stats()
@@ -344,8 +346,7 @@ class DomainStabilityTracker:
                                   tokens_used: int, credits_cost: float):
         """Record AI analysis completion."""
         self.ai_analysis_credits_used += credits_cost
-        print(f"  📊 AI analysis completed for {domain}: {selectors_discovered} selectors, "
-              f"{tokens_used} tokens, {credits_cost:.3f} credits")
+        logger.info(f"AI analysis completed for {domain}: {selectors_discovered} selectors, {tokens_used} tokens, {credits_cost:.3f} credits")
     
     def increment_credits_saved(self, domain: str):
         """Record credits saved by skipping AI analysis."""
@@ -495,8 +496,7 @@ class DomainStabilityTracker:
             del self.domain_stats[domain]
         
         if domains_to_remove:
-            print(f"  🧹 Cleaned up {len(domains_to_remove)} old domain statistics")
-        
+            logger.info(f"  🧹 Cleaned up {len(domains_to_remove)} old domain statistics")
         self.last_cleanup_time = current_time
     
     def export_stats(self) -> Dict[str, any]:
@@ -529,10 +529,9 @@ class DomainStabilityTracker:
                 with open(self.persistence_file, 'r') as f:
                     data = json.loads(f.read())
                     self.import_stats(data)
-                print(f"📊 Loaded domain stats from {self.persistence_file}: {len(self.domain_stats)} domains")
+                logger.info(f"📊 Loaded domain stats from {self.persistence_file}: {len(self.domain_stats)} domains")
         except Exception as e:
-            print(f"⚠️ Failed to load domain stats: {e}")
-    
+            logger.warning(f"⚠️ Failed to load domain stats: {e}")
     def _save_stats(self):
         """Save statistics to persistent storage."""
         try:
@@ -543,9 +542,7 @@ class DomainStabilityTracker:
             with open(self.persistence_file, 'w') as f:
                 f.write(json.dumps(data, indent=2))
         except Exception as e:
-            print(f"⚠️ Failed to save domain stats: {e}")
-
-
+            logger.warning(f"⚠️ Failed to save domain stats: {e}")
 # Global instance
 _stability_tracker = None
 

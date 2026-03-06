@@ -1,3 +1,4 @@
+import logging
 """Sources API router - handles news sources management."""
 
 from typing import Optional
@@ -10,6 +11,8 @@ from sqlalchemy import select, func, delete
 from ..database import get_db
 from ..models import Article, Source
 from ..services.source_manager import SourceManager
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter()
@@ -82,7 +85,7 @@ async def create_source(
 ):
     """Create a new news source."""
     try:
-        print(f"Creating source with data: {source_data}")
+        logger.info(f"Creating source with data: {source_data}")
         source_manager = SourceManager()
         
         # Create source
@@ -107,7 +110,7 @@ async def create_source(
         }
         
     except Exception as e:
-        print(f"Error creating source: {e}")
+        logger.info(f"Error creating source: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -139,7 +142,7 @@ async def test_source(
         }
         
     except Exception as e:
-        print(f"Error testing source: {e}")
+        logger.info(f"Error testing source: {e}")
         return {
             "source_id": source_id,
             "success": False,
@@ -189,7 +192,7 @@ async def update_source(
         }
         
     except Exception as e:
-        print(f"Error updating source: {e}")
+        logger.info(f"Error updating source: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -220,7 +223,7 @@ async def toggle_source(
         }
         
     except Exception as e:
-        print(f"Error toggling source: {e}")
+        logger.info(f"Error toggling source: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 
 
@@ -268,6 +271,6 @@ async def delete_source(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error deleting source: {e}")
+        logger.info(f"Error deleting source: {e}")
         raise HTTPException(status_code=400, detail=str(e))
 

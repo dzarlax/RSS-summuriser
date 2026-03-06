@@ -1,3 +1,4 @@
+import logging
 """
 Category management service for handling multiple categories per article.
 """
@@ -9,6 +10,8 @@ from sqlalchemy.orm import selectinload
 
 from ..models import Article, Category, ArticleCategory
 from .category_parser import parse_category, get_valid_categories_from_cache
+
+logger = logging.getLogger(__name__)
 
 
 class CategoryService:
@@ -93,7 +96,7 @@ class CategoryService:
                 db_mapping.last_used = func.now()
                 await self.db.commit()
 
-                print(f"  🔄 DB Mapped '{category_name}' → '{db_mapping.fixed_category}'")
+                logger.info(f"  🔄 DB Mapped '{category_name}' → '{db_mapping.fixed_category}'")
                 return db_mapping.fixed_category
 
             # Look for case-insensitive match in database
@@ -111,26 +114,25 @@ class CategoryService:
                 db_mapping.last_used = func.now()
                 await self.db.commit()
 
-                print(f"  🔄 DB Mapped '{category_name}' → '{db_mapping.fixed_category}' (case-insensitive)")
+                logger.info(f"  🔄 DB Mapped '{category_name}' → '{db_mapping.fixed_category}' (case-insensitive)")
                 return db_mapping.fixed_category
                 
         except Exception as e:
-            print(f"  ⚠️ Database mapping lookup failed: {e}")
-        
+            logger.warning(f"  ⚠️ Database mapping lookup failed: {e}")
         # Fallback to hardcoded mapping
         mapped_category = self.CATEGORY_MAPPING.get(category_lower)
         if mapped_category:
-            print(f"  🔄 Hardcoded mapped '{category_name}' → '{mapped_category}'")
+            logger.info(f"  🔄 Hardcoded mapped '{category_name}' → '{mapped_category}'")
             return mapped_category
             
         # Check partial matches for flexible mapping
         for key, mapped in self.CATEGORY_MAPPING.items():
             if key in category_lower or category_lower in key:
-                print(f"  🔄 Partial mapped '{category_name}' → '{mapped}' (via '{key}')")
+                logger.info(f"  🔄 Partial mapped '{category_name}' → '{mapped}' (via '{key}')")
                 return mapped
                 
         # Default fallback - suggest creating a mapping
-        print(f"  ⚠️ Unknown category '{category_name}' mapped to 'Other' - consider adding to database mapping")
+        logger.warning(f"  ⚠️ Unknown category '{category_name}' mapped to 'Other' - consider adding to database mapping")
         return 'Other'
     
     async def get_all_categories(self) -> List[Category]:
@@ -196,7 +198,7 @@ class CategoryService:
             # Get category from database
             category = await self.get_category_by_name(category_name)
             if not category:
-                print(f"⚠️ Category '{category_name}' not found, skipping")
+                logger.warning(f"⚠️ Category '{category_name}' not found, skipping")
                 continue
             
             # Check for duplicates before creating article-category relationship
@@ -222,10 +224,9 @@ class CategoryService:
         
         await self.db.commit()
         
-        print(f"  🏷️ Assigned {len(assigned_categories)} categories to article {article_id}")
+        logger.info(f"  🏷️ Assigned {len(assigned_categories)} categories to article {article_id}")
         for cat in assigned_categories:
-            print(f"    - {cat['display_name']} ({cat['confidence']} confidence)")
-        
+            logger.info(f"    - {cat['display_name']} ({cat['confidence']} confidence)")
         return assigned_categories
     
     async def assign_categories_with_confidences(
@@ -260,12 +261,11 @@ class CategoryService:
             
             # Log mapping if category was changed
             if original_category_name != normalized_category_name:
-                print(f"  🔄 Mapped '{original_category_name}' → '{normalized_category_name}'")
-            
+                logger.info(f"  🔄 Mapped '{original_category_name}' → '{normalized_category_name}'")
             # Get existing category (must exist in our fixed list)
             category = await self.get_category_by_name(normalized_category_name)
             if not category:
-                print(f"  ❌ Category '{normalized_category_name}' not found in database - this should not happen!")
+                logger.error(f"  ❌ Category '{normalized_category_name}' not found in database - this should not happen!")
                 continue
             
             # Create article-category relationship (check for duplicates)
@@ -310,14 +310,13 @@ class CategoryService:
         if old_fixed_category == new_fixed_category:
             return 0
             
-        print(f"🔄 Applying mapping change: {ai_category} ({old_fixed_category} → {new_fixed_category})")
-        
+        logger.info(f"🔄 Applying mapping change: {ai_category} ({old_fixed_category} → {new_fixed_category})")
         # Get category IDs
         old_category = await self.get_category_by_name(old_fixed_category)
         new_category = await self.get_category_by_name(new_fixed_category)
         
         if not old_category or not new_category:
-            print(f"❌ Category not found: {old_fixed_category} or {new_fixed_category}")
+            logger.error(f"❌ Category not found: {old_fixed_category} or {new_fixed_category}")
             return 0
         
         # Find articles that were categorized with this specific AI category
@@ -350,8 +349,7 @@ class CategoryService:
 
         await self.db.commit()
 
-        print(f"✅ Updated {count} articles from {old_fixed_category} to {new_fixed_category}")
-
+        logger.info(f"✅ Updated {count} articles from {old_fixed_category} to {new_fixed_category}")
         return count
     
     async def apply_new_mapping_to_existing_articles(self, ai_category: str, fixed_category: str) -> int:
@@ -365,12 +363,11 @@ class CategoryService:
         Returns:
             Number of articles updated
         """
-        print(f"🔄 Applying new mapping to existing articles: {ai_category} → {fixed_category}")
-        
+        logger.info(f"🔄 Applying new mapping to existing articles: {ai_category} → {fixed_category}")
         # Get the fixed category ID
         new_category = await self.get_category_by_name(fixed_category)
         if not new_category:
-            print(f"❌ Fixed category not found: {fixed_category}")
+            logger.error(f"❌ Fixed category not found: {fixed_category}")
             return 0
         
         # Find all articles that have this AI category and update their category_id
@@ -416,8 +413,7 @@ class CategoryService:
 
         await self.db.commit()
 
-        print(f"✅ Applied new mapping to {count} articles: {ai_category} → {fixed_category}")
-
+        logger.info(f"✅ Applied new mapping to {count} articles: {ai_category} → {fixed_category}")
         return count
     
     async def bulk_recategorize_by_mapping(self, ai_category: str) -> int:
@@ -444,11 +440,10 @@ class CategoryService:
         mapping = result.scalar_one_or_none()
         
         if not mapping:
-            print(f"❌ No active mapping found for AI category: {ai_category}")
+            logger.error(f"❌ No active mapping found for AI category: {ai_category}")
             return 0
         
-        print(f"🔍 Bulk recategorizing articles for: {ai_category} → {mapping.fixed_category}")
-        
+        logger.info(f"🔍 Bulk recategorizing articles for: {ai_category} → {mapping.fixed_category}")
         # This would require AI re-analysis, which is expensive
         # For now, we'll implement a simpler approach in the next method
         return 0
@@ -484,13 +479,13 @@ class CategoryService:
             )
             self.db.add(mapping)
             await self.db.commit()
-            print(f"✅ Created new mapping: {ai_category} → {new_fixed_category}")
+            logger.info(f"✅ Created new mapping: {ai_category} → {new_fixed_category}")
             return True
         
         old_fixed_category = mapping.fixed_category
         
         if old_fixed_category == new_fixed_category:
-            print(f"⚠️ Mapping unchanged: {ai_category} → {new_fixed_category}")
+            logger.warning(f"⚠️ Mapping unchanged: {ai_category} → {new_fixed_category}")
             return True
         
         # Update mapping
@@ -504,9 +499,8 @@ class CategoryService:
             ai_category, old_fixed_category, new_fixed_category
         )
         
-        print(f"✅ Updated mapping: {ai_category} ({old_fixed_category} → {new_fixed_category})")
-        print(f"📊 Applied to {updated_count} existing articles")
-        
+        logger.info(f"✅ Updated mapping: {ai_category} ({old_fixed_category} → {new_fixed_category})")
+        logger.info(f"📊 Applied to {updated_count} existing articles")
         return True
 
     async def get_article_categories(self, article_id: int) -> List[Dict]:

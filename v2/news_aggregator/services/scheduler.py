@@ -152,7 +152,7 @@ class TaskScheduler:
         
     async def _scheduler_loop(self):
         """Main scheduler loop."""
-        print("Scheduler loop started (enhanced version)")
+        logger.info("Scheduler loop started (enhanced version)")
         logger.info("Scheduler loop started")
         
         # Check for stuck tasks on startup
@@ -169,19 +169,18 @@ class TaskScheduler:
                 await asyncio.sleep(self._check_interval)
                 
             except asyncio.CancelledError:
-                print("Scheduler loop cancelled")
+                logger.info("Scheduler loop cancelled")
                 logger.info("Scheduler loop cancelled")
                 break
             except Exception as e:
-                print(f"Error in scheduler loop: {e}")
+                logger.info(f"Error in scheduler loop: {e}")
                 logger.error(f"Error in scheduler loop: {e}", exc_info=True)
                 await asyncio.sleep(self._check_interval)
 
     async def _reset_stuck_tasks(self):
         """Reset tasks that are stuck in running state for too long."""
         try:
-            print("Checking for stuck scheduler tasks...")
-            
+            logger.info("Checking for stuck scheduler tasks...")
             async def reset_operation(session):
                 from sqlalchemy import update
                 
@@ -200,9 +199,9 @@ class TaskScheduler:
                 stuck_tasks = result.scalars().all()
                 
                 if stuck_tasks:
-                    print(f"Found {len(stuck_tasks)} stuck tasks (running > 4h):")
+                    logger.info(f"Found {len(stuck_tasks)} stuck tasks (running > 4h):")
                     for task in stuck_tasks:
-                        print(f"  - {task.task_name} (Last run: {task.last_run})")
+                        logger.info(f"  - {task.task_name} (Last run: {task.last_run})")
                         logger.warning(f"Resetting stuck task: {task.task_name}")
                         
                     # Reset them
@@ -216,14 +215,13 @@ class TaskScheduler:
                     
                     await session.execute(stmt)
                     await session.commit()
-                    print(f"Reset {len(stuck_tasks)} stuck tasks")
+                    logger.info(f"Reset {len(stuck_tasks)} stuck tasks")
                 else:
-                    print("No stuck tasks found")
-                    
+                    logger.info("No stuck tasks found")
             await execute_custom_write(reset_operation)
             
         except Exception as e:
-            print(f"Error checking stuck tasks: {e}")
+            logger.info(f"Error checking stuck tasks: {e}")
             logger.error(f"Error checking stuck tasks: {e}", exc_info=True)
 
                 
@@ -247,15 +245,14 @@ class TaskScheduler:
             
             # Debug output every 10 minutes or when tasks are overdue
             if now_utc.minute % 10 == 0 or any(now_utc >= (s.next_run.replace(tzinfo=pytz.UTC) if s.next_run and s.next_run.tzinfo is None else s.next_run.astimezone(pytz.UTC) if s.next_run else now_utc) for s in settings if s.next_run):
-                print(f"Scheduler check at {now_utc}: {len(settings)} tasks available")
+                logger.info(f"Scheduler check at {now_utc}: {len(settings)} tasks available")
                 for setting in settings:
                     if setting.next_run:
                         next_run_utc = setting.next_run.replace(tzinfo=pytz.UTC) if setting.next_run.tzinfo is None else setting.next_run.astimezone(pytz.UTC)
                         should_run = now_utc >= next_run_utc
                         delay = (now_utc - next_run_utc).total_seconds() / 60 if should_run else (next_run_utc - now_utc).total_seconds() / 60
                         status = "OVERDUE" if should_run else f"in {delay:.1f}m"
-                        print(f"  {setting.task_name}: {status}")
-                
+                        logger.info(f"  {setting.task_name}: {status}")
             for setting in settings:
                 # Check if task should run
                 should_run = await self._should_run_task(setting, now_utc)
@@ -272,7 +269,7 @@ class TaskScheduler:
                         )
                         continue
 
-                    print(f"Starting scheduled task: {setting.task_name}")
+                    logger.info(f"Starting scheduled task: {setting.task_name}")
                     logger.info(f"Running scheduled task: {setting.task_name}")
                     
                     # Mark as running through write queue
@@ -304,7 +301,7 @@ class TaskScheduler:
                         raise
                         
         except Exception as e:
-            print(f"Error checking tasks: {e}")
+            logger.info(f"Error checking tasks: {e}")
             logger.error(f"Error checking tasks: {e}", exc_info=True)
             
     async def _should_run_task(self, setting: ScheduleSettings, now_utc: datetime) -> bool:
@@ -326,12 +323,11 @@ class TaskScheduler:
             if should_run:
                 delay_minutes = (now_utc - next_run_utc).total_seconds() / 60
                 if delay_minutes > 5:  # If more than 5 minutes late
-                    print(f"Task {setting.task_name} is {delay_minutes:.1f} minutes overdue")
-                    
+                    logger.info(f"Task {setting.task_name} is {delay_minutes:.1f} minutes overdue")
             return should_run
             
         except Exception as e:
-            print(f"Error checking if task {setting.task_name} should run: {e}")
+            logger.info(f"Error checking if task {setting.task_name} should run: {e}")
             logger.error(f"Error checking if task {setting.task_name} should run: {e}", exc_info=True)
             return False
         
@@ -339,7 +335,7 @@ class TaskScheduler:
         """Run a specific task."""
         start_time = datetime.utcnow()
         try:
-            print(f"Executing task: {task_name}")
+            logger.info(f"Executing task: {task_name}")
             logger.info(f"Executing task: {task_name}")
 
             timeout_seconds = self._task_timeout_seconds
@@ -365,7 +361,7 @@ class TaskScheduler:
             elif task_name == "news_digest":
                 task_coro = self._run_news_digest_cycle(task_config)
             else:
-                print(f"Unknown task type: {task_name}")
+                logger.info(f"Unknown task type: {task_name}")
                 logger.warning(f"Unknown task type: {task_name}")
 
             if task_coro is not None:
@@ -375,12 +371,12 @@ class TaskScheduler:
                     await task_coro
                 
             duration = (datetime.utcnow() - start_time).total_seconds()
-            print(f"Task completed successfully: {task_name} (took {duration:.1f}s)")
+            logger.info(f"Task completed successfully: {task_name} (took {duration:.1f}s)")
             logger.info(f"Task completed successfully: {task_name} (took {duration:.1f}s)")
             
         except Exception as e:
             duration = (datetime.utcnow() - start_time).total_seconds()
-            print(f"Error running task {task_name} after {duration:.1f}s: {e}")
+            logger.info(f"Error running task {task_name} after {duration:.1f}s: {e}")
             logger.error(f"Error running task {task_name}: {e}", exc_info=True)
             
         finally:
@@ -393,7 +389,7 @@ class TaskScheduler:
     async def _run_telegram_digest(self, config: Dict[str, Any]):
         """Run telegram digest task using unified orchestrator logic."""
         try:
-            print("Starting telegram digest task...")
+            logger.info("Starting telegram digest task...")
             logger.info("Starting telegram digest task via orchestrator")
             
             # Use the same logic as button-triggered digest for consistency
@@ -401,27 +397,27 @@ class TaskScheduler:
             
             if result.get('success'):
                 parts_sent = result.get('parts_sent', 0)
-                print(f"Telegram digest sent successfully ({parts_sent} parts)")
+                logger.info(f"Telegram digest sent successfully ({parts_sent} parts)")
                 logger.info(f"Telegram digest sent successfully ({parts_sent} parts)")
             else:
-                print("Failed to send telegram digest")
+                logger.info("Failed to send telegram digest")
                 logger.warning(f"Failed to send telegram digest: {result.get('error', 'unknown error')}")
                 
         except Exception as e:
-            print(f"Error in telegram digest task: {e}")
+            logger.info(f"Error in telegram digest task: {e}")
             logger.error(f"Error in telegram digest task: {e}", exc_info=True)
             raise
                 
     async def _run_news_processing(self, config: Dict[str, Any]):
         """Run news processing task."""
         try:
-            print("Starting news processing cycle...")
+            logger.info("Starting news processing cycle...")
             stats = await self.orchestrator.run_full_cycle()
             processed = stats.get('articles_processed', 0)
-            print(f"News processing completed: {processed} articles processed")
+            logger.info(f"News processing completed: {processed} articles processed")
             logger.info(f"News processing completed: {processed} articles processed")
         except Exception as e:
-            print(f"News processing failed: {e}")
+            logger.info(f"News processing failed: {e}")
             logger.error(f"News processing failed: {e}", exc_info=True)
             raise
         
@@ -604,15 +600,14 @@ class TaskScheduler:
     async def _run_reprocess_failed(self, config: Dict[str, Any]):
         """Run reprocess failed extractions task."""
         try:
-            print("Starting failed extraction reprocessing task...")
+            logger.info("Starting failed extraction reprocessing task...")
             logger.info("Starting failed extraction reprocessing task")
             
             # Get configuration
             limit = config.get('limit', 20)  # Process max 20 articles per run by default
             dry_run = config.get('dry_run', False)
             
-            print(f"  Reprocessing up to {limit} failed extractions (dry_run={dry_run})")
-            
+            logger.info(f"  Reprocessing up to {limit} failed extractions (dry_run={dry_run})")
             # Run the reprocessing
             results = await self.orchestrator.reprocess_failed_extractions(limit=limit, dry_run=dry_run)
             
@@ -623,21 +618,21 @@ class TaskScheduler:
             failed_count = results.get('failed', 0)
             
             if dry_run:
-                print(f"  Dry run completed: {candidates_count} articles would be reprocessed")
+                logger.info(f"  Dry run completed: {candidates_count} articles would be reprocessed")
                 logger.info(f"Reprocess dry run: {candidates_count} candidates found")
             else:
-                print(f"  Reprocessing completed: {processed_count} processed, {improved_count} improved, {failed_count} failed")
+                logger.info(f"  Reprocessing completed: {processed_count} processed, {improved_count} improved, {failed_count} failed")
                 logger.info(f"Reprocessing completed: processed={processed_count}, improved={improved_count}, failed={failed_count}")
                 
                 # Log any errors
                 errors = results.get('errors', [])
                 if errors:
-                    print(f"  {len(errors)} errors during reprocessing")
+                    logger.info(f"  {len(errors)} errors during reprocessing")
                     for error in errors:
                         logger.warning(f"Reprocessing error: {error}")
                         
         except Exception as e:
-            print(f"Error in failed extraction reprocessing task: {e}")
+            logger.info(f"Error in failed extraction reprocessing task: {e}")
             logger.error(f"Error in failed extraction reprocessing task: {e}", exc_info=True)
             raise
             

@@ -68,7 +68,7 @@ class AIClient:
         metadata_result = {'publication_date': None, 'full_article_url': None}
         
         try:
-            print(f"  🔗 Extracting content with metadata from URL: {article_url}")
+            logger.info(f"  🔗 Extracting content with metadata from URL: {article_url}")
             # Step 1: Extract article content using enhanced extractor with metadata
             from ..extraction import ContentExtractor
             
@@ -81,20 +81,19 @@ class AIClient:
                     full_url = metadata_result.get('full_article_url')
                     
                     if pub_date:
-                        print(f"  📅 Found publication date: {pub_date}")
+                        logger.info(f"  📅 Found publication date: {pub_date}")
                     if full_url and full_url != article_url:
-                        print(f"  🔗 Followed link to full article: {full_url}")
-                        
+                        logger.info(f"  🔗 Followed link to full article: {full_url}")
                     # If AI-enhanced extraction didn't get content, try standard extraction
                     if not content:
                         content = await content_extractor.extract_article_content(article_url)
                     
             except Exception as e:
-                print(f"  ⚠️ Content extraction failed: {e}")
+                logger.warning(f"  ⚠️ Content extraction failed: {e}")
                 content = None
             
             if not content:
-                print(f"  ❌ Could not extract content from {article_url}")
+                logger.error(f"  ❌ Could not extract content from {article_url}")
                 return {
                     'summary': None, 
                     'publication_date': metadata_result.get('publication_date'),
@@ -120,7 +119,7 @@ class AIClient:
             }
             
         except Exception as e:
-            print(f"  ❌ Error getting article summary with metadata: {e}")
+            logger.error(f"  ❌ Error getting article summary with metadata: {e}")
             return {
                 'summary': None,
                 'publication_date': metadata_result.get('publication_date'),
@@ -142,8 +141,7 @@ class AIClient:
             return None
         
         try:
-            print(f"  🗓️ AI extracting publication date for {url}")
-            
+            logger.info(f"  🗓️ AI extracting publication date for {url}")
             # Truncate HTML to manageable size
             content_sample = html_content[:3000] if len(html_content) > 3000 else html_content
             
@@ -180,15 +178,15 @@ class AIClient:
                         from datetime import datetime
                         try:
                             datetime.strptime(pub_date, '%Y-%m-%d')
-                            print(f"  ✅ AI found publication date: {pub_date} (confidence: {confidence:.2f})")
+                            logger.info(f"  ✅ AI found publication date: {pub_date} (confidence: {confidence:.2f})")
                             return pub_date
                         except ValueError:
-                            print(f"  ⚠️ Invalid date format from AI: {pub_date}")
+                            logger.warning(f"  ⚠️ Invalid date format from AI: {pub_date}")
                             return None
                 return None
         
         except Exception as e:
-            print(f"  ⚠️ Error extracting publication date: {e}")
+            logger.warning(f"  ⚠️ Error extracting publication date: {e}")
             return None
     
     async def extract_full_article_link(self, html_content: str, base_url: str) -> Optional[str]:
@@ -206,8 +204,7 @@ class AIClient:
             return None
         
         try:
-            print(f"  🔗 AI extracting full article link for {base_url}")
-            
+            logger.info(f"  🔗 AI extracting full article link for {base_url}")
             # Truncate HTML to manageable size
             content_sample = html_content[:4000] if len(html_content) > 4000 else html_content
             
@@ -249,15 +246,15 @@ class AIClient:
                         # Validate URL format
                         parsed = urlparse(full_url)
                         if parsed.scheme and parsed.netloc:
-                            print(f"  ✅ AI found full article link: {full_url} (confidence: {confidence:.2f})")
+                            logger.info(f"  ✅ AI found full article link: {full_url} (confidence: {confidence:.2f})")
                             return full_url
                         else:
-                            print(f"  ⚠️ Invalid URL from AI: {full_url}")
+                            logger.warning(f"  ⚠️ Invalid URL from AI: {full_url}")
                             return None
                 return None
         
         except Exception as e:
-            print(f"  ⚠️ Error extracting full article link: {e}")
+            logger.warning(f"  ⚠️ Error extracting full article link: {e}")
             return None
     
     async def generate_digest(self, result_data: dict, message_part: Optional[int] = None) -> Optional[str]:
@@ -320,13 +317,13 @@ class AIClient:
                 digest = (response_data['choices'][0]['message']['content'] or "").strip()
                 return digest
             else:
-                print(f"  ⚠️ No choices in digest API response")
+                logger.warning(f"  ⚠️ No choices in digest API response")
                 return None
         
         except APIError:
             raise
         except Exception as e:
-            print(f"  ⚠️ Error generating digest: {e}")
+            logger.warning(f"  ⚠️ Error generating digest: {e}")
             raise APIError(f"Failed to generate digest: {e}")
     
     @retry(
@@ -410,12 +407,11 @@ class AIClient:
 
         params = {"key": self.api_key}
 
-        print(f"  🌐 Gemini endpoint: {url}")
-        print(f"  🤖 Gemini model: {model}")
-        print(f"  📊 Analysis type: {analysis_type}")
-        print(f"  🏷️ Domain: {domain}")
-        print(f"  📝 Prompt length: {len(prompt)} chars")
-
+        logger.info(f"  🌐 Gemini endpoint: {url}")
+        logger.info(f"  🤖 Gemini model: {model}")
+        logger.info(f"  📊 Analysis type: {analysis_type}")
+        logger.info(f"  🏷️ Domain: {domain}")
+        logger.info(f"  📝 Prompt length: {len(prompt)} chars")
         async def _make_request():
             async with get_http_client() as client:
                 response = await client.post(url, json=payload, params=params, timeout=30)
@@ -423,8 +419,7 @@ class AIClient:
                 async with response:
                     if response.status == 200:
                         raw = await response.json()
-                        print(f"  📄 Gemini raw response keys: {list(raw.keys())}")
-
+                        logger.info(f"  📄 Gemini raw response keys: {list(raw.keys())}")
                         candidates = raw.get("candidates") or []
                         if not candidates:
                             raise APIError(
@@ -460,7 +455,7 @@ class AIClient:
                         raise APIError("Rate limit exceeded", status_code=429)
                     else:
                         error_text = await response.text()
-                        print(f"  ❌ Gemini API error {response.status}: {error_text[:500]}...")
+                        logger.error(f"  ❌ Gemini API error {response.status}: {error_text[:500]}...")
                         raise APIError(
                             f"Gemini API error: {response.status}",
                             status_code=response.status,
@@ -521,14 +516,13 @@ class AIClient:
 
         params = {"key": self.api_key}
 
-        print(f"  🌐 Gemini structured endpoint: {url}")
-        print(f"  🤖 Model: {model}")
-        print(f"  📊 Analysis type: {analysis_type}")
-        print(f"  🏷️ Domain: {domain}")
-        print(f"  📋 Using structured output with schema")
-        print(f"  🔍 Is Gemini 3: {is_gemini_3}")
-        print(f"  📝 Payload generationConfig keys: {list(payload['generationConfig'].keys())}")
-
+        logger.info(f"  🌐 Gemini structured endpoint: {url}")
+        logger.info(f"  🤖 Model: {model}")
+        logger.info(f"  📊 Analysis type: {analysis_type}")
+        logger.info(f"  🏷️ Domain: {domain}")
+        logger.info(f"  📋 Using structured output with schema")
+        logger.info(f"  🔍 Is Gemini 3: {is_gemini_3}")
+        logger.info(f"  📝 Payload generationConfig keys: {list(payload['generationConfig'].keys())}")
         async def _make_request():
             async with get_http_client() as client:
                 response = await client.post(url, json=payload, params=params, timeout=40)
@@ -561,13 +555,13 @@ class AIClient:
                         try:
                             structured = json.loads(text_response)
                         except json.JSONDecodeError as e:
-                            print(f"  ⚠️ Failed to parse JSON from Gemini structured response: {e}")
-                            print(f"  📄 Response preview: {text_response[:500]}...")
+                            logger.warning(f"  ⚠️ Failed to parse JSON from Gemini structured response: {e}")
+                            logger.info(f"  📄 Response preview: {text_response[:500]}...")
                             # Fallback: try to extract JSON from markdown if needed
                             try:
                                 json_str = self._extract_json_from_response(text_response)
                                 structured = json.loads(json_str)
-                                print(f"  ✅ Extracted JSON from markdown code block")
+                                logger.info(f"  ✅ Extracted JSON from markdown code block")
                             except Exception as e2:
                                 raise APIError(
                                     f"Failed to parse JSON from Gemini structured response: {e2}",
@@ -589,7 +583,7 @@ class AIClient:
                         raise APIError("Rate limit exceeded", status_code=429)
                     else:
                         error_text = await response.text()
-                        print(f"  ❌ Gemini API error {response.status}: {error_text[:500]}...")
+                        logger.error(f"  ❌ Gemini API error {response.status}: {error_text[:500]}...")
                         raise APIError(
                             f"Gemini API error: {response.status}",
                             status_code=response.status,
@@ -658,8 +652,7 @@ class AIClient:
                     await session.commit()
             except Exception as e:
                 # Don't fail the request if tracking fails
-                print(f"  ⚠️ Failed to track AI usage: {e}")
-
+                logger.warning(f"  ⚠️ Failed to track AI usage: {e}")
         # Fire and forget - don't block the main request
         asyncio.create_task(_do_track())
     
@@ -730,8 +723,7 @@ class AIClient:
         if system_prompt:
             full_prompt = f"{system_prompt}\n\n{prompt}"
 
-        print(f"  🤖 Sending to AI for summarization...")
-        
+        logger.info(f"  🤖 Sending to AI for summarization...")
         # Use unified API with appropriate parameters for summarization
         response_data = await self._make_raw_ai_request(
             full_prompt,
@@ -808,11 +800,11 @@ class AIClient:
             is_scientific_source = url and any(domain in url.lower() for domain in ['nplus1.ru', 'arxiv.org', 'nature.com', 'sciencedirect.com'])
             
             if is_scientific_source and title and len(title.strip()) > 20:
-                print(f"  🧬 Scientific source detected - analyzing informative title: '{title[:50]}...'")
+                logger.info(f"  🧬 Scientific source detected - analyzing informative title: '{title[:50]}...'")
                 # Use title as content for analysis
                 content = title
             else:
-                print(f"  ⚠️ Content too short for analysis: {len(content.strip()) if content else 0} chars < 30")
+                logger.warning(f"  ⚠️ Content too short for analysis: {len(content.strip()) if content else 0} chars < 30")
                 return self._get_fallback_analysis()
         
         max_retries = 3
@@ -820,13 +812,11 @@ class AIClient:
             try:
                 # Build enhanced combined prompt with dynamic category metadata
                 prompt = await self._build_combined_analysis_prompt_enhanced(title, content, url)
-                print(f"  🚀 Using enhanced prompt with category metadata")
-                
+                logger.info(f"  🚀 Using enhanced prompt with category metadata")
                 retry_text = f" (attempt {attempt + 1}/{max_retries + 1})" if attempt > 0 else ""
-                print(f"  🧠 Combined AI analysis for article{retry_text}...")
-                print(f"  📄 Content length: {len(content)} characters")
-                print(f"  📝 Title: {title[:100]}...")
-
+                logger.info(f"  🧠 Combined AI analysis for article{retry_text}...")
+                logger.info(f"  📄 Content length: {len(content)} characters")
+                logger.info(f"  📝 Title: {title[:100]}...")
                 # Extract domain for tracking
                 from urllib.parse import urlparse
                 domain = urlparse(url).netloc if url else "unknown"
@@ -874,7 +864,7 @@ class AIClient:
                         domain=domain
                     )
                     result = response_data.get("result") or {}
-                    print(f"  ✅ Combined analysis (structured) successful")
+                    logger.info(f"  ✅ Combined analysis (structured) successful")
                     # Load valid categories from cache
                     from .category_cache import get_category_cache
                     category_cache = get_category_cache()
@@ -892,9 +882,9 @@ class AIClient:
                     response = response_data['choices'][0]['message']['content']
                 
                 if not response:
-                    print(f"  ❌ Empty response from AI")
+                    logger.error(f"  ❌ Empty response from AI")
                     if attempt < max_retries:
-                        print(f"  🔄 Retrying in 2 seconds...")
+                        logger.info(f"  🔄 Retrying in 2 seconds...")
                         await asyncio.sleep(2)
                         continue
                     return self._get_fallback_analysis()
@@ -903,8 +893,7 @@ class AIClient:
                 try:
                     json_str = self._extract_json_from_response(response)
                     result = json.loads(json_str)
-                    print(f"  ✅ Combined analysis successful")
-
+                    logger.info(f"  ✅ Combined analysis successful")
                     # Validate and clean results
                     # Load valid categories from cache
                     from .category_cache import get_category_cache
@@ -913,18 +902,18 @@ class AIClient:
                     return self._validate_analysis_result(result, title, content, valid_categories)
 
                 except json.JSONDecodeError as e:
-                    print(f"  ⚠️ JSON parsing error: {e}")
-                    print(f"  📄 Raw response: {response[:200]}...")
+                    logger.warning(f"  ⚠️ JSON parsing error: {e}")
+                    logger.info(f"  📄 Raw response: {response[:200]}...")
                     if attempt < max_retries:
-                        print(f"  🔄 Retrying in 2 seconds...")
+                        logger.info(f"  🔄 Retrying in 2 seconds...")
                         await asyncio.sleep(2)
                         continue
                     return self._parse_fallback_response(response)
                     
             except Exception as e:
-                print(f"  ❌ Error in combined analysis: {e}")
+                logger.error(f"  ❌ Error in combined analysis: {e}")
                 if attempt < max_retries:
-                    print(f"  🔄 Retrying in 2 seconds...")
+                    logger.info(f"  🔄 Retrying in 2 seconds...")
                     await asyncio.sleep(2)
                     continue
                 return self._get_fallback_analysis()

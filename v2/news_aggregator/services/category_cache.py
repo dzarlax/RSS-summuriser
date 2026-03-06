@@ -1,3 +1,4 @@
+import logging
 """Category cache service for managing valid categories from database."""
 
 from typing import List, Optional
@@ -7,6 +8,8 @@ import time
 from ..database import AsyncSessionLocal
 from ..models import Category
 from sqlalchemy import select
+
+logger = logging.getLogger(__name__)
 
 
 class CategoryCache:
@@ -77,17 +80,16 @@ class CategoryCache:
                 categories = [row[0] for row in result.all()]
 
                 if categories:
-                    print(f"  📋 Loaded {len(categories)} categories from database: {categories}")
-
+                    logger.info(f"  📋 Loaded {len(categories)} categories from database: {categories}")
                 return categories
         except Exception as e:
-            print(f"  ⚠️ Failed to load categories from database: {e}")
+            logger.warning(f"  ⚠️ Failed to load categories from database: {e}")
             return None
 
     def _get_fallback_categories(self) -> List[str]:
         """Get fallback hardcoded categories."""
         categories = ['AI', 'Serbia', 'Tech', 'Business', 'Science', 'Nature', 'Marketing', 'Other']
-        print(f"  ⚠️ Using hardcoded fallback categories (DB unavailable): {categories}")
+        logger.warning(f"  ⚠️ Using hardcoded fallback categories (DB unavailable): {categories}")
         return categories
 
     async def invalidate(self):

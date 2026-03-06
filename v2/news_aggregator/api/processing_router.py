@@ -1,3 +1,4 @@
+import logging
 """Processing API router - handles news processing operations."""
 
 import asyncio
@@ -7,6 +8,8 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 
 from ..orchestrator import NewsOrchestrator
 
+logger = logging.getLogger(__name__)
+
 
 router = APIRouter()
 
@@ -15,8 +18,7 @@ router = APIRouter()
 async def trigger_processing(background_tasks: BackgroundTasks):
     """Trigger news processing cycle in background."""
     try:
-        print("📰 Starting news processing cycle...")
-        
+        logger.info("📰 Starting news processing cycle...")
         # Create orchestrator and run processing
         orchestrator = NewsOrchestrator()
         await orchestrator.start()
@@ -32,7 +34,7 @@ async def trigger_processing(background_tasks: BackgroundTasks):
         }
         
     except Exception as e:
-        print(f"Error starting processing: {e}")
+        logger.info(f"Error starting processing: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to start processing: {str(e)}")
 
 

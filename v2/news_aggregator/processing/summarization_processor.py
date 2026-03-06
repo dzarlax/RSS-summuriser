@@ -1,3 +1,4 @@
+import logging
 """Summarization processor for articles based on source type."""
 
 from datetime import datetime
@@ -6,6 +7,8 @@ from urllib.parse import urlparse
 
 from ..models import Article
 from ..services.ai_client import get_ai_client
+
+logger = logging.getLogger(__name__)
 
 
 class SummarizationProcessor:
@@ -38,7 +41,7 @@ class SummarizationProcessor:
                 return await self._process_custom_summary(article, source_type, stats)
                 
         except Exception as e:
-            print(f"  ⚠️ Error getting summary by source type: {e}")
+            logger.warning(f"  ⚠️ Error getting summary by source type: {e}")
             # Fallback to original content
             return article.content or article.title
     
@@ -83,8 +86,7 @@ class SummarizationProcessor:
                     # If AI managed to summarize external article, use it
                     return ai_summary
             except Exception as e:
-                print(f"  ⚠️ Skipping Telegram AI extraction (external link failed): {e}")
-
+                logger.warning(f"  ⚠️ Skipping Telegram AI extraction (external link failed): {e}")
         # Fallback: use Telegram preview content
         return article.content or article.title
     
@@ -117,8 +119,7 @@ class SummarizationProcessor:
                 # Update published_at if we found a publication date
                 self._update_article_publication_date(article, pub_date, 'Twitter')
             except Exception as e:
-                print(f"  ⚠️ Error extracting Twitter metadata: {e}")
-        
+                logger.warning(f"  ⚠️ Error extracting Twitter metadata: {e}")
         # Tweet content is usually complete, minimal processing
         return article.content or article.title
     
@@ -176,6 +177,6 @@ class SummarizationProcessor:
             parsed_date = dateutil.parser.parse(pub_date)
             # Remove timezone info to match DateTime field in database
             article.published_at = parsed_date.replace(tzinfo=None) if parsed_date.tzinfo else parsed_date
-            print(f"  📅 Updated {source_type} article published_at: {parsed_date}")
+            logger.info(f"  📅 Updated {source_type} article published_at: {parsed_date}")
         except Exception as e:
-            print(f"  ⚠️ Error parsing {source_type} publication date '{pub_date}': {e}")
+            logger.warning(f"  ⚠️ Error parsing {source_type} publication date '{pub_date}': {e}")

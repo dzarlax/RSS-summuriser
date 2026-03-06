@@ -1,3 +1,4 @@
+import logging
 """Different strategies for content extraction from web pages."""
 
 import asyncio
@@ -27,6 +28,8 @@ from .extraction_utils import ExtractionUtils
 from .html_processor import HTMLProcessor
 from .date_extractor import DateExtractor
 from .metadata_extractor import MetadataExtractor
+
+logger = logging.getLogger(__name__)
 
 
 class ExtractionStrategies:
@@ -87,21 +90,20 @@ class ExtractionStrategies:
             )
 
             if not should_process and "Metadata/low-quality content detected" in reason:
-                print(f"    ❌ Content failed quality check: {reason}")
+                logger.error(f"    ❌ Content failed quality check: {reason}")
                 return False
 
             return True
 
         except Exception as e:
-            print(f"    ⚠️ Quality check failed: {e}, assuming content is valid")
+            logger.warning(f"    ⚠️ Quality check failed: {e}, assuming content is valid")
             return True  # Fail open - if quality check fails, assume content is OK
 
     async def attempt_extraction_with_metadata(
         self, url: str, domain: str, attempt_num: int
     ) -> Dict[str, Optional[str]]:
         """Attempt content extraction with comprehensive metadata extraction."""
-        print(f"    🔄 Extraction attempt #{attempt_num} for domain: {domain}")
-
+        logger.info(f"    🔄 Extraction attempt #{attempt_num} for domain: {domain}")
         result = {
             "content": None,
             "title": None,
@@ -116,7 +118,7 @@ class ExtractionStrategies:
         learned_pattern = await extraction_memory.get_successful_pattern(domain)
 
         if learned_pattern:
-            print(f"    📚 Trying learned pattern for {domain}")
+            logger.info(f"    📚 Trying learned pattern for {domain}")
             try:
                 content = await self.extract_with_learned_pattern(url, learned_pattern)
                 if (
@@ -150,15 +152,13 @@ class ExtractionStrategies:
                                 self.metadata_extractor.extract_meta_description(soup)
                             )
                     except Exception as e:
-                        print(f"    ⚠️ Metadata extraction failed: {e}")
-
+                        logger.warning(f"    ⚠️ Metadata extraction failed: {e}")
                     return result
             except Exception as e:
-                print(f"    ❌ Learned pattern failed: {e}")
-
+                logger.error(f"    ❌ Learned pattern failed: {e}")
         # Strategy 2: Readability with HTML fetch
         try:
-            print(f"    📖 Trying readability extraction")
+            logger.info(f"    📖 Trying readability extraction")
             content, selector = await self.extract_with_readability(url)
             if (
                 content
@@ -188,15 +188,13 @@ class ExtractionStrategies:
                             self.metadata_extractor.extract_meta_description(soup)
                         )
                 except Exception as e:
-                    print(f"    ⚠️ Metadata extraction failed: {e}")
-
+                    logger.warning(f"    ⚠️ Metadata extraction failed: {e}")
                 return result
         except Exception as e:
-            print(f"    ❌ Readability extraction failed: {e}")
-
+            logger.error(f"    ❌ Readability extraction failed: {e}")
         # Strategy 3: Enhanced HTML selectors
         try:
-            print(f"    🎯 Trying enhanced selectors")
+            logger.info(f"    🎯 Trying enhanced selectors")
             html = await self.fetch_html_content(url)
             if html:
                 soup = BeautifulSoup(html, "html.parser")
@@ -223,11 +221,10 @@ class ExtractionStrategies:
                     )
                     return result
         except Exception as e:
-            print(f"    ❌ Enhanced selectors failed: {e}")
-
+            logger.error(f"    ❌ Enhanced selectors failed: {e}")
         # Strategy 4: Browser rendering (more expensive)
         try:
-            print(f"    🎭 Trying browser rendering")
+            logger.info(f"    🎭 Trying browser rendering")
             content, selector = await self.extract_with_browser_tuple(url)
             if (
                 content
@@ -277,15 +274,13 @@ class ExtractionStrategies:
                                 except Exception:
                                     pass
                 except Exception as e:
-                    print(f"    ⚠️ Browser metadata extraction failed: {e}")
-
+                    logger.warning(f"    ⚠️ Browser metadata extraction failed: {e}")
                 return result
         except Exception as e:
-            print(f"    ❌ Browser rendering failed: {e}")
-
+            logger.error(f"    ❌ Browser rendering failed: {e}")
         # Strategy 5: Fallback to basic text extraction
         try:
-            print(f"    🔄 Trying fallback extraction")
+            logger.info(f"    🔄 Trying fallback extraction")
             html = await self.fetch_html_content_fallback(url)
             if html:
                 soup = BeautifulSoup(html, "html.parser")
@@ -319,22 +314,20 @@ class ExtractionStrategies:
                     )
                     return result
         except Exception as e:
-            print(f"    ❌ Fallback extraction failed: {e}")
-
+            logger.error(f"    ❌ Fallback extraction failed: {e}")
         return result
 
     async def attempt_content_extraction(
         self, url: str, domain: str, attempt_num: int
     ) -> Optional[str]:
         """Attempt content extraction using various strategies."""
-        print(f"    🔄 Content extraction attempt #{attempt_num} for domain: {domain}")
-
+        logger.info(f"    🔄 Content extraction attempt #{attempt_num} for domain: {domain}")
         # Strategy 1: Try learned patterns first
         extraction_memory = await get_extraction_memory()
         learned_pattern = await extraction_memory.get_successful_pattern(domain)
 
         if learned_pattern:
-            print(f"    📚 Trying learned pattern")
+            logger.info(f"    📚 Trying learned pattern")
             try:
                 content = await self.extract_with_learned_pattern(url, learned_pattern)
                 if (
@@ -344,11 +337,10 @@ class ExtractionStrategies:
                 ):
                     return content
             except Exception as e:
-                print(f"    ❌ Learned pattern failed: {e}")
-
+                logger.error(f"    ❌ Learned pattern failed: {e}")
         # Strategy 2: Enhanced selectors with HTML fetch
         try:
-            print(f"    🎯 Trying enhanced selectors")
+            logger.info(f"    🎯 Trying enhanced selectors")
             content, selector = await self.extract_with_enhanced_selectors_tuple(url)
             if (
                 content
@@ -358,11 +350,10 @@ class ExtractionStrategies:
                 # Return tuple to report selector back for recording
                 return content, selector
         except Exception as e:
-            print(f"    ❌ Enhanced selectors failed: {e}")
-
+            logger.error(f"    ❌ Enhanced selectors failed: {e}")
         # Strategy 3: Readability
         try:
-            print(f"    📖 Trying readability")
+            logger.info(f"    📖 Trying readability")
             content, selector = await self.extract_with_readability(url)
             if (
                 content
@@ -371,11 +362,10 @@ class ExtractionStrategies:
             ):
                 return content, selector
         except Exception as e:
-            print(f"    ❌ Readability failed: {e}")
-
+            logger.error(f"    ❌ Readability failed: {e}")
         # Strategy 4: Browser rendering
         try:
-            print(f"    🎭 Trying browser rendering")
+            logger.info(f"    🎭 Trying browser rendering")
             content, selector = await self.extract_with_browser_tuple(url)
             if (
                 content
@@ -384,11 +374,10 @@ class ExtractionStrategies:
             ):
                 return content, selector
         except Exception as e:
-            print(f"    ❌ Browser failed: {e}")
-
+            logger.error(f"    ❌ Browser failed: {e}")
         # Strategy 5: Encoding detection
         try:
-            print(f"    🔤 Trying encoding detection")
+            logger.info(f"    🔤 Trying encoding detection")
             content, selector = await self.extract_with_encoding_detection(url)
             if (
                 content
@@ -397,17 +386,15 @@ class ExtractionStrategies:
             ):
                 return content, selector
         except Exception as e:
-            print(f"    ❌ Encoding detection failed: {e}")
-
+            logger.error(f"    ❌ Encoding detection failed: {e}")
         # Strategy 6: Simple direct extraction
         try:
-            print(f"    📄 Trying simple extraction")
+            logger.info(f"    📄 Trying simple extraction")
             content = await self.extract_simple_direct(url)
             if content and len(content) > 50:
                 return content
         except Exception as e:
-            print(f"    ❌ Simple extraction failed: {e}")
-
+            logger.error(f"    ❌ Simple extraction failed: {e}")
         return None
 
     async def extract_with_learned_pattern(self, url: str, pattern) -> Optional[str]:
@@ -502,9 +489,7 @@ class ExtractionStrategies:
                     encoding = encoding_info.get("encoding", "utf-8")
                     confidence = encoding_info.get("confidence", 0)
 
-                    print(
-                        f"    🔤 Detected encoding: {encoding} (confidence: {confidence:.2f})"
-                    )
+                    logger.info(f"    🔤 Detected encoding: {encoding} (confidence: {confidence:.2f})")
 
                     # Decode with detected or fallback encoding
                     html = None
@@ -538,8 +523,7 @@ class ExtractionStrategies:
                     return content, selector
 
         except Exception as e:
-            print(f"    ❌ Encoding detection extraction failed: {e}")
-
+            logger.error(f"    ❌ Encoding detection extraction failed: {e}")
         return None, None
 
     async def extract_with_readability(
@@ -589,7 +573,7 @@ class ExtractionStrategies:
         self, url: str
     ) -> tuple[Optional[str], Optional[str]]:
         """Extract content using browser rendering and return (content, selector)."""
-        print(f"      🎭 Starting browser extraction for: {url[:80]}...")
+        logger.info(f"      🎭 Starting browser extraction for: {url[:80]}...")
         budget_start = time.time()
 
         # Get domain for adaptive timeout
@@ -603,9 +587,7 @@ class ExtractionStrategies:
             domain, "browser_rendering", PLAYWRIGHT_TIMEOUT_FIRST_MS
         )
         adaptive_total_budget = min(adaptive_timeout * 3, PLAYWRIGHT_TOTAL_BUDGET_MS)
-        print(
-            f"      ⏱️ Adaptive timeout: {adaptive_timeout}ms (budget: {adaptive_total_budget}ms)"
-        )
+        logger.info(f"      ⏱️ Adaptive timeout: {adaptive_timeout}ms (budget: {adaptive_total_budget}ms)")
 
         async with self._browser_semaphore:
             context = None
@@ -637,74 +619,66 @@ class ExtractionStrategies:
                 for nav_attempt in range(1, max_nav_attempts + 1):
                     try:
                         timeout_ms = min(adaptive_timeout, remaining_ms())
-                        print(
-                            f"      🌐 Navigating to URL (attempt {nav_attempt}/{max_nav_attempts}, timeout: {timeout_ms}ms)..."
-                        )
+                        logger.info(f"      🌐 Navigating to URL (attempt {nav_attempt}/{max_nav_attempts}, timeout: {timeout_ms}ms)...")
                         # Use 'domcontentloaded' as it's faster and usually enough for content processing
                         await page.goto(
                             url, timeout=timeout_ms, wait_until="domcontentloaded"
                         )
-                        print(f"      ✅ Page loaded successfully")
+                        logger.info(f"      ✅ Page loaded successfully")
                         break
                     except Exception as e:
                         if nav_attempt == max_nav_attempts or remaining_ms() < 5000:
-                            print(
-                                f"      ❌ Page navigation failed after {nav_attempt} attempts: {e}"
-                            )
+                            logger.error(f"      ❌ Page navigation failed after {nav_attempt} attempts: {e}")
                             raise
-                        print(
-                            f"      ⚠️ Page navigation attempt {nav_attempt} failed: {e}. Retrying with remaining budget..."
-                        )
+                        logger.warning(f"      ⚠️ Page navigation attempt {nav_attempt} failed: {e}. Retrying with remaining budget...")
                         await asyncio.sleep(1)
 
                 # Wait for content to load - improved for SPA sites
-                print(f"      ⏳ Waiting for content to load...")
+                logger.info(f"      ⏳ Waiting for content to load...")
                 try:
                     # Wait for network to be idle (initial load)
-                    print(f"      🌐 Waiting for network idle...")
+                    logger.info(f"      🌐 Waiting for network idle...")
                     await page.wait_for_load_state(
                         "networkidle", timeout=min(5000, remaining_ms())
                     )
-                    print(f"      ✅ Network idle achieved")
-
+                    logger.info(f"      ✅ Network idle achieved")
                     # For SPA sites, wait for content to actually appear
-                    print(f"      📝 Waiting for substantial content (>500 chars)...")
+                    logger.info(f"      📝 Waiting for substantial content (>500 chars)...")
                     await page.wait_for_function(
                         "() => document.body.innerText.length > 500",
                         timeout=min(10000, remaining_ms()),
                     )
-                    print(f"      ✅ Substantial content detected")
+                    logger.info(f"      ✅ Substantial content detected")
                 except Exception as e:
-                    print(f"      ⚠️ Content detection failed: {e}")
+                    logger.warning(f"      ⚠️ Content detection failed: {e}")
                     # If SPA detection fails, try waiting for common content selectors
                     try:
-                        print(f"      🎯 Waiting for content selectors...")
+                        logger.info(f"      🎯 Waiting for content selectors...")
                         await page.wait_for_selector(
                             "article, main, .content, #content, p",
                             timeout=min(8000, remaining_ms()),
                         )
-                        print(f"      ✅ Content selector found")
+                        logger.info(f"      ✅ Content selector found")
                         # Give additional time for dynamic content to load
                         await asyncio.sleep(min(2, remaining_ms() / 1000))
                     except Exception as e2:
-                        print(f"      ⚠️ Content selector wait failed: {e2}")
+                        logger.warning(f"      ⚠️ Content selector wait failed: {e2}")
                         pass  # Continue even if content detection times out
 
                 # Extract content using multiple strategies
                 content = None
 
                 # First, let's see what we're working with
-                print(f"      📊 Analyzing page content...")
+                logger.info(f"      📊 Analyzing page content...")
                 try:
                     body_text_length = await page.evaluate(
                         "() => document.body.innerText.length"
                     )
-                    print(f"      📏 Total body text length: {body_text_length} chars")
+                    logger.info(f"      📏 Total body text length: {body_text_length} chars")
                 except:
-                    print(f"      ⚠️ Could not measure body text length")
-
+                    logger.warning(f"      ⚠️ Could not measure body text length")
                 # Strategy 1: Look for article/main content - comprehensive selectors
-                print(f"      🎯 Trying content selectors...")
+                logger.info(f"      🎯 Trying content selectors...")
                 article_selectors = [
                     # Semantic HTML5
                     "article",
@@ -744,14 +718,12 @@ class ExtractionStrategies:
 
                 for i, selector in enumerate(article_selectors):
                     try:
-                        print(
-                            f"        🔍 [{i+1}/{len(article_selectors)}] Trying selector: {selector}"
-                        )
+                        logger.debug(f"        🔍 [{i+1}/{len(article_selectors)}] Trying selector: {selector}")
                         element = await page.query_selector(selector)
                         if element:
                             text = await element.inner_text()
                             text_len = len(text.strip()) if text else 0
-                            print(f"        📝 Found element with {text_len} chars")
+                            logger.info(f"        📝 Found element with {text_len} chars")
                             if text and text_len > 150:
                                 content = self.html_processor.clean_text(text)
                                 if self.utils.is_good_content(
@@ -759,25 +731,23 @@ class ExtractionStrategies:
                                 ) and await self._is_high_quality_content(
                                     content, url=url
                                 ):
-                                    print(
-                                        f"        ✅ Content accepted from selector: {selector}"
-                                    )
+                                    logger.info(f"        ✅ Content accepted from selector: {selector}")
                                     return content, selector
                                 else:
-                                    print(f"        ❌ Content quality insufficient")
+                                    logger.error(f"        ❌ Content quality insufficient")
                         else:
-                            print(f"        ❌ Selector not found: {selector}")
+                            logger.error(f"        ❌ Selector not found: {selector}")
                     except Exception as e:
-                        print(f"        ❌ Selector failed: {selector} - {e}")
+                        logger.error(f"        ❌ Selector failed: {selector} - {e}")
                         continue
 
                 # Strategy 1.5: Collect paragraphs if main content not found
                 if not content:
-                    print(f"      📝 Collecting paragraphs...")
+                    logger.info(f"      📝 Collecting paragraphs...")
                     try:
                         # Find all meaningful paragraphs
                         paragraphs = await page.query_selector_all("p")
-                        print(f"        📊 Found {len(paragraphs)} paragraphs")
+                        logger.info(f"        📊 Found {len(paragraphs)} paragraphs")
                         if paragraphs and len(paragraphs) >= 3:
                             paragraph_texts = []
                             for i, p in enumerate(paragraphs):
@@ -785,18 +755,11 @@ class ExtractionStrategies:
                                 text_len = len(text.strip()) if text else 0
                                 if text and text_len > 50:  # Meaningful paragraph
                                     paragraph_texts.append(text.strip())
-                                    print(
-                                        f"        📝 P{i+1}: {text_len} chars - '{text[:60]}...'"
-                                    )
-
-                            print(
-                                f"        📊 Collected {len(paragraph_texts)} meaningful paragraphs"
-                            )
+                                    logger.info(f"        P{i+1}: {text_len} chars - '{text[:60]}...'")
+                            logger.info(f"        Collected {len(paragraph_texts)} meaningful paragraphs")
                             if len(paragraph_texts) >= 3:
                                 combined_text = "\n\n".join(paragraph_texts)
-                                print(
-                                    f"        📏 Combined text length: {len(combined_text)} chars"
-                                )
+                                logger.info(f"        📏 Combined text length: {len(combined_text)} chars")
                                 if len(combined_text) > 500:
                                     content = self.html_processor.clean_text(
                                         combined_text
@@ -805,34 +768,25 @@ class ExtractionStrategies:
                                         quality_score = (
                                             self.utils.assess_content_quality(content)
                                         )
-                                        print(
-                                            f"        📊 Content quality score: {quality_score:.2f} (min: 0.30)"
-                                        )
-                                        if self.utils.is_good_content(
-                                            content, is_full_article=True
-                                        ) and await self._is_high_quality_content(
+                                        logger.info(f"        Content quality score: {quality_score:.2f} (min: 0.30)")
+                                        if self.utils.is_good_content(content, is_full_article=True) and await self._is_high_quality_content(
                                             content, url=url
                                         ):
-                                            print(
-                                                f"        ✅ Paragraph collection successful!"
-                                            )
+                                            logger.info(f"        ✅ Paragraph collection successful!")
                                             return content, "paragraph_collection"
                                         else:
-                                            print(
-                                                f"        ❌ Combined paragraph quality insufficient (score: {quality_score:.2f})"
-                                            )
+                                            logger.error(f"        ❌ Combined paragraph quality insufficient (score: {quality_score:.2f})")
                     except Exception as e:
-                        print(f"        ❌ Paragraph collection failed: {e}")
-
+                        logger.error(f"        ❌ Paragraph collection failed: {e}")
                 # Strategy 2: Fallback to body content
                 if not content:
-                    print(f"      🚑 Fallback to body content...")
+                    logger.info(f"      🚑 Fallback to body content...")
                     try:
                         body = await page.query_selector("body")
                         if body:
                             raw_content = await body.inner_text()
                             content_len = len(raw_content) if raw_content else 0
-                            print(f"        📏 Body text length: {content_len} chars")
+                            logger.info(f"        📏 Body text length: {content_len} chars")
                             if raw_content and content_len > 200:
                                 content = self.html_processor.clean_text(raw_content)
                                 if (
@@ -844,22 +798,17 @@ class ExtractionStrategies:
                                         content, url=url
                                     )
                                 ):
-                                    print(
-                                        f"        ✅ Body content accepted (cleaned: {len(content)} chars)"
-                                    )
+                                    logger.info(f"        ✅ Body content accepted (cleaned: {len(content)} chars)")
                                     return content, "body_fallback"
                                 else:
-                                    print(
-                                        f"        ❌ Body content quality insufficient"
-                                    )
+                                    logger.error(f"        ❌ Body content quality insufficient")
                                     content = None
                             else:
-                                print(f"        ❌ Body content too short")
+                                logger.error(f"        ❌ Body content too short")
                         else:
-                            print(f"        ❌ Body element not found")
+                            logger.error(f"        ❌ Body element not found")
                     except Exception as e:
-                        print(f"        ❌ Body extraction failed: {e}")
-
+                        logger.error(f"        ❌ Body extraction failed: {e}")
                 return None, None
 
             except Exception as e:
@@ -905,11 +854,11 @@ class ExtractionStrategies:
                     if response.status == 200:
                         return await response.text()
                     else:
-                        print(f"    ⚠️ HTTP {response.status} for {url}")
+                        logger.warning(f"    ⚠️ HTTP {response.status} for {url}")
                         return None
 
         except Exception as e:
-            print(f"    ❌ HTML fetch failed: {e}")
+            logger.error(f"    ❌ HTML fetch failed: {e}")
             return None
 
     async def fetch_html_content_fallback(self, url: str) -> Optional[str]:
@@ -936,7 +885,7 @@ class ExtractionStrategies:
                 return None
 
         except Exception as e:
-            print(f"    ❌ Fallback fetch failed: {e}")
+            logger.error(f"    ❌ Fallback fetch failed: {e}")
             return None
 
     async def record_extraction_success(
@@ -963,8 +912,7 @@ class ExtractionStrategies:
             await extraction_memory.record_extraction_attempt(attempt)
 
         except Exception as e:
-            print(f"    ⚠️ Failed to record success: {e}")
-
+            logger.warning(f"    ⚠️ Failed to record success: {e}")
     async def record_extraction_failure(
         self, domain: str, method: str, error: str, selector: Optional[str] = None
     ):
@@ -985,8 +933,7 @@ class ExtractionStrategies:
             await extraction_memory.record_extraction_attempt(attempt)
 
         except Exception as e:
-            print(f"    ⚠️ Failed to record failure: {e}")
-
+            logger.warning(f"    ⚠️ Failed to record failure: {e}")
     async def _ensure_browser(self):
         """Ensure browser is launched with retries and proper context management."""
         if self.browser:
@@ -998,12 +945,10 @@ class ExtractionStrategies:
         for launch_attempt in range(1, launch_attempts + 1):
             try:
                 if not self._playwright_context:
-                    print(
-                        f"      🚀 Starting Playwright context (attempt {launch_attempt}/{launch_attempts})..."
-                    )
+                    logger.info(f"      🚀 Starting Playwright context (attempt {launch_attempt}/{launch_attempts})...")
                     self._playwright_context = await async_playwright().start()
 
-                print(f"      🚀 Launching Chromium browser...")
+                logger.info(f"      🚀 Launching Chromium browser...")
                 self.browser = await self._playwright_context.chromium.launch(
                     headless=True,
                     args=[
@@ -1011,12 +956,11 @@ class ExtractionStrategies:
                         "--disable-setuid-sandbox",
                     ],  # Docker compatibility
                 )
-                print(f"      ✅ Browser launched successfully")
+                logger.info(f"      ✅ Browser launched successfully")
                 return
             except Exception as e:
                 last_error = e
-                print(f"      ⚠️ Browser launch attempt {launch_attempt} failed: {e}")
-
+                logger.warning(f"      ⚠️ Browser launch attempt {launch_attempt} failed: {e}")
                 # Cleanup if partially initialized
                 if self.browser:
                     try:
@@ -1028,7 +972,7 @@ class ExtractionStrategies:
                 if launch_attempt < launch_attempts:
                     await asyncio.sleep(1)
                 else:
-                    print(f"      ❌ All browser launch attempts failed")
+                    logger.error(f"      ❌ All browser launch attempts failed")
                     if self._playwright_context:
                         try:
                             await self._playwright_context.stop()
@@ -1042,15 +986,15 @@ class ExtractionStrategies:
         if self.browser:
             try:
                 await self.browser.close()
-                print("      ✅ Browser closed")
+                logger.info("      ✅ Browser closed")
             except Exception as e:
-                print(f"      ⚠️ Error closing browser: {e}")
+                logger.warning(f"      ⚠️ Error closing browser: {e}")
             self.browser = None
 
         if self._playwright_context:
             try:
                 await self._playwright_context.stop()
-                print("      ✅ Playwright context stopped")
+                logger.info("      ✅ Playwright context stopped")
             except Exception as e:
-                print(f"      ⚠️ Error stopping Playwright: {e}")
+                logger.warning(f"      ⚠️ Error stopping Playwright: {e}")
             self._playwright_context = None

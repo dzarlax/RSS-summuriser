@@ -273,9 +273,6 @@ async def config():
     console.print(table)
 
 
-        sys.exit(1)
-
-
 @cli.command()
 @click.option('--limit', default=50, help='Maximum number of articles to process')
 @click.option('--dry-run', is_flag=True, help='Only show candidates without processing')

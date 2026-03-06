@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import time
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 
@@ -24,6 +25,41 @@ from .services.database_queue import get_database_queue, DatabaseQueueManager
 from .services.article_limiter import get_article_limiter, ArticleLimiter
 from .core.exceptions import NewsAggregatorError
 from .config import settings
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ArticleDTO:
+    """Lightweight article data transfer object for AI processing."""
+    id: int
+    url: str
+    title: str
+    content: Optional[str]
+    summary: Optional[str]
+    published_at: Optional[datetime]
+
+    @classmethod
+    def for_summarization(cls, data: Dict[str, Any]) -> "ArticleDTO":
+        return cls(
+            id=data['id'],
+            url=data['url'],
+            title=data['title'],
+            content=data['content'],
+            summary=data['summary'],
+            published_at=data['published_at'],
+        )
+
+    @classmethod
+    def for_categorization(cls, data: Dict[str, Any]) -> "ArticleDTO":
+        return cls(
+            id=data['id'],
+            url=data['url'],
+            title=data['title'],
+            content=data['content'],
+            summary=data.get('summary') or data['content'],
+            published_at=data['published_at'],
+        )
 
 
 class NewsOrchestrator:
@@ -81,29 +117,26 @@ class NewsOrchestrator:
         }
         
         try:
-            print(f"🚀 Starting full news processing cycle at {start_time.strftime('%H:%M:%S')}")
-            
+            logger.info(f"🚀 Starting full news processing cycle at {start_time.strftime('%H:%M:%S')}")
             # Step 1: Sync sources and fetch articles
-            print("📥 Step 1: Syncing sources and fetching articles...")
+            logger.info("📥 Step 1: Syncing sources and fetching articles...")
             sync_start = time.time()
 
             # Step 1a: Get sources list (quick DB read)
-            print("  📋 Getting enabled sources...")
+            logger.info("  📋 Getting enabled sources...")
             sources = await self.source_manager.get_sources_from_db()
-            print(f"  ✅ Found {len(sources)} enabled sources")
-
+            logger.info(f"  ✅ Found {len(sources)} enabled sources")
             # Step 1b: HTTP fetching (NO DB transaction - semaphore free!)
-            print("  🌐 Fetching articles via HTTP (no DB lock)...")
+            logger.info("  🌐 Fetching articles via HTTP (no DB lock)...")
             fetch_start = time.time()
 
             # HTTP fetching happens here WITHOUT database lock
             raw_articles = await self.source_manager.fetch_from_all_sources_no_db(sources)
 
             fetch_duration = time.time() - fetch_start
-            print(f"  ✅ HTTP fetching completed in {fetch_duration:.1f}s")
-
+            logger.info(f"  ✅ HTTP fetching completed in {fetch_duration:.1f}s")
             # Step 1c: Save articles to database (quick DB write)
-            print("  💾 Saving articles to database...")
+            logger.info("  💾 Saving articles to database...")
             save_start = time.time()
 
             async def save_operation(db):
@@ -122,8 +155,7 @@ class NewsOrchestrator:
             total_articles = sum(len(articles) for articles in sync_result.values())
 
             save_duration = time.time() - save_start
-            print(f"  ✅ Saved {total_articles} articles in {save_duration:.1f}s")
-
+            logger.info(f"  ✅ Saved {total_articles} articles in {save_duration:.1f}s")
             stats.update({
                 'sources_synced': len(sync_result),
                 'articles_fetched': total_articles
@@ -131,10 +163,9 @@ class NewsOrchestrator:
 
             sync_duration = time.time() - sync_start
             stats['performance']['sync_duration'] = sync_duration
-            print(f"  ✅ Total sync: {stats['sources_synced']} sources, {stats['articles_fetched']} articles in {sync_duration:.1f}s")
-            
+            logger.info(f"  ✅ Total sync: {stats['sources_synced']} sources, {stats['articles_fetched']} articles in {sync_duration:.1f}s")
             # Step 2: Process articles with AI
-            print("🤖 Step 2: Processing articles with AI...")
+            logger.info("🤖 Step 2: Processing articles with AI...")
             process_start = time.time()
             
             processing_result = await self._process_unprocessed_articles(stats)
@@ -142,8 +173,7 @@ class NewsOrchestrator:
             
             process_duration = time.time() - process_start
             stats['performance']['processing_duration'] = process_duration
-            print(f"  ✅ Processed {stats['articles_processed']} articles in {process_duration:.1f}s")
-            
+            logger.info(f"  ✅ Processed {stats['articles_processed']} articles in {process_duration:.1f}s")
             # Calculate total duration
             end_time = datetime.utcnow()
             total_duration = (end_time - start_time).total_seconds()
@@ -152,11 +182,10 @@ class NewsOrchestrator:
             stats['duration_seconds'] = total_duration
             
             # Summary
-            print(f"Processing cycle completed in {total_duration:.1f}s")
-            print(f"   {stats['articles_processed']} articles processed")
-            print(f"   {len(stats['categories_found'])} categories found")
-            print(f"   {stats['api_calls_made']} API calls made")
-
+            logger.info(f"Processing cycle completed in {total_duration:.1f}s")
+            logger.info(f"   {stats['articles_processed']} articles processed")
+            logger.info(f"   {len(stats['categories_found'])} categories found")
+            logger.info(f"   {stats['api_calls_made']} API calls made")
             # Persist processing stats for dashboard
             try:
                 from .processing.processing_stats_service import get_processing_stats_service
@@ -164,22 +193,21 @@ class NewsOrchestrator:
                 async with AsyncSessionLocal() as stats_db:
                     await processing_stats_service.update_processing_stats(stats_db, stats)
             except Exception as e:
-                print(f"  Failed to update processing stats: {e}")
-
+                logger.info(f"  Failed to update processing stats: {e}")
             return stats
             
         except Exception as e:
             import traceback
             error_msg = f"Error in full processing cycle: {str(e)}"
-            print(f"❌ {error_msg}")
-            print(f"📍 Traceback:\n{traceback.format_exc()}")
+            logger.error(f"❌ {error_msg}")
+            logger.info(f"📍 Traceback:\n{traceback.format_exc()}")
             stats['errors'].append(error_msg)
             return stats
     
     async def send_telegram_digest(self) -> Dict[str, Any]:
         """Generate and send Telegram digest."""
         try:
-            print("📱 Generating and sending Telegram digest...")
+            logger.info("📱 Generating and sending Telegram digest...")
             today = datetime.utcnow().date()
 
             # Step 1: Check if daily summaries exist (fast read)
@@ -196,12 +224,11 @@ class NewsOrchestrator:
 
             # Step 2: Generate missing daily summaries (potentially slow write + AI)
             if summaries_count == 0:
-                print("📊 No daily summaries found for today - generating them first...")
+                logger.info("📊 No daily summaries found for today - generating them first...")
                 summary_result = await self._generate_daily_summaries(timeout=300.0)
-                print(f"  ✅ Generated {summary_result.get('summaries_generated', 0)} daily summaries")
+                logger.info(f"  ✅ Generated {summary_result.get('summaries_generated', 0)} daily summaries")
             else:
-                print(f"📊 Using existing {summaries_count} daily summaries for today")
-
+                logger.info(f"📊 Using existing {summaries_count} daily summaries for today")
             # Step 3: Build digest (read-only operation)
             async def build_digest_operation(db):
                 digest_content = await self.digest_builder.create_combined_digest(db, today)
@@ -221,52 +248,18 @@ class NewsOrchestrator:
 
             # Step 4: Build Telegraph page (read-only operation)
             async def build_telegraph_payload(db):
-                from .models import ArticleCategory
-                from .services.category_display_service import get_category_display_service
-
-                result = await db.execute(
-                    select(Article, ArticleCategory.ai_category, ArticleCategory.confidence)
-                    .join(ArticleCategory, Article.id == ArticleCategory.article_id)
-                    .where(Article.fetched_at >= today)
-                    .order_by(Article.fetched_at.desc())
-                )
-
-                category_display_service = await get_category_display_service(db)
-                category_cache = {}
-                best_by_article = {}
-
-                for article, ai_category, confidence in result.all():
-                    current = best_by_article.get(article.id)
-                    if current is None or (confidence or 0) > (current['confidence'] or 0):
-                        best_by_article[article.id] = {
-                            'article': article,
-                            'ai_category': ai_category or 'Other',
-                            'confidence': confidence or 0
-                        }
-
+                grouped = await self._group_articles_by_category(db, today)
                 articles_by_category = {}
-                for item in best_by_article.values():
-                    article = item['article']
-                    ai_key = (item['ai_category'] or 'Other').strip() or 'Other'
-                    if ai_key not in category_cache:
-                        display = await category_display_service.map_ai_category_to_display(ai_key)
-                        # Use English name for database storage, not display_name (Russian)
-                        category_cache[ai_key] = display.get('name') or display.get('display_name') or ai_key
-
-                    category_name = category_cache[ai_key]
-                    if category_name not in articles_by_category:
-                        articles_by_category[category_name] = []
-
-                    if len(articles_by_category[category_name]) >= 10:
-                        continue
-
-                    articles_by_category[category_name].append({
-                        "headline": article.title,
-                        "description": article.summary or article.content or "",
-                        "links": [article.url] if article.url else [],
-                        "image_url": article.primary_image or article.image_url
-                    })
-
+                for category_name, articles in grouped.items():
+                    articles_by_category[category_name] = [
+                        {
+                            "headline": a.title,
+                            "description": a.summary or a.content or "",
+                            "links": [a.url] if a.url else [],
+                            "image_url": a.primary_image or a.image_url,
+                        }
+                        for a in articles[:10]
+                    ]
                 return articles_by_category
 
             telegraph_url = None
@@ -276,8 +269,7 @@ class NewsOrchestrator:
                 telegraph_payload = await self.db_queue_manager.execute_read(build_telegraph_payload, timeout=30.0)
                 telegraph_url = await telegraph_service.create_news_page(telegraph_payload)
             except Exception as e:
-                print(f"⚠️ Telegraph generation failed: {e}")
-
+                logger.warning(f"⚠️ Telegraph generation failed: {e}")
             if digest_result.get('split'):
                 # Send multiple parts
                 if telegraph_url:
@@ -299,14 +291,14 @@ class NewsOrchestrator:
                 
         except Exception as e:
             error_msg = f"Error sending Telegram digest ({type(e).__name__}): {e}"
-            print(f"❌ {error_msg}")
+            logger.error(f"❌ {error_msg}")
             return {'success': False, 'error': error_msg}
     
     async def _process_unprocessed_articles(self, stats: Dict[str, Any]) -> Dict[str, Any]:
         """Process unprocessed articles using specialized processors."""
         try:
             # Step 1: Get articles from database (quick transaction)
-            print("  📋 Fetching unprocessed articles from database...")
+            logger.info("  📋 Fetching unprocessed articles from database...")
             from sqlalchemy.orm import selectinload
 
             async def fetch_articles_operation(db):
@@ -350,8 +342,7 @@ class NewsOrchestrator:
             if not articles_data:
                 return {'articles_processed': 0, 'articles_summarized': 0, 'articles_categorized': 0}
 
-            print(f"  🔄 Processing {len(articles_data)} unprocessed articles (transaction closed)...")
-
+            logger.info(f"  🔄 Processing {len(articles_data)} unprocessed articles (transaction closed)...")
             # Step 2: Process with AI (NO database transaction - semaphore is free!)
             processed_count = 0
             summarized_count = 0
@@ -367,19 +358,8 @@ class NewsOrchestrator:
                     if not article_data['summary_processed']:
                         stats['api_calls_made'] += 1
 
-                        # Create temp article object for compatibility
-                        class TempArticle:
-                            def __init__(self, data):
-                                self.id = data['id']
-                                self.url = data['url']
-                                self.title = data['title']
-                                self.content = data['content']
-                                self.summary = data['summary']
-                                self.published_at = data['published_at']
-
-                        temp_article = TempArticle(article_data)
                         summary = await self.ai_processor.get_summary_by_source_type(
-                            temp_article, source_type, stats
+                            ArticleDTO.for_summarization(article_data), source_type, stats
                         )
 
                         if summary:
@@ -390,18 +370,8 @@ class NewsOrchestrator:
                     if not article_data['category_processed']:
                         stats['api_calls_made'] += 1
 
-                        class TempArticle2:
-                            def __init__(self, data):
-                                self.id = data['id']
-                                self.url = data['url']
-                                self.title = data['title']
-                                self.content = data['content']
-                                self.summary = data.get('summary') or data['content']
-                                self.published_at = data['published_at']
-
-                        temp_article2 = TempArticle2(article_data)
                         categories = await self.categorization_processor.categorize_by_source_type_new(
-                            temp_article2, source_type, stats
+                            ArticleDTO.for_categorization(article_data), source_type, stats
                         )
 
                         if categories:
@@ -414,14 +384,12 @@ class NewsOrchestrator:
                     processed_count += 1
 
                 except Exception as e:
-                    print(f"  ⚠️ Error processing article {article_url}: {e}")
+                    logger.warning(f"  ⚠️ Error processing article {article_url}: {e}")
                     continue
 
-            print(f"  ✅ AI processing completed: {processed_count} articles, {summarized_count} summaries, {categorized_count} categories")
-
+            logger.info(f"  ✅ AI processing completed: {processed_count} articles, {summarized_count} summaries, {categorized_count} categories")
             # Step 3: Save results to database (new transaction, only writes)
-            print("  💾 Saving processed results to database...")
-
+            logger.info("  💾 Saving processed results to database...")
             async def save_results_operation(db):
                 updated_count = 0
                 for article_data in articles_data:
@@ -447,14 +415,13 @@ class NewsOrchestrator:
                         updated_count += 1
 
                     except Exception as e:
-                        print(f"  ⚠️ Error saving article {article_data['id']}: {e}")
+                        logger.warning(f"  ⚠️ Error saving article {article_data['id']}: {e}")
                         continue
 
                 return updated_count
 
             saved_count = await self.db_queue_manager.execute_write(save_results_operation, timeout=30.0)
-            print(f"  ✅ Saved {saved_count} processed articles to database")
-
+            logger.info(f"  ✅ Saved {saved_count} processed articles to database")
             return {
                 'articles_processed': processed_count,
                 'articles_summarized': summarized_count,
@@ -463,7 +430,7 @@ class NewsOrchestrator:
 
         except Exception as e:
             error_msg = f"Error processing unprocessed articles: {e}"
-            print(f"  ❌ {error_msg}")
+            logger.error(f"  ❌ {error_msg}")
             stats['errors'].append(error_msg)
             return {'articles_processed': 0, 'articles_summarized': 0, 'articles_categorized': 0}
     
@@ -474,61 +441,59 @@ class NewsOrchestrator:
             
             # Use database queue for summary generation
             async def summary_operation(db):
-                # Get today's articles with AI categories and confidence
-                from .models import ArticleCategory
-                from .services.category_display_service import get_category_display_service
-
-                result = await db.execute(
-                    select(Article, ArticleCategory.ai_category, ArticleCategory.confidence)
-                    .join(ArticleCategory, Article.id == ArticleCategory.article_id)
-                    .where(Article.fetched_at >= today)
-                    .order_by(Article.fetched_at.desc())
-                )
-
-                category_display_service = await get_category_display_service(db)
-                category_cache = {}
-                best_by_article = {}
-
-                for article, ai_category, confidence in result.all():
-                    current = best_by_article.get(article.id)
-                    if current is None or (confidence or 0) > (current['confidence'] or 0):
-                        best_by_article[article.id] = {
-                            'article': article,
-                            'ai_category': ai_category or 'Other',
-                            'confidence': confidence or 0
-                        }
-
-                # Group articles by mapped category (best confidence only)
-                categories = {}
-                for item in best_by_article.values():
-                    article = item['article']
-                    ai_key = (item['ai_category'] or 'Other').strip() or 'Other'
-                    if ai_key not in category_cache:
-                        display = await category_display_service.map_ai_category_to_display(ai_key)
-                        # Use English name for database storage, not display_name (Russian)
-                        category_cache[ai_key] = display.get('name') or display.get('display_name') or ai_key
-
-                    category_name = category_cache[ai_key]
-                    categories.setdefault(category_name, []).append(article)
-
-                # Generate summaries using digest builder
+                categories = await self._group_articles_by_category(db, today)
                 await self.digest_builder.generate_and_save_daily_summaries(db, today, categories)
-
                 return {'summaries_generated': len(categories)}
             
             return await self.db_queue_manager.execute_write(summary_operation, timeout=timeout)
                 
         except Exception as e:
             error_msg = f"Error generating daily summaries: {e}"
-            print(f"  ❌ {error_msg}")
+            logger.error(f"  ❌ {error_msg}")
             return {'summaries_generated': 0, 'error': error_msg}
     
+    async def _group_articles_by_category(self, db: AsyncSession, date) -> Dict[str, List[Article]]:
+        """Fetch today's articles and group them by mapped display category (best confidence per article)."""
+        from .models import ArticleCategory
+        from .services.category_display_service import get_category_display_service
+
+        result = await db.execute(
+            select(Article, ArticleCategory.ai_category, ArticleCategory.confidence)
+            .join(ArticleCategory, Article.id == ArticleCategory.article_id)
+            .where(Article.fetched_at >= date)
+            .order_by(Article.fetched_at.desc())
+        )
+
+        category_display_service = await get_category_display_service(db)
+        category_cache: Dict[str, str] = {}
+        best_by_article: Dict[int, Dict] = {}
+
+        for article, ai_category, confidence in result.all():
+            current = best_by_article.get(article.id)
+            if current is None or (confidence or 0) > (current['confidence'] or 0):
+                best_by_article[article.id] = {
+                    'article': article,
+                    'ai_category': ai_category or 'Other',
+                    'confidence': confidence or 0,
+                }
+
+        grouped: Dict[str, List[Article]] = {}
+        for item in best_by_article.values():
+            article = item['article']
+            ai_key = (item['ai_category'] or 'Other').strip() or 'Other'
+            if ai_key not in category_cache:
+                display = await category_display_service.map_ai_category_to_display(ai_key)
+                category_cache[ai_key] = display.get('name') or display.get('display_name') or ai_key
+            grouped.setdefault(category_cache[ai_key], []).append(article)
+
+        return grouped
+
     async def _save_ai_categories_to_database(self, db: AsyncSession, article_id: int, ai_categories: List[Dict[str, Any]]):
         """Save AI categories directly to database without mapping (mapping happens at display time)."""
         try:
             from .models import ArticleCategory
             from sqlalchemy import text
-            
+
             # Clear existing categories for this article
             await db.execute(
                 text("DELETE FROM article_categories WHERE article_id = :article_id"),
@@ -549,13 +514,11 @@ class NewsOrchestrator:
                 )
                 db.add(article_category)
                 
-            print(f"  🏷️ Saved {len(ai_categories)} AI categories for article {article_id}")
+            logger.info(f"  🏷️ Saved {len(ai_categories)} AI categories for article {article_id}")
             for cat in ai_categories:
-                print(f"    - {cat.get('name', 'Unknown')} (confidence: {cat.get('confidence', 1.0)})")
-                
+                logger.info(f"    - {cat.get('name', 'Unknown')} (confidence: {cat.get('confidence', 1.0)})")
         except Exception as e:
-            print(f"  ⚠️ Error saving AI categories: {e}")
-    
+            logger.warning(f"  ⚠️ Error saving AI categories: {e}")
     async def _save_article_categories(self, article_id: int, categories: List[Dict[str, Any]]):
         """Save article categories using new system (creates own session for backwards compatibility)."""
         try:
@@ -566,8 +529,7 @@ class NewsOrchestrator:
             await self.db_queue_manager.execute_write(category_operation)
                 
         except Exception as e:
-            print(f"  ⚠️ Error saving article categories: {e}")
-    
+            logger.warning(f"  ⚠️ Error saving article categories: {e}")
     # Delegate methods to specialized processors
     async def get_processing_stats(self, days: int = 7) -> Dict[str, Any]:
         """Get processing statistics."""

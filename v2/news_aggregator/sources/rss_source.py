@@ -1,3 +1,4 @@
+import logging
 """RSS source implementation."""
 
 import feedparser
@@ -9,6 +10,8 @@ import pytz
 from .base import BaseSource, Article, SourceType
 from ..core.http_client import get_http_client
 from ..core.exceptions import SourceError
+
+logger = logging.getLogger(__name__)
 
 
 class RSSSource(BaseSource):
@@ -39,7 +42,7 @@ class RSSSource(BaseSource):
                         articles_processed += 1
                 except Exception as e:
                     # Log error but continue processing other entries
-                    print(f"Error parsing RSS entry: {e}")
+                    logger.info(f"Error parsing RSS entry: {e}")
                     continue
         
         except Exception as e:

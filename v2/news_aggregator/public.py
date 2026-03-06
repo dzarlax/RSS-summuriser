@@ -18,13 +18,14 @@ try:
     MAGIC_AVAILABLE = True
 except ImportError:
     MAGIC_AVAILABLE = False
-    print("⚠️ python-magic not available - MIME type detection disabled")
-
+    logger.warning("⚠️ python-magic not available - MIME type detection disabled")
 from .database import get_db
 from .database_helpers import fetch_raw_all, count_query, execute_custom_read
 from .models import Article, Category, ArticleCategory
 from .config import get_settings
 from .services.data_service import DataService, get_data_service
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 templates = Jinja2Templates(directory="web/templates")
@@ -172,7 +173,7 @@ async def get_public_feed(
     
     except Exception as e:
         # If DB fails, return mock data
-        print(f"Database error: {e}")
+        logger.info(f"Database error: {e}")
         mock_articles = [
             {
                 "id": 1,
@@ -245,7 +246,7 @@ async def get_public_article(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"❌ Error getting article {article_id}: {e}")
+        logger.error(f"❌ Error getting article {article_id}: {e}")
         import traceback
         traceback.print_exc()
         
@@ -284,7 +285,7 @@ async def get_public_categories_config(data_service: DataService = Depends(get_d
         return await data_service.get_categories_config()
             
     except Exception as e:
-        print(f"Categories config error: {e}")
+        logger.info(f"Categories config error: {e}")
         # Return minimal fallback config
         return {
             "categories": {
@@ -309,7 +310,7 @@ async def get_public_categories(
         )
 
     except Exception as e:
-        print(f"Categories error: {e}")
+        logger.info(f"Categories error: {e}")
         return {"categories": {"all": 0}}
 
 
@@ -328,7 +329,7 @@ async def get_public_sources(
         )
 
     except Exception as e:
-        print(f"Sources error: {e}")
+        logger.info(f"Sources error: {e}")
         return {"sources": {}, "source_names": {}, "total": 0}
 
 

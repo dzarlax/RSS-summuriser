@@ -1,3 +1,4 @@
+import logging
 """Statistics collector for processing and monitoring."""
 
 from typing import Dict, Any, List
@@ -6,6 +7,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Article
 from ..database import AsyncSessionLocal
+
+logger = logging.getLogger(__name__)
 
 
 class StatsCollector:
@@ -30,8 +33,7 @@ class StatsCollector:
         """
         from ..database import fetch_all
         
-        print(f"🔍 Finding articles with failed content extraction (limit: {limit})...")
-        
+        logger.info(f"🔍 Finding articles with failed content extraction (limit: {limit})...")
         # Find articles where title equals summary (indicates failed extraction)
         query = select(Article).where(
             # Title equals summary (indicates failed extraction)
@@ -45,8 +47,7 @@ class StatsCollector:
         
         candidates = await fetch_all(query)
         
-        print(f"📊 Found {len(candidates)} articles needing reprocessing")
-        
+        logger.info(f"📊 Found {len(candidates)} articles needing reprocessing")
         if dry_run:
             results = {
                 'found_candidates': len(candidates),
@@ -74,10 +75,9 @@ class StatsCollector:
         
         for article in candidates:
             try:
-                print(f"\n🔧 Processing article {article.id}: {article.title[:80]}...")
-                print(f"   URL: {article.url}")
-                print(f"   Current content: {len(article.content or '')} chars")
-                
+                logger.info(f"\n🔧 Processing article {article.id}: {article.title[:80]}...")
+                logger.info(f"   URL: {article.url}")
+                logger.info(f"   Current content: {len(article.content or '')} chars")
                 # Reset processing flags to force complete reprocessing
                 async with AsyncSessionLocal() as reset_session:
                     await reset_session.execute(
@@ -97,8 +97,7 @@ class StatsCollector:
                 }
                 
                 # First: Try to extract content again with new encoding-aware method
-                print(f"   🔄 Step 1: Re-extracting content with encoding-aware method...")
-                
+                logger.info(f"   🔄 Step 1: Re-extracting content with encoding-aware method...")
                 from ..extraction import ContentExtractor
                 extractor = ContentExtractor()
                 
@@ -109,8 +108,7 @@ class StatsCollector:
                         new_content = extraction_result.get('content') if extraction_result else None
                         
                         if new_content and len(new_content) > len(article.content or ''):
-                            print(f"   ✅ Content improved: {len(article.content or '')} → {len(new_content)} chars")
-                            
+                            logger.info(f"   ✅ Content improved: {len(article.content or '')} → {len(new_content)} chars")
                             # Update content in database
                             async with AsyncSessionLocal() as update_session:
                                 await update_session.execute(
@@ -129,14 +127,11 @@ class StatsCollector:
                             })
                             stats['improved'] += 1
                         else:
-                            print(f"   📝 No content improvement, proceeding with current content")
-                    
+                            logger.info(f"   📝 No content improvement, proceeding with current content")
                     except Exception as e:
-                        print(f"   ⚠️ Content extraction failed: {e}")
-                
+                        logger.warning(f"   ⚠️ Content extraction failed: {e}")
                 # Second: Run AI processing on the (potentially updated) content
-                print(f"   🔄 Step 2: Running AI processing...")
-                
+                logger.info(f"   🔄 Step 2: Running AI processing...")
                 # Use AIProcessor directly instead of going through orchestrator
                 from .ai_processor import AIProcessor
                 ai_processor = AIProcessor()
@@ -145,15 +140,14 @@ class StatsCollector:
                 result = await ai_processor.process_article_combined(article_data, processing_stats, force_processing=True)
                 
                 if result.get('success'):
-                    print(f"   ✅ AI processing successful")
+                    logger.info(f"   ✅ AI processing successful")
                     stats['improved'] += 1
                 else:
-                    print(f"   ⚠️ AI processing had issues")
-                
+                    logger.warning(f"   ⚠️ AI processing had issues")
                 stats['processed'] += 1
                 
             except Exception as e:
-                print(f"   ❌ Error processing article {article.id}: {e}")
+                logger.error(f"   ❌ Error processing article {article.id}: {e}")
                 stats['failed'] += 1
                 stats['errors'].append({
                     'article_id': article.id,

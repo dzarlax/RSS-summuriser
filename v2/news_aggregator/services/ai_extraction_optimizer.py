@@ -1,3 +1,4 @@
+import logging
 """AI-powered extraction optimization service."""
 
 import json
@@ -12,6 +13,8 @@ from ..core.exceptions import APIError
 # Import ai_client dynamically to avoid circular import
 from .extraction_memory import get_extraction_memory, ExtractionAttempt
 from .domain_stability_tracker import get_stability_tracker
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -71,20 +74,18 @@ class AIExtractionOptimizer:
         """Perform AI analysis of domain extraction patterns."""
         start_time = time.time()
         
-        print(f"🤖 Starting AI analysis for domain: {domain}")
-        
+        logger.info(f"🤖 Starting AI analysis for domain: {domain}")
         try:
             # Check if we should skip AI analysis
             stability_tracker = await get_stability_tracker()
             should_analyze, reason = stability_tracker.should_use_ai_optimization(domain)
             
             if not should_analyze:
-                print(f"  ⏭️ Skipping AI analysis: {reason}")
+                logger.info(f"  ⏭️ Skipping AI analysis: {reason}")
                 stability_tracker.increment_credits_saved(domain)
                 return None
             
-            print(f"  🎯 AI analysis triggered: {reason}")
-            
+            logger.info(f"  🎯 AI analysis triggered: {reason}")
             # Get sample HTML if URLs provided
             sample_html = None
             if sample_urls:
@@ -103,7 +104,7 @@ class AIExtractionOptimizer:
             response = await ai_client._make_raw_ai_request(prompt, model=ai_client.summarization_model)
             
             if not response or 'choices' not in response:
-                print(f"  ❌ No valid AI response for {domain}")
+                logger.error(f"  ❌ No valid AI response for {domain}")
                 return None
             
             # Parse AI response
@@ -128,8 +129,7 @@ class AIExtractionOptimizer:
 
                 analysis_result.tokens_used = int(total_tokens)
                 
-                print(f"  ✅ AI analysis complete: {len(analysis_result.selectors_discovered)} selectors discovered")
-                
+                logger.info(f"  ✅ AI analysis complete: {len(analysis_result.selectors_discovered)} selectors discovered")
                 # Record AI analysis in database
                 await memory.record_ai_pattern_discovery(
                     domain,
@@ -157,7 +157,7 @@ class AIExtractionOptimizer:
             return None
             
         except Exception as e:
-            print(f"  ❌ AI analysis failed for {domain}: {e}")
+            logger.error(f"  ❌ AI analysis failed for {domain}: {e}")
             return None
     
     async def _fetch_sample_html(self, url: str) -> Optional[str]:
@@ -179,8 +179,7 @@ class AIExtractionOptimizer:
                     return html[:8000] if html else None
                     
         except Exception as e:
-            print(f"    ⚠️ Failed to fetch sample HTML from {url}: {e}")
-            
+            logger.warning(f"    ⚠️ Failed to fetch sample HTML from {url}: {e}")
         return None
     
     def _build_analysis_prompt(self, domain: str, sample_html: Optional[str], existing_patterns: List) -> str:
@@ -253,7 +252,7 @@ Focus on finding robust, reliable selectors that will work consistently across t
             # Try to extract JSON from response
             json_match = re.search(r'\{[\s\S]*\}', ai_response)
             if not json_match:
-                print("  ⚠️ No JSON found in AI response")
+                logger.warning("  ⚠️ No JSON found in AI response")
                 return None
             
             data = json.loads(json_match.group())
@@ -298,7 +297,7 @@ Focus on finding robust, reliable selectors that will work consistently across t
                         link_patterns.append(selector)
             
             if not selectors:
-                print("  ⚠️ No valid selectors found in AI response")
+                logger.warning("  ⚠️ No valid selectors found in AI response")
                 return None
             
             return AIAnalysisResult(
@@ -317,10 +316,10 @@ Focus on finding robust, reliable selectors that will work consistently across t
             )
             
         except json.JSONDecodeError as e:
-            print(f"  ⚠️ Failed to parse AI JSON response: {e}")
+            logger.warning(f"  ⚠️ Failed to parse AI JSON response: {e}")
             return None
         except Exception as e:
-            print(f"  ⚠️ Error parsing AI analysis: {e}")
+            logger.warning(f"  ⚠️ Error parsing AI analysis: {e}")
             return None
     
     async def get_optimization_recommendations(self, limit: int = 5) -> List[OptimizationRecommendation]:
@@ -436,21 +435,20 @@ Focus on finding robust, reliable selectors that will work consistently across t
     
     async def optimize_domain_extraction(self, domain: str, sample_urls: List[str] = None) -> bool:
         """Perform full optimization analysis and update for a domain."""
-        print(f"🔧 Optimizing extraction for domain: {domain}")
-        
+        logger.info(f"🔧 Optimizing extraction for domain: {domain}")
         try:
             # Run AI analysis
             analysis = await self.analyze_domain_extraction(domain, sample_urls)
             
             if analysis and analysis.selectors_discovered:
-                print(f"  ✅ Optimization complete: {len(analysis.selectors_discovered)} new patterns added")
+                logger.info(f"  ✅ Optimization complete: {len(analysis.selectors_discovered)} new patterns added")
                 return True
             else:
-                print(f"  ⚠️ No optimization improvements found for {domain}")
+                logger.warning(f"  ⚠️ No optimization improvements found for {domain}")
                 return False
                 
         except Exception as e:
-            print(f"  ❌ Optimization failed for {domain}: {e}")
+            logger.error(f"  ❌ Optimization failed for {domain}: {e}")
             return False
     
     async def get_ai_optimization_stats(self) -> Dict:

@@ -1,3 +1,4 @@
+import logging
 """AI Processing Engine for articles."""
 
 import time
@@ -8,6 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import AsyncSessionLocal
 from ..services.ai_client import get_ai_client
+
+logger = logging.getLogger(__name__)
 
 
 class AIProcessor:
@@ -29,9 +32,8 @@ class AIProcessor:
         source_name = article_data.get('source_name', 'Unknown')
         article_id = article_data['id']
         
-        print(f"  📡 Source: {source_name} (type: {source_type})")
-        print(f"  🔧 DEBUG: force_processing = {force_processing}")
-        
+        logger.info(f"  📡 Source: {source_name} (type: {source_type})")
+        logger.info(f"  🔧 DEBUG: force_processing = {force_processing}")
         # Check what processing is needed
         needs_summary = force_processing or (not article_data.get('summary_processed', False) and not article_data.get('summary'))
         needs_category = force_processing or not article_data.get('category_processed', False)
@@ -48,7 +50,7 @@ class AIProcessor:
             if force_processing:
                 should_process = True
                 filter_reason = "Force processing enabled (reprocessing mode)"
-                print(f"  🔄 Smart Filter: Bypassed for forced reprocessing")
+                logger.info(f"  🔄 Smart Filter: Bypassed for forced reprocessing")
             else:
                 should_process, filter_reason = await smart_filter.should_process_with_ai(
                     title=article_data.get('title') or '',
@@ -60,8 +62,7 @@ class AIProcessor:
             
             # If content is too short or empty, try to extract full content from URL
             content_too_short = (len(article_content.strip()) < 10 and source_type == 'rss') or len(article_content.strip()) < 10
-            print(f"  🔍 Debug: content_too_short={content_too_short}, should_process={should_process}, filter_reason='{filter_reason}'")
-            
+            logger.info(f"  🔍 Debug: content_too_short={content_too_short}, should_process={should_process}, filter_reason='{filter_reason}'")
             # Try content extraction if content is short OR metadata detected OR needs extraction OR force_processing
             should_extract = (
                 force_processing or  # Always extract content during reprocessing
@@ -78,10 +79,9 @@ class AIProcessor:
                     if not any(domain in article_url.lower() for domain in skip_domains):
                         try:
                             if "Metadata/low-quality content detected" in filter_reason or "needs extraction" in filter_reason:
-                                print(f"  🔧 Metadata detected ({len(article_content)} chars), trying full content extraction: {article_url}")
+                                logger.info(f"  🔧 Metadata detected ({len(article_content)} chars), trying full content extraction: {article_url}")
                             else:
-                                print(f"  🔍 Content empty/short ({len(article_content)} chars), trying content extraction: {article_url}")
-                            
+                                logger.info(f"  🔍 Content empty/short ({len(article_content)} chars), trying content extraction: {article_url}")
                             # Use full content extraction pipeline with all parsing schemas
                             from ..extraction import ContentExtractor
                             
@@ -92,18 +92,17 @@ class AIProcessor:
                                     extraction_result = await content_extractor.extract_article_content_with_metadata(article_url, retry_count=4)
                                     extracted_content = extraction_result.get('content')
                                 except Exception as e:
-                                    print(f"  ⚠️ AI-enhanced extraction failed after retries, trying standard extraction: {e}")
+                                    logger.warning(f"  ⚠️ AI-enhanced extraction failed after retries, trying standard extraction: {e}")
                                     # Fallback to standard content extraction
                                     try:
                                         extracted_content = await content_extractor.extract_article_content(article_url, retry_count=3)
                                     except Exception as e2:
-                                        print(f"  ❌ Standard extraction also failed after retries: {e2}")
+                                        logger.error(f"  ❌ Standard extraction also failed after retries: {e2}")
                                         extracted_content = None
                             
                             # Check if extracted content is meaningful
                             if extracted_content and len(extracted_content.strip()) > len(article_content):
-                                print(f"  ✅ Extracted {len(extracted_content)} chars from external URL using parsing schemas")
-                                
+                                logger.info(f"  ✅ Extracted {len(extracted_content)} chars from external URL using parsing schemas")
                                 # Update article with extracted content
                                 article_data['content'] = extracted_content
                                 update_fields = {'content': extracted_content}
@@ -113,7 +112,7 @@ class AIProcessor:
                                 if force_processing:
                                     should_process = True
                                     filter_reason = "Force processing enabled (after content extraction)"
-                                    print(f"  🔄 Smart Filter: Bypassed after content extraction (forced reprocessing)")
+                                    logger.info(f"  🔄 Smart Filter: Bypassed after content extraction (forced reprocessing)")
                                 else:
                                     should_process, filter_reason = await smart_filter.should_process_with_ai(
                                         title=article_data.get('title') or '',
@@ -123,12 +122,11 @@ class AIProcessor:
                                         db_session=db
                                     )
                             else:
-                                print(f"  ⚠️ Could not extract meaningful content from external URL")
+                                logger.warning(f"  ⚠️ Could not extract meaningful content from external URL")
                         except Exception as e:
-                            print(f"  ❌ Failed to extract content from external URL: {e}")
-            
+                            logger.error(f"  ❌ Failed to extract content from external URL: {e}")
             if not should_process:
-                print(f"  🚫 Smart Filter: Skipping AI processing - {filter_reason}")
+                logger.info(f"  🚫 Smart Filter: Skipping AI processing - {filter_reason}")
                 # Mark as processed with fallback values to avoid reprocessing
                 update_fields = {}
                 if needs_summary:
@@ -142,10 +140,9 @@ class AIProcessor:
                         utils = ExtractionUtils()
                         # Use first 500 chars as a mini-summary if extraction failed/skipped
                         fallback_summary = utils.smart_truncate(rss_content, 500)
-                        print(f"  📝 Using RSS description as fallback summary ({len(fallback_summary)} chars)")
+                        logger.info(f"  📝 Using RSS description as fallback summary ({len(fallback_summary)} chars)")
                     else:
-                        print(f"  📝 Using title as fallback summary (no better RSS content found)")
-                        
+                        logger.info(f"  📝 Using title as fallback summary (no better RSS content found)")
                     update_fields['summary'] = fallback_summary
                     update_fields['summary_processed'] = True
                 if needs_category:
@@ -161,7 +158,7 @@ class AIProcessor:
                 update_fields['processed'] = True
                 
                 # Extract media files even when Smart Filter skips AI processing
-                print(f"  🖼️ Extracting media files (Smart Filter skip)...")
+                logger.info(f"  🖼️ Extracting media files (Smart Filter skip)...")
                 from .media_extractor import get_media_extractor
                 
                 try:
@@ -170,11 +167,11 @@ class AIProcessor:
                     extracted_media = []
                     
                     if existing_media and isinstance(existing_media, list) and len(existing_media) > 0:
-                        print(f"  📎 Using existing media files from article data: {len(existing_media)} files")
+                        logger.info(f"  📎 Using existing media files from article data: {len(existing_media)} files")
                         extracted_media = existing_media
                     else:
                         # Extract media files from HTML content
-                        print(f"  🔍 Extracting media files from HTML content...")
+                        logger.info(f"  🔍 Extracting media files from HTML content...")
                         media_extractor = get_media_extractor()
                         extracted_media = media_extractor.extract_media_files(
                             article_data.get('content', ''), 
@@ -191,15 +188,13 @@ class AIProcessor:
                             media_extractor = get_media_extractor()
                             
                         summary = media_extractor.get_media_summary(extracted_media)
-                        print(f"  📎 Found {summary['total']} media files (Smart Filter skip)")
-                        
+                        logger.info(f"  📎 Found {summary['total']} media files (Smart Filter skip)")
                         # Save media files to database
                         await self._save_article_fields(article_id, {'media_files': extracted_media})
                     else:
-                        print(f"  📭 No media files found in content (Smart Filter skip)")
-                        
+                        logger.info(f"  📭 No media files found in content (Smart Filter skip)")
                 except Exception as media_error:
-                    print(f"  ❌ Media extraction failed (Smart Filter skip): {media_error}")
+                    logger.error(f"  ❌ Media extraction failed (Smart Filter skip): {media_error}")
                     # Don't raise - media processing is optional
                 
                 # Save fallback results
@@ -209,21 +204,20 @@ class AIProcessor:
                 
                 return {**article_data, **update_fields}
             else:
-                print(f"  ✅ Smart Filter: Approved for AI processing - {filter_reason}")
+                logger.info(f"  ✅ Smart Filter: Approved for AI processing - {filter_reason}")
                 stats.setdefault('smart_filter_approved', 0)
                 stats['smart_filter_approved'] += 1
         
         # If all processing is already done, skip
         if not (needs_summary or needs_category or needs_ad_detection):
-            print(f"  ✅ All processing already completed")
+            logger.info(f"  ✅ All processing already completed")
             # Ensure processed flag is set (safety check)
             if not article_data.get('processed', False):
                 await self._save_article_fields(article_id, {'processed': True})
-                print(f"  🔧 Safety: Set processed=True for fully processed article")
+                logger.info(f"  🔧 Safety: Set processed=True for fully processed article")
             return article_data
             
-        print(f"  🔍 Processing needs: {'✅ Summary' if needs_summary else '❌ Summary'}, {'✅ Category' if needs_category else '❌ Category'}, {'✅ Ad Detection' if needs_ad_detection else '❌ Ad Detection'}")
-        
+        logger.error(f"  🔍 Processing needs: {'✅ Summary' if needs_summary else '❌ Summary'}, {'✅ Category' if needs_category else '❌ Category'}, {'✅ Ad Detection' if needs_ad_detection else '❌ Ad Detection'}")
         # Use combined AI analysis if we need multiple tasks
         if sum([needs_summary, needs_category, needs_ad_detection]) >= 2:
             return await self._process_with_combined_ai(
@@ -245,7 +239,7 @@ class AIProcessor:
         db: AsyncSession = None
     ) -> Dict[str, Any]:
         """Process article with combined AI analysis."""
-        print(f"  🧠 Using combined AI analysis for efficiency...")
+        logger.info(f"  🧠 Using combined AI analysis for efficiency...")
         try:
             # Check if we need to extract content first
             article_content = article_data.get('content') or ''
@@ -253,15 +247,13 @@ class AIProcessor:
             source_type = article_data.get('source_type', 'rss')
             
             content_too_short = (len(article_content.strip()) < 10 and source_type == 'rss') or len(article_content.strip()) < 10
-            print(f"  🔍 Debug combined: content_too_short={content_too_short}, content_len={len(article_content.strip())}")
-            
+            logger.info(f"  🔍 Debug combined: content_too_short={content_too_short}, content_len={len(article_content.strip())}")
             if content_too_short and article_url and article_url.startswith(('http://', 'https://')):
                 # Skip URLs that are known to not have extractable content
                 skip_domains = ['t.me', 'telegram.me', 'twitter.com', 'x.com', 'instagram.com']
                 if not any(domain in article_url.lower() for domain in skip_domains):
                     try:
-                        print(f"  🔍 Content empty/short ({len(article_content)} chars), trying content extraction: {article_url}")
-                        
+                        logger.info(f"  🔍 Content empty/short ({len(article_content)} chars), trying content extraction: {article_url}")
                         # Use full content extraction pipeline with all parsing schemas
                         from ..extraction import ContentExtractor
                         
@@ -272,28 +264,26 @@ class AIProcessor:
                                 extraction_result = await content_extractor.extract_article_content_with_metadata(article_url, retry_count=4)
                                 extracted_content = extraction_result.get('content')
                             except Exception as e:
-                                print(f"  ⚠️ AI-enhanced extraction failed after retries, trying standard extraction: {e}")
+                                logger.warning(f"  ⚠️ AI-enhanced extraction failed after retries, trying standard extraction: {e}")
                                 # Fallback to standard content extraction
                                 try:
                                     extracted_content = await content_extractor.extract_article_content(article_url, retry_count=3)
                                 except Exception as e2:
-                                    print(f"  ❌ Standard extraction also failed after retries: {e2}")
+                                    logger.error(f"  ❌ Standard extraction also failed after retries: {e2}")
                                     extracted_content = None
                         
                         # Check if extracted content is meaningful
                         if extracted_content and len(extracted_content.strip()) > len(article_content):
-                            print(f"  ✅ Extracted {len(extracted_content)} chars from external URL using parsing schemas")
-                            
+                            logger.info(f"  ✅ Extracted {len(extracted_content)} chars from external URL using parsing schemas")
                             # Update article with extracted content
                             article_data['content'] = extracted_content
                             update_fields = {'content': extracted_content}
                             await self._save_article_fields(article_id, update_fields)
                             
                         else:
-                            print(f"  ⚠️ Could not extract meaningful content from external URL")
+                            logger.warning(f"  ⚠️ Could not extract meaningful content from external URL")
                     except Exception as e:
-                        print(f"  ❌ Failed to extract content from external URL: {e}")
-            
+                        logger.error(f"  ❌ Failed to extract content from external URL: {e}")
             start_time = time.time()
 
             # Validate article content before AI processing
@@ -302,7 +292,7 @@ class AIProcessor:
 
             # Skip AI processing if content is too short
             if len(article_content.strip()) < 50 and len(article_title.strip()) < 20:
-                print(f"  ⚠️ Content too short for AI processing (content: {len(article_content)} chars, title: {len(article_title)} chars)")
+                logger.warning(f"  ⚠️ Content too short for AI processing (content: {len(article_content)} chars, title: {len(article_title)} chars)")
                 # Use fallback values
                 update_fields = {
                     'summary': article_title or 'No summary available',
@@ -326,7 +316,7 @@ class AIProcessor:
             )
             
             elapsed_time = time.time() - start_time
-            print(f"  ✅ Combined analysis completed in {elapsed_time:.1f}s")
+            logger.info(f"  ✅ Combined analysis completed in {elapsed_time:.1f}s")
             stats['api_calls_made'] += 1
             
             # Save all results at once
@@ -338,21 +328,20 @@ class AIProcessor:
             # Update title if AI provided optimized version
             optimized_title_raw = ai_result.get('optimized_title')
             current_title = article_data.get('title', '')
-            print(f"  🔍 Title check: AI returned optimized_title='{optimized_title_raw}'")
+            logger.info(f"  🔍 Title check: AI returned optimized_title='{optimized_title_raw}'")
             if optimized_title_raw:
                 optimized_title = str(optimized_title_raw).strip()
-                print(f"  🔍 Cleaned optimized title: '{optimized_title}' (len={len(optimized_title)})")
+                logger.info(f"  🔍 Cleaned optimized title: '{optimized_title}' (len={len(optimized_title)})")
                 if optimized_title and len(optimized_title) <= 200:  # Reasonable title length limit
                     if optimized_title != current_title:
                         update_fields['title'] = optimized_title
-                        print(f"  📝 Title optimized: {optimized_title[:60]}...")
+                        logger.info(f"  📝 Title optimized: {optimized_title[:60]}...")
                     else:
-                        print(f"  ✅ Title unchanged: AI returned same title")
+                        logger.info(f"  ✅ Title unchanged: AI returned same title")
                 else:
-                    print(f"  ⚠️ Title optimization skipped: empty or too long")
+                    logger.warning(f"  ⚠️ Title optimization skipped: empty or too long")
             else:
-                print(f"  ❌ AI did not return optimized_title")
-                
+                logger.error(f"  ❌ AI did not return optimized_title")
             if needs_category:
                 # Extract categories from AI response (new format: array or fallback to single)
                 categories_result = ai_result.get('categories', ai_result.get('category', ['Other']))
@@ -402,7 +391,7 @@ class AIProcessor:
                         
                         if assigned_categories:
                             categories_info = [f"{c['display_name']} ({c['confidence']:.2f})" for c in assigned_categories]
-                            print(f"  🏷️ Multiple categories assigned: {', '.join(categories_info)}")
+                            logger.info(f"  🏷️ Multiple categories assigned: {', '.join(categories_info)}")
                     else:
                         async with AsyncSessionLocal() as category_db:
                             category_service = await get_category_service(category_db)
@@ -427,9 +416,9 @@ class AIProcessor:
                             
                             if assigned_categories:
                                 categories_info = [f"{c['display_name']} ({c['confidence']:.2f})" for c in assigned_categories]
-                                print(f"  🏷️ Multiple categories assigned: {', '.join(categories_info)}")
+                                logger.info(f"  🏷️ Multiple categories assigned: {', '.join(categories_info)}")
                 except Exception as e:
-                    print(f"  ⚠️ Multiple categories assignment failed: {e}")
+                    logger.warning(f"  ⚠️ Multiple categories assignment failed: {e}")
                     # DO NOT set category_processed = True here - let it retry
                 
             if needs_ad_detection:
@@ -445,9 +434,8 @@ class AIProcessor:
             # Save all fields in one database operation
             await self._save_article_fields(article_id, update_fields)
             
-            print(f"  💾 All results saved to database")
-            print(f"  📊 Summary: {ai_result.get('summary', 'None')[:100]}...")
-            
+            logger.info(f"  💾 All results saved to database")
+            logger.info(f"  📊 Summary: {ai_result.get('summary', 'None')[:100]}...")
             # Display categories with confidences (support both old and new format)
             categories_display = ai_result.get('categories', ai_result.get('category', ['Other']))
             if isinstance(categories_display, str):
@@ -464,14 +452,12 @@ class AIProcessor:
             # Format categories with confidences
             if len(confidences_display) >= len(categories_display):
                 categories_info = [f"{cat} ({conf:.2f})" for cat, conf in zip(categories_display, confidences_display)]
-                print(f"  🏷️ Categories: {', '.join(categories_info)}")
+                logger.info(f"  🏷️ Categories: {', '.join(categories_info)}")
             else:
-                print(f"  🏷️ Categories: {', '.join(categories_display)}")
-            
-            print(f"  🚨 Advertisement: {ai_result.get('is_advertisement', False)} (confidence: {ai_result.get('ad_confidence', 0.0):.2f})")
-            
+                logger.info(f"  🏷️ Categories: {', '.join(categories_display)}")
+            logger.info(f"  🚨 Advertisement: {ai_result.get('is_advertisement', False)} (confidence: {ai_result.get('ad_confidence', 0.0):.2f})")
             # Extract media files from article content
-            print(f"  🖼️ Extracting media files from content...")
+            logger.info(f"  🖼️ Extracting media files from content...")
             from .media_extractor import get_media_extractor
             
             try:
@@ -480,11 +466,11 @@ class AIProcessor:
                 extracted_media = []
                 
                 if existing_media and isinstance(existing_media, list) and len(existing_media) > 0:
-                    print(f"  📎 Using existing media files from article data: {len(existing_media)} files")
+                    logger.info(f"  📎 Using existing media files from article data: {len(existing_media)} files")
                     extracted_media = existing_media
                 else:
                     # Extract media files from HTML content
-                    print(f"  🔍 Extracting media files from HTML content...")
+                    logger.info(f"  🔍 Extracting media files from HTML content...")
                     media_extractor = get_media_extractor()
                     extracted_media = media_extractor.extract_media_files(
                         article_data.get('content', ''), 
@@ -501,15 +487,13 @@ class AIProcessor:
                         media_extractor = get_media_extractor()
                         
                     summary = media_extractor.get_media_summary(extracted_media)
-                    print(f"  📎 Found {summary['total']} media files: {summary['image']} images, {summary['video']} videos, {summary['document']} documents")
-                    
+                    logger.info(f"  📎 Found {summary['total']} media files: {summary['image']} images, {summary['video']} videos, {summary['document']} documents")
                     # Save media files to database
                     await self._save_article_fields(article_id, {'media_files': extracted_media})
                 else:
-                    print(f"  📭 No media files found in content")
-                    
+                    logger.info(f"  📭 No media files found in content")
             except Exception as media_error:
-                print(f"  ❌ Media extraction failed: {media_error}")
+                logger.error(f"  ❌ Media extraction failed: {media_error}")
                 # Don't raise - media processing is optional
             
             # Note: processed flag already set in update_fields and saved above
@@ -519,10 +503,9 @@ class AIProcessor:
         except Exception as e:
             # Check if this is just a duplicate category error (normal during reprocessing)
             if "duplicate key value violates unique constraint" in str(e) and "article_categories" in str(e):
-                print(f"  ⚠️ Combined analysis completed with duplicate category warning (normal during reprocessing)")
-                
+                logger.warning(f"  ⚠️ Combined analysis completed with duplicate category warning (normal during reprocessing)")
                 # Extract media even with category duplication error
-                print(f"  🖼️ Extracting media files (after category error)...")
+                logger.info(f"  🖼️ Extracting media files (after category error)...")
                 from .media_extractor import get_media_extractor
                 
                 try:
@@ -536,20 +519,18 @@ class AIProcessor:
                     if extracted_media:
                         article_data['media_files'] = extracted_media
                         summary = media_extractor.get_media_summary(extracted_media)
-                        print(f"  📎 Found {summary['total']} media files")
-                        
+                        logger.info(f"  📎 Found {summary['total']} media files")
                         # Save to database
                         await self._save_article_fields(article_id, {'media_files': extracted_media})
                     
                 except Exception as media_error:
-                    print(f"  ❌ Media extraction failed: {media_error}")
-                
+                    logger.error(f"  ❌ Media extraction failed: {media_error}")
                 # Return success even with duplicate category error
                 safe_update_fields = locals().get('update_fields', {})
                 safe_update_fields['processed'] = True  # Mark as processed even with duplicate category warning
                 return {**article_data, **safe_update_fields, 'success': True, 'content_length': len(article_data.get('content', ''))}
             else:
-                print(f"  ❌ Combined analysis failed: {e}")
+                logger.error(f"  ❌ Combined analysis failed: {e}")
                 # Fall back to incremental processing
                 return await self.process_article_incremental(article_data, stats, False)
 
@@ -564,9 +545,8 @@ class AIProcessor:
         source_name = article_data.get('source_name', 'Unknown')
         article_id = article_data['id']
         
-        print(f"  📡 Source: {source_name} (type: {source_type})")
-        print(f"  🔧 Incremental processing mode")
-        
+        logger.info(f"  📡 Source: {source_name} (type: {source_type})")
+        logger.info(f"  🔧 Incremental processing mode")
         # Check what processing is needed
         needs_summary = force_processing or (not article_data.get('summary_processed', False) and not article_data.get('summary'))
         needs_category = force_processing or not article_data.get('category_processed', False)
@@ -592,7 +572,7 @@ class AIProcessor:
                 filter_reason = "Force processing enabled"
             
             if not should_process:
-                print(f"  🚫 Smart Filter: Skipping AI processing - {filter_reason}")
+                logger.info(f"  🚫 Smart Filter: Skipping AI processing - {filter_reason}")
                 # Mark as processed with fallback values
                 if needs_summary:
                     # Better fallback for summary: try RSS description/content if available
@@ -605,10 +585,9 @@ class AIProcessor:
                         utils = ExtractionUtils()
                         # Use first 500 chars as a mini-summary if extraction failed/skipped
                         fallback_summary = utils.smart_truncate(rss_content, 500)
-                        print(f"  📝 Using RSS description as fallback summary ({len(fallback_summary)} chars)")
+                        logger.info(f"  📝 Using RSS description as fallback summary ({len(fallback_summary)} chars)")
                     else:
-                        print(f"  📝 Using title as fallback summary (no better RSS content found)")
-
+                        logger.info(f"  📝 Using title as fallback summary (no better RSS content found)")
                     await self._save_article_fields(article_id, {
                         'summary': fallback_summary,
                         'summary_processed': True
@@ -626,7 +605,7 @@ class AIProcessor:
                     })
                 
                 # Extract media files even when Smart Filter skips AI processing
-                print(f"  🖼️ Extracting media files (Smart Filter skip)...")
+                logger.info(f"  🖼️ Extracting media files (Smart Filter skip)...")
                 from .media_extractor import get_media_extractor
                 
                 try:
@@ -635,11 +614,11 @@ class AIProcessor:
                     extracted_media = []
                     
                     if existing_media and isinstance(existing_media, list) and len(existing_media) > 0:
-                        print(f"  📎 Using existing media files from article data: {len(existing_media)} files")
+                        logger.info(f"  📎 Using existing media files from article data: {len(existing_media)} files")
                         extracted_media = existing_media
                     else:
                         # Extract media files from HTML content
-                        print(f"  🔍 Extracting media files from HTML content...")
+                        logger.info(f"  🔍 Extracting media files from HTML content...")
                         media_extractor = get_media_extractor()
                         extracted_media = media_extractor.extract_media_files(
                             article_data.get('content', ''), 
@@ -656,42 +635,39 @@ class AIProcessor:
                             media_extractor = get_media_extractor()
                             
                         summary = media_extractor.get_media_summary(extracted_media)
-                        print(f"  📎 Found {summary['total']} media files (Smart Filter skip)")
+                        logger.info(f"  📎 Found {summary['total']} media files (Smart Filter skip)")
                     else:
-                        print(f"  📭 No media files found in content (Smart Filter skip)")
-                        
+                        logger.info(f"  📭 No media files found in content (Smart Filter skip)")
                 except Exception as media_error:
-                    print(f"  ❌ Media extraction failed (Smart Filter skip): {media_error}")
+                    logger.error(f"  ❌ Media extraction failed (Smart Filter skip): {media_error}")
                     # Don't raise - media processing is optional
                 
                 stats.setdefault('smart_filter_skipped', 0)
                 stats['smart_filter_skipped'] += 1
                 return article_data
             else:
-                print(f"  ✅ Smart Filter: Approved for AI processing - {filter_reason}")
+                logger.info(f"  ✅ Smart Filter: Approved for AI processing - {filter_reason}")
                 stats.setdefault('smart_filter_approved', 0)
                 stats['smart_filter_approved'] += 1
         
-        print(f"  🔍 Processing needs: {'✅ Summary' if needs_summary else '❌ Summary'}, {'✅ Category' if needs_category else '❌ Category'}, {'✅ Ad Detection' if needs_ad_detection else '❌ Ad Detection'}")
-        
+        logger.error(f"  🔍 Processing needs: {'✅ Summary' if needs_summary else '❌ Summary'}, {'✅ Category' if needs_category else '❌ Category'}, {'✅ Ad Detection' if needs_ad_detection else '❌ Ad Detection'}")
         # Process summary if needed
         if needs_summary:
-            print(f"  📄 Starting summarization...")
-
+            logger.info(f"  📄 Starting summarization...")
             # Validate article content before AI processing
             article_content = article_data.get('content') or ''
             article_title = article_data.get('title') or ''
 
             # Skip AI summarization if content is too short
             if len(article_content.strip()) < 50 and len(article_title.strip()) < 20:
-                print(f"  ⚠️ Content too short for AI summarization (content: {len(article_content)} chars, title: {len(article_title)} chars)")
+                logger.warning(f"  ⚠️ Content too short for AI summarization (content: {len(article_content)} chars, title: {len(article_title)} chars)")
                 # Use title as fallback
                 fallback_summary = article_title or 'No summary available'
                 await self._save_article_fields(article_id, {
                     'summary': fallback_summary,
                     'summary_processed': True
                 })
-                print(f"  💾 Fallback summary saved to database")
+                logger.info(f"  💾 Fallback summary saved to database")
             else:
                 try:
                     start_time = time.time()
@@ -705,18 +681,16 @@ class AIProcessor:
                     temp_article = TempArticle(article_data)
                     summary = await self.get_summary_by_source_type(temp_article, source_type, stats)
                     elapsed_time = time.time() - start_time
-                    print(f"  ✅ Summary generated in {elapsed_time:.1f}s: {summary[:100] if summary else 'None'}...")
-
+                    logger.info(f"  ✅ Summary generated in {elapsed_time:.1f}s: {summary[:100] if summary else 'None'}...")
                     # Save summary immediately
                     await self._save_article_fields(article_id, {
                         'summary': summary,
                         'summary_processed': True
                     })
                     stats['api_calls_made'] += 1
-                    print(f"  💾 Summary saved to database")
-
+                    logger.info(f"  💾 Summary saved to database")
                 except Exception as e:
-                    print(f"  ❌ Summarization failed: {e}")
+                    logger.error(f"  ❌ Summarization failed: {e}")
                     # Improved fallback: try RSS description, then title
                     fallback_summary = article_title
                     rss_content = article_data.get('raw_description') or article_data.get('description') or article_content
@@ -726,17 +700,15 @@ class AIProcessor:
                         from ..extraction.extraction_utils import ExtractionUtils
                         utils = ExtractionUtils()
                         fallback_summary = utils.smart_truncate(rss_content, 300)
-                        print(f"  📝 Using RSS description as fallback summary ({len(fallback_summary)} chars)")
-
+                        logger.info(f"  📝 Using RSS description as fallback summary ({len(fallback_summary)} chars)")
                     await self._save_article_fields(article_id, {
                         'summary': fallback_summary,
                         'summary_processed': True
                     })
-                    print(f"  💾 Fallback summary saved to database")
-        
+                    logger.info(f"  💾 Fallback summary saved to database")
         # Process category if needed  
         if needs_category:
-            print(f"  🏷️ Starting categorization...")
+            logger.info(f"  🏷️ Starting categorization...")
             try:
                 start_time = time.time()
                 categories_result = await self._categorize_by_source_type_new(TempArticle(article_data), source_type, stats)
@@ -749,7 +721,7 @@ class AIProcessor:
                         await category_service.assign_categories_with_confidences(
                             article_id, categories_result
                         )
-                        print(f"  ✅ Categorization completed in {elapsed_time:.1f}s")
+                        logger.info(f"  ✅ Categorization completed in {elapsed_time:.1f}s")
                         await self._save_article_fields(article_id, {'category_processed': True})
                     else:
                         async with AsyncSessionLocal() as category_db:
@@ -757,16 +729,16 @@ class AIProcessor:
                             await category_service.assign_categories_with_confidences(
                                 article_id, categories_result
                             )
-                            print(f"  ✅ Categorization completed in {elapsed_time:.1f}s")
+                            logger.info(f"  ✅ Categorization completed in {elapsed_time:.1f}s")
                             await self._save_article_fields(article_id, {'category_processed': True})
                         
             except Exception as e:
-                print(f"  ❌ Categorization failed: {e}")
+                logger.error(f"  ❌ Categorization failed: {e}")
                 await self._save_article_fields(article_id, {'category_processed': True})
         
         # Ad detection moved to combined analysis - using fallback
         if needs_ad_detection:
-            print(f"  🛡️ Ad detection moved to combined analysis - using fallback...")
+            logger.info(f"  🛡️ Ad detection moved to combined analysis - using fallback...")
             # Set fallback values and mark as processed
             await self._save_article_fields(article_id, {
                 'is_advertisement': False,
@@ -775,12 +747,11 @@ class AIProcessor:
                 'ad_reasoning': 'Incremental processing fallback',
                 'ad_processed': True,
             })
-            print(f"  💾 Ad detection fallback saved to database")
-        
+            logger.info(f"  💾 Ad detection fallback saved to database")
         # Extract media files from article content
-        print(f"  🖼️ Extracting media files...")
-        print(f"  🔍 DEBUG: article_data keys = {list(article_data.keys())}")
-        print(f"  🔍 DEBUG: media_files in article_data = {article_data.get('media_files', 'NOT_FOUND')}")
+        logger.info(f"  🖼️ Extracting media files...")
+        logger.info(f"  🔍 DEBUG: article_data keys = {list(article_data.keys())}")
+        logger.info(f"  🔍 DEBUG: media_files in article_data = {article_data.get('media_files', 'NOT_FOUND')}")
         from .media_extractor import get_media_extractor
         
         try:
@@ -789,11 +760,11 @@ class AIProcessor:
             extracted_media = []
             
             if existing_media and isinstance(existing_media, list) and len(existing_media) > 0:
-                print(f"  📎 Using existing media files from article data: {len(existing_media)} files")
+                logger.info(f"  📎 Using existing media files from article data: {len(existing_media)} files")
                 extracted_media = existing_media
             else:
                 # Extract media files from HTML content
-                print(f"  🔍 Extracting media files from HTML content...")
+                logger.info(f"  🔍 Extracting media files from HTML content...")
                 media_extractor = get_media_extractor()
                 extracted_media = media_extractor.extract_media_files(
                     article_data.get('content', ''), 
@@ -810,18 +781,16 @@ class AIProcessor:
                     media_extractor = get_media_extractor()
                     
                 summary = media_extractor.get_media_summary(extracted_media)
-                print(f"  📎 Found {summary['total']} media files")
+                logger.info(f"  📎 Found {summary['total']} media files")
             else:
-                print(f"  📭 No media files found in content")
-                
+                logger.info(f"  📭 No media files found in content")
         except Exception as media_error:
-            print(f"  ❌ Media extraction failed: {media_error}")
+            logger.error(f"  ❌ Media extraction failed: {media_error}")
             # Don't raise - media processing is optional
         
         # Mark article as fully processed after incremental processing
         await self._save_article_fields(article_id, {'processed': True})
-        print(f"  ✅ Article marked as fully processed")
-        
+        logger.info(f"  ✅ Article marked as fully processed")
         return {'success': True, 'content_length': len(article_data.get('content', ''))}
 
     async def get_summary_by_source_type(self, article, source_type: str, stats: Dict[str, Any]) -> str:
@@ -874,8 +843,7 @@ class AIProcessor:
                             # If AI managed to summarize external article, use it
                             return ai_summary
                     except Exception as e:
-                        print(f"  ⚠️ Skipping Telegram AI extraction (external link failed): {e}")
-
+                        logger.warning(f"  ⚠️ Skipping Telegram AI extraction (external link failed): {e}")
                 # Fallback: use Telegram preview content
                 return article.content or article.title
                 
@@ -884,7 +852,7 @@ class AIProcessor:
                 return article.content or article.title
                 
         except Exception as e:
-            print(f"  ❌ Summary generation failed for {source_type}: {e}")
+            logger.error(f"  ❌ Summary generation failed for {source_type}: {e}")
             return article.content or article.title or "Summary unavailable"
 
     def _update_article_publication_date(self, article, pub_date: str, source_type: str):
@@ -898,10 +866,9 @@ class AIProcessor:
             if parsed_date and (not article.published_at or article.published_at.year < 2020):
                 # Remove timezone info to match DateTime field in database
                 article.published_at = parsed_date.replace(tzinfo=None) if parsed_date.tzinfo else parsed_date
-                print(f"  📅 Updated publication date from {source_type}: {parsed_date.strftime('%Y-%m-%d %H:%M')}")
+                logger.info(f"  📅 Updated publication date from {source_type}: {parsed_date.strftime('%Y-%m-%d %H:%M')}")
         except Exception as e:
-            print(f"  ⚠️ Failed to parse publication date '{pub_date}': {e}")
-
+            logger.warning(f"  ⚠️ Failed to parse publication date '{pub_date}': {e}")
     async def _categorize_by_source_type_new(self, article, source_type: str, stats: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Categorize article and return categories with confidences."""
         # Implementation would go here - simplified for now
@@ -919,7 +886,7 @@ class AIProcessor:
                 article = result.scalar_one_or_none()
                 
                 if not article:
-                    print(f"⚠️ Article {article_id} not found for fields update")
+                    logger.warning(f"⚠️ Article {article_id} not found for fields update")
                     return
                 
                 # Set all fields from dictionary
@@ -927,8 +894,7 @@ class AIProcessor:
                     if hasattr(article, field_name):
                         setattr(article, field_name, field_value)
                     else:
-                        print(f"⚠️ Article has no field '{field_name}'")
-                
+                        logger.warning(f"⚠️ Article has no field '{field_name}'")
                 await db.commit()
             else:
                 # Create new session  
@@ -940,7 +906,7 @@ class AIProcessor:
                     article = result.scalar_one_or_none()
                     
                     if not article:
-                        print(f"⚠️ Article {article_id} not found for fields update")
+                        logger.warning(f"⚠️ Article {article_id} not found for fields update")
                         return
                     
                     # Set all fields from dictionary
@@ -948,12 +914,11 @@ class AIProcessor:
                         if hasattr(article, field_name):
                             setattr(article, field_name, field_value)
                         else:
-                            print(f"⚠️ Article has no field '{field_name}'")
-                    
+                            logger.warning(f"⚠️ Article has no field '{field_name}'")
                     await new_db.commit()
                     
         except Exception as e:
-            print(f"  ❌ Failed to save article fields for {article_id}: {e}")
+            logger.error(f"  ❌ Failed to save article fields for {article_id}: {e}")
             raise
 
 

@@ -304,16 +304,14 @@ class CoreExtractor:
         clean_url = self.utils.clean_url(url)
         domain = self.utils.extract_domain(clean_url)
         
-        print(f"🔍 Extracting content from: {domain}")
-        print(f"  🔗 URL: {clean_url[:100]}{'...' if len(clean_url) > 100 else ''}")
-        
+        logger.info(f"🔍 Extracting content from: {domain}")
+        logger.info(f"  🔗 URL: {clean_url[:100]}{'...' if len(clean_url) > 100 else ''}")
         extraction_start = time.time()
         last_exception = None
         
         for attempt in range(1, retry_count + 1):
             try:
-                print(f"  📝 Extraction attempt {attempt}/{retry_count}")
-                
+                logger.info(f"  📝 Extraction attempt {attempt}/{retry_count}")
                 res = await self.strategies.attempt_content_extraction(clean_url, domain, attempt)
                 
                 # attempt_content_extraction now returns (content, selector) or content
@@ -329,10 +327,9 @@ class CoreExtractor:
                     extraction_time = time.time() - extraction_start
                     content_length = len(content)
                     
-                    print(f"  ✅ Extraction successful!")
-                    print(f"     Content length: {content_length} characters")
-                    print(f"     Time taken: {extraction_time:.2f}s")
-                    
+                    logger.info(f"  ✅ Extraction successful!")
+                    logger.info(f"     Content length: {content_length} characters")
+                    logger.info(f"     Time taken: {extraction_time:.2f}s")
                     # Record success for learning
                     try:
                         extraction_memory = await get_extraction_memory()
@@ -346,26 +343,23 @@ class CoreExtractor:
                             extraction_time_ms=int(extraction_time * 1000)
                         ))
                     except Exception as e:
-                        print(f"  ⚠️ Failed to record success: {e}")
-                    
+                        logger.warning(f"  ⚠️ Failed to record success: {e}")
                     # Update domain stability
                     try:
                         stability_tracker = await get_stability_tracker()
                         await stability_tracker.record_success(domain, "content_extraction")
                     except Exception as e:
-                        print(f"  ⚠️ Failed to update domain stability: {e}")
-                    
+                        logger.warning(f"  ⚠️ Failed to update domain stability: {e}")
                     return self.utils.finalize_content(content)
                     
                 else:
-                    print(f"  ❌ Attempt {attempt} failed - content quality insufficient")
+                    logger.error(f"  ❌ Attempt {attempt} failed - content quality insufficient")
                     if attempt < retry_count:
                         await asyncio.sleep(0.5)  # Brief delay before retry
                         
             except Exception as e:
                 last_exception = e
-                print(f"  ❌ Attempt {attempt} failed with error: {e}")
-                
+                logger.error(f"  ❌ Attempt {attempt} failed with error: {e}")
                 # Record failure for learning
                 await self.strategies.record_extraction_failure(
                     domain=domain,
@@ -378,8 +372,7 @@ class CoreExtractor:
         
         # All attempts failed
         extraction_time = time.time() - extraction_start
-        print(f"  💀 All content extraction attempts failed after {extraction_time:.2f}s")
-        
+        logger.info(f"  💀 All content extraction attempts failed after {extraction_time:.2f}s")
         # Try alternative URLs if available
         try:
             html = await self.strategies.fetch_html_content(clean_url)
@@ -389,18 +382,17 @@ class CoreExtractor:
                 alt_urls = self.strategies.metadata_extractor.find_alt_article_links(soup, clean_url)
                 
                 for alt_url in alt_urls[:1]:  # Try 1 alternative URL for content-only extraction
-                    print(f"  🔄 Trying alternative URL: {alt_url}")
+                    logger.info(f"  🔄 Trying alternative URL: {alt_url}")
                     try:
                         alt_content = await self.strategies.attempt_content_extraction(alt_url, domain, 1)
                         if alt_content and self.utils.is_good_content(alt_content):
-                            print(f"  ✅ Alternative URL successful!")
+                            logger.info(f"  ✅ Alternative URL successful!")
                             return self.utils.finalize_content(alt_content)
                     except Exception as e:
-                        print(f"  ❌ Alternative URL failed: {e}")
+                        logger.error(f"  ❌ Alternative URL failed: {e}")
                         continue
         except Exception as e:
-            print(f"  ⚠️ Failed to try alternative URLs: {e}")
-        
+            logger.warning(f"  ⚠️ Failed to try alternative URLs: {e}")
         return None
     
     @cached(ttl=HTML_CACHE_TTL_SECONDS)
@@ -425,8 +417,7 @@ class CoreExtractor:
                 return self.utils.finalize_content(content)
                 
         except Exception as e:
-            print(f"HTML extraction failed: {e}")
-        
+            logger.info(f"HTML extraction failed: {e}")
         return None
     
     def get_extraction_stats(self) -> Dict[str, Any]:

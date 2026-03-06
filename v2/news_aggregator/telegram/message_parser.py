@@ -1,3 +1,4 @@
+import logging
 """Message parsing logic for Telegram sources."""
 
 import re
@@ -8,6 +9,8 @@ from bs4 import BeautifulSoup
 
 from ..sources.base import Article
 from .media_extractor import MediaExtractor
+
+logger = logging.getLogger(__name__)
 
 
 class MessageParser:
@@ -73,8 +76,7 @@ class MessageParser:
                 full_content = await self._try_extract_full_content(original_link, content)
                 if full_content:
                     content = full_content
-                    print(f"  🎯 Using full content from external source ({len(content)} chars)")
-            
+                    logger.info(f"  🎯 Using full content from external source ({len(content)} chars)")
             title = self._extract_title(content)
             forwarded_from = self._extract_forwarded_info(message_div)
             hashtags = self._extract_hashtags(content)
@@ -108,7 +110,7 @@ class MessageParser:
             )
             
         except Exception as e:
-            print(f"Error parsing Telegram message: {e}")
+            logger.info(f"Error parsing Telegram message: {e}")
             return None
     
     async def _try_extract_full_content(self, external_link: str, short_content: str) -> Optional[str]:
@@ -135,12 +137,11 @@ class MessageParser:
         ]
         
         if not any(domain in external_link.lower() for domain in news_domains):
-            print(f"  ⏭️  Skipping non-news domain: {external_link}")
+            logger.info(f"  ⏭️  Skipping non-news domain: {external_link}")
             return None
             
         try:
-            print(f"  🔗 Trying to extract full content from: {external_link}")
-            
+            logger.info(f"  🔗 Trying to extract full content from: {external_link}")
             # Lazy import to avoid circular import
             from ..extraction import ContentExtractor
             
@@ -151,16 +152,14 @@ class MessageParser:
                 if result and result.get('content'):
                     full_content = result['content']
                     if len(full_content) > len(short_content) * 2:  # Significant improvement
-                        print(f"  ✅ Extracted full content: {len(full_content)} chars vs {len(short_content)} chars")
+                        logger.info(f"  ✅ Extracted full content: {len(full_content)} chars vs {len(short_content)} chars")
                         return full_content
                     else:
-                        print(f"  ⚠️  External content not much longer than Telegram content")
+                        logger.warning(f"  ⚠️  External content not much longer than Telegram content")
                 else:
-                    print(f"  ❌ No content extracted from external link")
-                    
+                    logger.error(f"  ❌ No content extracted from external link")
         except Exception as e:
-            print(f"  ⚠️  Full content extraction failed: {e}")
-            
+            logger.warning(f"  ⚠️  Full content extraction failed: {e}")
         return None
     
     def _cleanup_message_div(self, message_div) -> None:
@@ -193,7 +192,7 @@ class MessageParser:
         if len(content) < 20:
             meta_content = self._extract_from_meta_tags(message_div, base_url)
             if meta_content and len(meta_content) > len(content):
-                print(f"  📝 Using meta fallback for very short content: {len(content)} → {len(meta_content)}")
+                logger.info(f"  📝 Using meta fallback for very short content: {len(content)} → {len(meta_content)}")
                 content = meta_content
         
         # Clean up content
@@ -385,8 +384,7 @@ class MessageParser:
                     if len(content) > 20:
                         return content
         except Exception as e:
-            print(f"  ⚠️ Meta extraction failed: {e}")
-        
+            logger.warning(f"  ⚠️ Meta extraction failed: {e}")
         return None
     
     def _extract_opengraph_image(self, soup) -> Optional[str]:
@@ -405,15 +403,14 @@ class MessageParser:
                 if meta_tag and meta_tag.get('content'):
                     image_url = meta_tag['content'].strip()
                     if image_url.startswith(('http://', 'https://')):
-                        print(f"    🖼️ Found Open Graph image: {image_url[:80]}...")
+                        logger.info(f"    🖼️ Found Open Graph image: {image_url[:80]}...")
                         return image_url
                     elif image_url.startswith('//'):
                         image_url = f"https:{image_url}"
-                        print(f"    🖼️ Found Open Graph image: {image_url[:80]}...")
+                        logger.info(f"    🖼️ Found Open Graph image: {image_url[:80]}...")
                         return image_url
         except Exception as e:
-            print(f"  ⚠️ Open Graph image extraction failed: {e}")
-        
+            logger.warning(f"  ⚠️ Open Graph image extraction failed: {e}")
         return None
     
     def _clean_message_content(self, content: str) -> str:

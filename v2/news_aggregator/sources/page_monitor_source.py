@@ -1,3 +1,4 @@
+import logging
 """Adaptive page monitor source for websites without RSS feeds."""
 
 import re
@@ -23,6 +24,8 @@ from bs4 import BeautifulSoup
 from .base import BaseSource, SourceInfo, Article, SourceType
 from ..core.http_client import get_http_client
 from ..core.exceptions import SourceError
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -197,8 +200,7 @@ class PageMonitorSource(BaseSource):
     async def fetch_articles(self) -> List[Article]:
         """Fetch new articles by monitoring page changes."""
         try:
-            print(f"🔍 Monitoring page: {self.config.url}")
-
+            logger.info(f"🔍 Monitoring page: {self.config.url}")
             # Load learned structure before processing
             await self._load_learned_structure()
 
@@ -207,8 +209,7 @@ class PageMonitorSource(BaseSource):
             
             if not current_snapshot:
                 self.failure_count += 1
-                print(f"❌ Failed to take snapshot (failures: {self.failure_count})")
-                
+                logger.error(f"❌ Failed to take snapshot (failures: {self.failure_count})")
                 # Trigger AI analysis after repeated failures
                 if (self.failure_count >= self.config.reanalyze_after_failures and 
                     self.config.enable_ai_analysis):
@@ -226,19 +227,19 @@ class PageMonitorSource(BaseSource):
                     self.last_snapshot, current_snapshot
                 )
             else:
-                print("📸 First snapshot taken, treating all extracted items as new")
+                logger.info("📸 First snapshot taken, treating all extracted items as new")
                 # On first run, return all extracted items as new articles
                 new_articles = await self._convert_extracted_to_articles(current_snapshot.extracted_items)
             
             # Update last snapshot
             self.last_snapshot = current_snapshot
             
-            print(f"📊 Found {len(new_articles)} new articles")
+            logger.info(f"📊 Found {len(new_articles)} new articles")
             return new_articles
             
         except Exception as e:
             self.failure_count += 1
-            print(f"❌ Error monitoring page: {e}")
+            logger.error(f"❌ Error monitoring page: {e}")
             raise SourceError(f"Failed to monitor {self.config.url}: {e}")
     
     async def _take_page_snapshot(self) -> Optional[PageSnapshot]:
@@ -249,7 +250,7 @@ class PageMonitorSource(BaseSource):
             else:
                 return await self._take_http_snapshot()
         except Exception as e:
-            print(f"⚠️ Snapshot failed: {e}")
+            logger.warning(f"⚠️ Snapshot failed: {e}")
             return None
     
     async def _take_browser_snapshot(self) -> Optional[PageSnapshot]:
@@ -272,7 +273,7 @@ class PageMonitorSource(BaseSource):
             })
             
             # Navigate to page
-            print(f"  🌐 Loading page: {self.config.url}")
+            logger.info(f"  🌐 Loading page: {self.config.url}")
             await page.goto(self.config.url, wait_until='networkidle', timeout=self.config.wait_timeout_ms)
             
             if self.config.wait_for_js:
@@ -339,7 +340,7 @@ class PageMonitorSource(BaseSource):
         # 1. Try specific learned container selectors first
         if self.learned_container_selectors:
             for selector in self.learned_container_selectors:
-                print(f"  🧠 Trying learned container selector: {selector}")
+                logger.info(f"  🧠 Trying learned container selector: {selector}")
                 new_articles = await self._extract_with_selector(soup, selector, page)
                 articles.extend(new_articles)
                 if articles:
@@ -354,7 +355,7 @@ class PageMonitorSource(BaseSource):
             )
             for selector, confidence in sorted_selectors[:3]:
                 if confidence > 0.7:
-                    print(f"  🎯 Trying learned general selector: {selector} (confidence: {confidence:.2f})")
+                    logger.info(f"  🎯 Trying learned general selector: {selector} (confidence: {confidence:.2f})")
                     articles.extend(await self._extract_with_selector(soup, selector, page))
                     if articles:
                         break
@@ -362,7 +363,7 @@ class PageMonitorSource(BaseSource):
         # 3. If no articles found, try configured selectors
         if not articles:
             for selector in self.config.article_selectors:
-                print(f"  🔍 Trying configured selector: {selector}")
+                logger.info(f"  🔍 Trying configured selector: {selector}")
                 new_articles = await self._extract_with_selector(soup, selector, page)
                 articles.extend(new_articles)
                 
@@ -371,7 +372,7 @@ class PageMonitorSource(BaseSource):
         
         # 4. Check for list-page fallback (treating whole page as one article)
         if await self._detect_list_page_fallback(articles, html):
-            print("  ⚠️ Detected list-page fallback - triggering AI source study")
+            logger.warning("  ⚠️ Detected list-page fallback - triggering AI source study")
             await self._study_source_structure(html)
             # Re-try with newly learned selectors if any
             if self.learned_container_selectors:
@@ -383,7 +384,7 @@ class PageMonitorSource(BaseSource):
         # Filter and enhance articles
         articles = await self._filter_and_enhance_articles(articles)
         
-        print(f"  📋 Extracted {len(articles)} potential articles")
+        logger.info(f"  📋 Extracted {len(articles)} potential articles")
         return articles[:self.config.max_articles_per_check]
     
     async def _extract_with_selector(self, soup: BeautifulSoup, selector: str, page: Optional[Page] = None) -> List[Dict[str, Any]]:
@@ -399,8 +400,7 @@ class PageMonitorSource(BaseSource):
                     articles.append(article)
                     
         except Exception as e:
-            print(f"    ❌ Selector '{selector}' failed: {e}")
-        
+            logger.error(f"    ❌ Selector '{selector}' failed: {e}")
         return articles
     
     async def _extract_article_from_element(self, element, soup: BeautifulSoup) -> Optional[Dict[str, Any]]:
@@ -811,12 +811,10 @@ class PageMonitorSource(BaseSource):
             self.learned_date_selectors = structure.get('date_selectors', [])
             
             if self.learned_container_selectors:
-                print(f"  🧠 Loaded learned structure for {domain} ({len(self.learned_container_selectors)} containers)")
-                
+                logger.info(f"  🧠 Loaded learned structure for {domain} ({len(self.learned_container_selectors)} containers)")
             self._learned_structure_loaded = True
         except Exception as e:
-            print(f"  ⚠️ Failed to load learned structure: {e}")
-
+            logger.warning(f"  ⚠️ Failed to load learned structure: {e}")
     async def _study_source_structure(self, html: Optional[str] = None):
         """Use AI to study the source structure and discover selectors."""
         try:
@@ -840,10 +838,10 @@ class PageMonitorSource(BaseSource):
                 memory = await get_extraction_memory()
                 await memory.record_page_structure(domain, analysis)
                 
-                print(f"  🎯 AI discovered new structure for {domain}")
+                logger.info(f"  🎯 AI discovered new structure for {domain}")
                 return True
         except Exception as e:
-            print(f"  ❌ Source study failed: {e}")
+            logger.error(f"  ❌ Source study failed: {e}")
         return False
 
     def _hash_article(self, article_data: Dict[str, Any]) -> str:
@@ -858,8 +856,7 @@ class PageMonitorSource(BaseSource):
     async def _trigger_ai_analysis(self):
         """Trigger AI analysis to improve selectors."""
         try:
-            print(f"🤖 Triggering AI analysis for {self.config.url}")
-            
+            logger.info(f"🤖 Triggering AI analysis for {self.config.url}")
             # 1. Try source structure study if we have HTML
             # We don't have HTML here easily, but we can try to fetch it again 
             # or just use the heuristic below
@@ -886,16 +883,13 @@ class PageMonitorSource(BaseSource):
                     '.blog-entry': 0.8
                 })
             
-            print(f"  🎯 Added {len(self.learned_selectors)} learned selectors")
-            
+            logger.info(f"  🎯 Added {len(self.learned_selectors)} learned selectors")
         except Exception as e:
-            print(f"  ❌ AI analysis failed: {e}")
-    
+            logger.error(f"  ❌ AI analysis failed: {e}")
     async def test_connection(self) -> bool:
         """Test if the page can be accessed."""
         try:
-            print(f"🔗 Testing connection to {self.config.url}")
-            
+            logger.info(f"🔗 Testing connection to {self.config.url}")
             if self.config.use_browser:
                 # Test with browser
                 if not self.browser:
@@ -904,10 +898,10 @@ class PageMonitorSource(BaseSource):
                 page = await self.browser.new_page()
                 try:
                     await page.goto(self.config.url, wait_until='networkidle', timeout=30000)
-                    print("✅ Browser connection successful")
+                    logger.info("✅ Browser connection successful")
                     return True
                 except Exception as e:
-                    print(f"❌ Browser connection failed: {e}")
+                    logger.error(f"❌ Browser connection failed: {e}")
                     return False
                 finally:
                     await page.close()
@@ -920,11 +914,11 @@ class PageMonitorSource(BaseSource):
                 async with get_http_client() as client:
                     response = await client.session.get(self.config.url, headers=headers)
                     response.raise_for_status()
-                    print("✅ HTTP connection successful")
+                    logger.info("✅ HTTP connection successful")
                     return True
                     
         except Exception as e:
-            print(f"❌ Connection test failed: {e}")
+            logger.error(f"❌ Connection test failed: {e}")
             return False
 
 
@@ -954,12 +948,12 @@ class PageMonitorSource(BaseSource):
         
         # If more than 50% of extracted items point to the base URL, it's a fallback
         if len(articles) > 0 and (match_base_count / len(articles)) > 0.5:
-            print(f"  ⚠️ Majority of items ({match_base_count}/{len(articles)}) point to base URL: {base_url}")
+            logger.warning(f"  ⚠️ Majority of items ({match_base_count}/{len(articles)}) point to base URL: {base_url}")
             return True
         
         # If all links are the same (and we have multiple articles), it's likely a failure
         if len(unique_links) == 1 and len(articles) > 1:
-            print(f"  ⚠️ All {len(articles)} extracted articles point to the same URL: {list(unique_links)[0]}")
+            logger.warning(f"  ⚠️ All {len(articles)} extracted articles point to the same URL: {list(unique_links)[0]}")
             return True
             
         # If we only have one article and its link is the base URL
@@ -969,13 +963,13 @@ class PageMonitorSource(BaseSource):
             article_url = link.split('?')[0].split('#')[0].rstrip('/') if link else ""
             
             if article_url == base_url or not article_url:
-                print(f"  ⚠️ Single article link matches source URL: {article_url}")
+                logger.warning(f"  ⚠️ Single article link matches source URL: {article_url}")
                 return True
                 
             # If description is very large, it's likely the whole page text
             description = article.get('description', '')
             if len(description) > 5000:
-                print(f"  ⚠️ Extracted article is suspiciously large ({len(description)} chars)")
+                logger.warning(f"  ⚠️ Extracted article is suspiciously large ({len(description)} chars)")
                 return True
                 
         return False

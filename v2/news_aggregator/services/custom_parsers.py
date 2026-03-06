@@ -1,3 +1,4 @@
+import logging
 """Custom parsers for specific domains with enhanced metadata extraction."""
 
 import re
@@ -9,6 +10,8 @@ from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from .extraction_memory import get_extraction_memory
 import dateutil.parser
+
+logger = logging.getLogger(__name__)
 
 
 class BaseCustomParser(ABC):
@@ -316,10 +319,10 @@ class CustomParserManager:
         try:
             soup = BeautifulSoup(html_content, 'html.parser')
             result = parser.extract_metadata(soup, url)
-            print(f"  🎯 Custom parser {parser.__class__.__name__} extracted metadata")
+            logger.info(f"  🎯 Custom parser {parser.__class__.__name__} extracted metadata")
             return result
         except Exception as e:
-            print(f"  ⚠️ Custom parser error for {url}: {e}")
+            logger.warning(f"  ⚠️ Custom parser error for {url}: {e}")
             return {'content': None, 'publication_date': None}
 
     async def get_dynamic_parser_for_url(self, url: str) -> Optional[BaseCustomParser]:

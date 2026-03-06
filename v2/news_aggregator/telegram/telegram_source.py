@@ -15,6 +15,8 @@ from ..core.exceptions import SourceError
 from .message_parser import MessageParser
 from .media_extractor import MediaExtractor
 
+logger = logging.getLogger(__name__)
+
 try:
     from playwright.async_api import async_playwright, Browser, Page
     PLAYWRIGHT_AVAILABLE = True
@@ -105,15 +107,14 @@ class TelegramSource(BaseSource):
     
     async def fetch_articles(self, limit: Optional[int] = None) -> AsyncGenerator[Article, None]:
         """Fetch articles from Telegram channel using multiple methods."""
-        print(f"🔍 Fetching from Telegram: @{self.channel_username} (limit: {limit})")
-        
+        logger.info(f"🔍 Fetching from Telegram: @{self.channel_username} (limit: {limit})")
         articles_found = 0
         last_error = None
         
         # Try browser first for better media extraction (JS widgets)
         if PLAYWRIGHT_AVAILABLE:
             try:
-                print("  🎭 Trying browser access for comprehensive media extraction...")
+                logger.info("  🎭 Trying browser access for comprehensive media extraction...")
                 async for article in self._fetch_with_browser():
                     articles_found += 1
                     yield article
@@ -121,16 +122,15 @@ class TelegramSource(BaseSource):
                         break
                 
                 if articles_found > 0:
-                    print(f"  ✅ Browser method successful - found {articles_found} articles")
+                    logger.info(f"  ✅ Browser method successful - found {articles_found} articles")
                     return
                     
             except Exception as e:
                 last_error = e
-                print(f"  ❌ Browser method failed: {e}")
-        
+                logger.error(f"  ❌ Browser method failed: {e}")
         # Try HTTP as fallback
         try:
-            print("  📡 Trying HTTP access as fallback...")
+            logger.info("  📡 Trying HTTP access as fallback...")
             async for article in self._fetch_with_http():
                 articles_found += 1
                 yield article
@@ -138,13 +138,12 @@ class TelegramSource(BaseSource):
                     break
             
             if articles_found > 0:
-                print(f"  ✅ HTTP method successful - found {articles_found} articles")
+                logger.info(f"  ✅ HTTP method successful - found {articles_found} articles")
                 return
                 
         except Exception as e:
             last_error = e
-            print(f"  ❌ HTTP method failed: {e}")
-        
+            logger.error(f"  ❌ HTTP method failed: {e}")
         if articles_found == 0:
             error_msg = f"All access methods failed for @{self.channel_username}"
             if last_error:
@@ -171,10 +170,9 @@ class TelegramSource(BaseSource):
                             if articles:
                                 return  # Success with this URL
                         else:
-                            print(f"  ⚠️ HTTP {response.status} for {url}")
-                            
+                            logger.warning(f"  ⚠️ HTTP {response.status} for {url}")
                 except Exception as e:
-                    print(f"  ❌ HTTP error for {url}: {e}")
+                    logger.error(f"  ❌ HTTP error for {url}: {e}")
                     continue
         
         raise SourceError("All HTTP methods failed")
@@ -201,8 +199,7 @@ class TelegramSource(BaseSource):
                     
                     # Enhanced scrolling strategy to load fresh messages
                     try:
-                        print("  🔄 Enhanced scrolling to load latest messages...")
-                        
+                        logger.info("  🔄 Enhanced scrolling to load latest messages...")
                         # First scroll to bottom to trigger loading more recent messages
                         await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                         await asyncio.sleep(3)
@@ -218,9 +215,9 @@ class TelegramSource(BaseSource):
                             await page.evaluate("window.scrollTo(0, 0)")      # Back to top
                             await asyncio.sleep(1)
                         
-                        print("  ✅ Enhanced scrolling completed")
+                        logger.info("  ✅ Enhanced scrolling completed")
                     except Exception as scroll_error:
-                        print(f"  ⚠️ Scrolling failed: {scroll_error}")
+                        logger.warning(f"  ⚠️ Scrolling failed: {scroll_error}")
                         pass
                     
                     # Get HTML content
@@ -235,7 +232,7 @@ class TelegramSource(BaseSource):
                         return  # Success with this URL
                         
                 except Exception as e:
-                    print(f"  ❌ Browser error for {url}: {e}")
+                    logger.error(f"  ❌ Browser error for {url}: {e}")
                     continue
             
             await context.close()
@@ -269,11 +266,10 @@ class TelegramSource(BaseSource):
                 break
         
         if not messages:
-            print(f"  ⚠️ No messages found in HTML")
+            logger.warning(f"  ⚠️ No messages found in HTML")
             return articles
         
-        print(f"  📊 Found {len(messages)} messages to parse")
-        
+        logger.info(f"  📊 Found {len(messages)} messages to parse")
         for i, message_div in enumerate(messages):
             try:
                 # Use modular message parser with soup for Open Graph extraction
@@ -281,12 +277,12 @@ class TelegramSource(BaseSource):
                 if article:
                     articles.append(article)
                     if len(articles) % 5 == 0:  # Progress indicator
-                        print(f"  ✅ Parsed {len(articles)} articles...")
+                        logger.info(f"  ✅ Parsed {len(articles)} articles...")
             except Exception as e:
-                print(f"  ⚠️ Error parsing message {i+1}: {e}")
+                logger.warning(f"  ⚠️ Error parsing message {i+1}: {e}")
                 continue
         
-        print(f"  🎯 Successfully parsed {len(articles)}/{len(messages)} messages")
+        logger.info(f"  🎯 Successfully parsed {len(articles)}/{len(messages)} messages")
         return articles
     
     def _normalize_external_url(self, url: str) -> Optional[str]:
@@ -320,13 +316,13 @@ class TelegramSource(BaseSource):
             try:
                 await self.browser.close()
             except Exception as e:
-                print(f"Error closing browser: {e}")
+                logger.info(f"Error closing browser: {e}")
             finally:
                 self.browser = None
         if self._playwright:
             try:
                 await self._playwright.stop()
             except Exception as e:
-                print(f"Error stopping Playwright: {e}")
+                logger.info(f"Error stopping Playwright: {e}")
             finally:
                 self._playwright = None

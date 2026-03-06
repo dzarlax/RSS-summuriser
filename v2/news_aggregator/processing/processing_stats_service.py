@@ -1,3 +1,4 @@
+import logging
 """Processing Statistics Service for news aggregation."""
 
 from datetime import datetime, timedelta
@@ -9,6 +10,8 @@ from sqlalchemy import select
 from ..database import AsyncSessionLocal
 from ..models import ProcessingStat
 from ..database_helpers import fetch_all
+
+logger = logging.getLogger(__name__)
 
 
 class ProcessingStatsService:
@@ -35,7 +38,7 @@ class ProcessingStatsService:
             existing_stats.api_calls_made += stats.get('api_calls_made', 0)
             existing_stats.errors_count += len(stats.get('errors', []))
             existing_stats.processing_time_seconds += int(stats.get('duration_seconds', 0))
-            print(f"  📊 Updated daily stats: {existing_stats.articles_processed} processed, {existing_stats.api_calls_made} API calls")
+            logger.info(f"  📊 Updated daily stats: {existing_stats.articles_processed} processed, {existing_stats.api_calls_made} API calls")
         else:
             # Create new stats
             processing_stat = ProcessingStat(
@@ -47,8 +50,7 @@ class ProcessingStatsService:
                 processing_time_seconds=int(stats.get('duration_seconds', 0))
             )
             db.add(processing_stat)
-            print(f"  📊 Created new daily stats: {processing_stat.articles_processed} processed, {processing_stat.api_calls_made} API calls")
-        
+            logger.info(f"  📊 Created new daily stats: {processing_stat.articles_processed} processed, {processing_stat.api_calls_made} API calls")
         await db.commit()
     
     async def get_processing_stats(self, days: int = 7) -> Dict[str, Any]:

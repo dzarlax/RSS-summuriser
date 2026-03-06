@@ -1,3 +1,4 @@
+import logging
 """Source manager for handling multiple news sources."""
 
 import asyncio
@@ -12,6 +13,8 @@ from ..models import Source, Article
 from ..sources import get_source_registry, BaseSource, SourceInfo, SourceType
 from ..core.exceptions import SourceError
 from ..database import get_db
+
+logger = logging.getLogger(__name__)
 
 
 class SourceManager:
@@ -342,7 +345,7 @@ class SourceManager:
 
                     return source.name, articles
                 except Exception as e:
-                    print(f"Error fetching from {source.name}: {e}")
+                    logger.info(f"Error fetching from {source.name}: {e}")
                     return source.name, []
 
         # Execute fetches concurrently (HTTP only, no DB lock)
@@ -352,7 +355,7 @@ class SourceManager:
         # Process results
         for result in fetch_results:
             if isinstance(result, Exception):
-                print(f"Fetch task failed: {result}")
+                logger.info(f"Fetch task failed: {result}")
                 continue
 
             source_name, articles = result
@@ -373,7 +376,7 @@ class SourceManager:
                 # Get source from mapping
                 source = source_map.get(source_name)
                 if not source:
-                    print(f"Source {source_name} not found in mapping, skipping save")
+                    logger.info(f"Source {source_name} not found in mapping, skipping save")
                     results[source_name] = []
                     continue
 
@@ -419,7 +422,7 @@ class SourceManager:
                             continue  # Skip already processed articles
 
                         # Article exists but not processed - update it
-                        print(f"  🔄 Updating existing unprocessed article: {existing_article.url[:50]}...")
+                        logger.info(f"  🔄 Updating existing unprocessed article: {existing_article.url[:50]}...")
                         existing_article.title = article.title or existing_article.title
                         existing_article.content = article.content or existing_article.content
                         existing_article.url = article.url or existing_article.url
@@ -497,7 +500,7 @@ class SourceManager:
                 results[source_name] = saved_articles
 
             except Exception as e:
-                print(f"Error saving articles for {source_name}: {e}")
+                logger.info(f"Error saving articles for {source_name}: {e}")
                 results[source_name] = []
 
         return results
@@ -527,7 +530,7 @@ class SourceManager:
 
                     return source.name, articles
                 except Exception as e:
-                    print(f"Error fetching from {source.name}: {e}")
+                    logger.info(f"Error fetching from {source.name}: {e}")
                     return source.name, []
 
         # Execute fetches concurrently (HTTP only, no DB lock)
@@ -537,7 +540,7 @@ class SourceManager:
         # Process results
         for result in fetch_results:
             if isinstance(result, Exception):
-                print(f"Fetch task failed: {result}")
+                logger.info(f"Fetch task failed: {result}")
                 continue
 
             source_name, articles = result
@@ -560,7 +563,7 @@ class SourceManager:
                 source = source_result.scalar_one_or_none()
 
                 if not source:
-                    print(f"Source {source_name} not found, skipping save")
+                    logger.info(f"Source {source_name} not found, skipping save")
                     results[source_name] = []
                     continue
 
@@ -606,7 +609,7 @@ class SourceManager:
                             continue  # Skip already processed articles
 
                         # Article exists but not processed - update it
-                        print(f"  🔄 Updating existing unprocessed article: {existing_article.url[:50]}...")
+                        logger.info(f"  🔄 Updating existing unprocessed article: {existing_article.url[:50]}...")
                         existing_article.title = article.title or existing_article.title
                         existing_article.content = article.content or existing_article.content
                         existing_article.url = article.url or existing_article.url
@@ -685,7 +688,7 @@ class SourceManager:
                 results[source_name] = saved_articles
 
             except Exception as e:
-                print(f"Error saving articles for {source_name}: {e}")
+                logger.info(f"Error saving articles for {source_name}: {e}")
                 results[source_name] = []
 
         return results
@@ -713,7 +716,7 @@ class SourceManager:
                         articles = await self.fetch_from_source(task_db, fresh_source)
                         return source.name, articles
                 except Exception as e:
-                    print(f"Error fetching from {source.name}: {e}")
+                    logger.info(f"Error fetching from {source.name}: {e}")
                     return source.name, []
 
         # Execute fetches concurrently
@@ -723,7 +726,7 @@ class SourceManager:
         # Process results
         for result in fetch_results:
             if isinstance(result, Exception):
-                print(f"Fetch task failed: {result}")
+                logger.info(f"Fetch task failed: {result}")
                 continue
 
             source_name, articles = result

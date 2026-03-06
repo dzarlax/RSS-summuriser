@@ -1,3 +1,4 @@
+import logging
 """File-based caching system."""
 
 import json
@@ -9,6 +10,8 @@ from typing import Any, Optional, Union
 import aiofiles
 
 from ..config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class FileCache:
@@ -85,8 +88,7 @@ class FileCache:
                     except FileNotFoundError:
                         continue
 
-                print(f"Cache limit enforced: removed {entries_to_remove} old entries")
-
+                logger.info(f"Cache limit enforced: removed {entries_to_remove} old entries")
             # Check if we exceed the size limit
             if stats['total_size_mb'] > self.max_size_mb:
                 # Clean expired entries first
@@ -117,11 +119,9 @@ class FileCache:
                         except FileNotFoundError:
                             continue
 
-                    print(f"Cache size limit enforced: removed entries to get under {self.max_size_mb}MB")
-
+                    logger.info(f"Cache size limit enforced: removed entries to get under {self.max_size_mb}MB")
         except Exception as e:
-            print(f"Warning: Failed to enforce cache limits: {e}")
-
+            logger.info(f"Warning: Failed to enforce cache limits: {e}")
     async def set(self, key: str, value: Any, ttl: Optional[int] = None) -> None:
         """Set value in cache with size and entry limits."""
         cache_path = self._get_cache_path(key)

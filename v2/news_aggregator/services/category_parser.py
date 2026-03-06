@@ -1,3 +1,4 @@
+import logging
 """
 Category parsing utilities for handling AI responses.
 """
@@ -5,6 +6,8 @@ Category parsing utilities for handling AI responses.
 from typing import List, Optional
 import asyncio
 import threading
+
+logger = logging.getLogger(__name__)
 
 # Global synchronous cache for categories (for use in sync contexts)
 _sync_categories_cache: Optional[List[str]] = None
@@ -46,14 +49,14 @@ def _load_categories_sync_fallback() -> List[str]:
             # We're in async context but called from sync function
             # Use fallback - will be updated by async caller
             categories = ['AI', 'Serbia', 'Tech', 'Business', 'Science', 'Nature', 'Marketing', 'Other']
-            print(f"  ⚠️ Sync category fetch in async context - using fallback: {categories}")
+            logger.warning(f"  ⚠️ Sync category fetch in async context - using fallback: {categories}")
             return categories
         else:
             # No event loop - create one
             categories = loop.run_until_complete(get_valid_categories_from_cache())
             return categories
     except Exception as e:
-        print(f"  ⚠️ Failed to load categories synchronously: {e}")
+        logger.warning(f"  ⚠️ Failed to load categories synchronously: {e}")
         return ['AI', 'Serbia', 'Tech', 'Business', 'Science', 'Nature', 'Marketing', 'Other']
 
 
@@ -99,8 +102,7 @@ def parse_category(category_raw, valid_categories=None, title=None, content=None
     if valid_categories is None:
         valid_categories = get_valid_categories_sync()
         if 'AI' not in valid_categories:
-            print(f"  ⚠️ Cache does not contain 'AI' category yet, using current list: {valid_categories}")
-    
+            logger.warning(f"  ⚠️ Cache does not contain 'AI' category yet, using current list: {valid_categories}")
     # Clean the category string
     category_str = str(category_raw).strip()
     
@@ -125,12 +127,12 @@ def parse_category(category_raw, valid_categories=None, title=None, content=None
                 if return_multiple:
                     # Return all relevant categories with confidence scores
                     categories_with_scores = _get_categories_with_confidence(valid_parts, title, content)
-                    print(f"    🏷️ Parsed composite category '{category_raw}' -> {len(categories_with_scores)} categories: {[c['name'] for c in categories_with_scores]}")
+                    logger.info(f"    🏷️ Parsed composite category '{category_raw}' -> {len(categories_with_scores)} categories: {[c['name'] for c in categories_with_scores]}")
                     return categories_with_scores
                 else:
                     # Smart selection based on context (backward compatibility)
                     selected = _select_best_category(valid_parts, title, content)
-                    print(f"    🏷️ Parsed composite category '{category_raw}' -> '{selected}' (smart choice from: {valid_parts})")
+                    logger.info(f"    🏷️ Parsed composite category '{category_raw}' -> '{selected}' (smart choice from: {valid_parts})")
                     return selected
             break
     
@@ -144,7 +146,7 @@ def parse_category(category_raw, valid_categories=None, title=None, content=None
             return clean_category
     
     # Fallback to Other
-    print(f"    ⚠️ Unknown category '{category_raw}' -> 'Other'")
+    logger.warning(f"    ⚠️ Unknown category '{category_raw}' -> 'Other'")
     if return_multiple:
         return [{'name': 'Other', 'confidence': 0.5}]
     else:

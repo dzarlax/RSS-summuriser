@@ -1,8 +1,11 @@
+import logging
 """Smart Filtering service for reducing unnecessary AI requests."""
 
 import re
 from typing import Dict, Any, Optional, Tuple
 from datetime import datetime, timedelta
+
+logger = logging.getLogger(__name__)
 
 
 class SmartFilter:
@@ -243,7 +246,7 @@ class SmartFilter:
                 last_seen = self.recent_content_hashes[content_hash]
                 time_diff = current_time - last_seen
                 seconds_ago = int(time_diff.total_seconds())
-                print(f"  🔍 Smart Filter: Content hash {content_hash} found in RAM cache ({seconds_ago}s ago)")
+                logger.info(f"  🔍 Smart Filter: Content hash {content_hash} found in RAM cache ({seconds_ago}s ago)")
                 return True
             
             # 2. Check database (Level 2 - Persistent)
@@ -256,8 +259,7 @@ class SmartFilter:
                 stmt = select(Article.id).where(Article.hash_content == content_hash).limit(1)
                 result = await db_session.execute(stmt)
                 if result.scalar_one_or_none():
-                    print(f"  🔍 Smart Filter: Content hash {content_hash} found in Database")
-                    
+                    logger.info(f"  🔍 Smart Filter: Content hash {content_hash} found in Database")
                     # Update RAM cache to save future DB hits
                     self.recent_content_hashes[content_hash] = current_time
                     return True
@@ -267,7 +269,7 @@ class SmartFilter:
             return False
             
         except Exception as e:
-            print(f"  ⚠️ Smart Filter: Duplicate check error: {e}")
+            logger.warning(f"  ⚠️ Smart Filter: Duplicate check error: {e}")
             return False
     
     def _calculate_quality_score(self, title: str, content: str, source_type: str) -> float:

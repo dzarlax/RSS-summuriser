@@ -1,3 +1,4 @@
+import logging
 """
 Service for mapping AI categories to display categories at runtime.
 """
@@ -7,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from ..models import Category, CategoryMapping
+
+logger = logging.getLogger(__name__)
 
 
 class CategoryDisplayService:
@@ -171,8 +174,7 @@ class CategoryDisplayService:
                     'mapping_source': 'database'
                 }
         except Exception as e:
-            print(f"  ⚠️ Database mapping lookup failed for '{ai_category}': {e}")
-        
+            logger.warning(f"  ⚠️ Database mapping lookup failed for '{ai_category}': {e}")
         # Try default mapping rules
         ai_lower = ai_category.lower().strip()
         
