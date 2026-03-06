@@ -11,26 +11,39 @@ from ..utils.html_utils import validate_telegram_html, strip_html_tags
 
 
 class TelegramService:
-    """Service for sending messages to Telegram."""
-    
-    def __init__(self):
+    """Service for sending messages to Telegram.
+
+    Uses two separate chat IDs:
+    - chat_id         — main news channel (digests)
+    - service_chat_id — service channel (errors, alerts); falls back to chat_id if not configured
+
+    Optional constructor params allow DB-stored overrides to take precedence over env vars.
+    """
+
+    def __init__(
+        self,
+        chat_id: Optional[str] = None,
+        service_chat_id: Optional[str] = None,
+    ):
         self.bot_token = self._get_config("TELEGRAM_TOKEN")
-        self.chat_id = self._get_config("TELEGRAM_CHAT_ID")
-        
+        self.chat_id = chat_id or self._get_config("TELEGRAM_CHAT_ID")
+        self.service_chat_id = (
+            service_chat_id
+            or self._get_config("TELEGRAM_SERVICE_CHAT_ID")
+            or self.chat_id
+        )
+
         if not all([self.bot_token, self.chat_id]):
             raise TelegramError("Telegram configuration incomplete")
-        
+
         self.api_url = f"https://api.telegram.org/bot{self.bot_token}"
-    
+
     def _get_config(self, key: str) -> Optional[str]:
-        """Get config value with fallback to settings."""
-        # Try legacy format first for compatibility
+        """Get config value from settings / env."""
         if hasattr(settings, 'get_legacy_config'):
             value = settings.get_legacy_config(key)
             if value:
                 return value
-        
-        # Try direct from environment
         import os
         return os.getenv(key)
     
@@ -67,123 +80,82 @@ class TelegramService:
             return False
     
     async def send_alert(self, title: str, message: str) -> bool:
-        """
-        Send alert message to Telegram.
-        
-        Args:
-            title: Alert title
-            message: Alert message
-            
-        Returns:
-            True if sent successfully, False otherwise
-        """
+        """Send alert to the service channel."""
         try:
             alert_text = f"🚨 <b>{title}</b>\n\n{message}"
-            return await self.send_message(alert_text)
-            
+            return await self.send_service_message(alert_text)
         except Exception as e:
             logging.error(f"Error sending alert to Telegram: {e}")
             return False
     
     async def send_processing_summary(self, stats: Dict[str, Any]) -> bool:
-        """
-        Send processing summary to Telegram.
-        
-        Args:
-            stats: Processing statistics
-            
-        Returns:
-            True if sent successfully, False otherwise
-        """
+        """Send processing summary to the service channel."""
         try:
             duration = stats.get('duration_seconds', 0)
             summary = (
                 f"📊 <b>Обработка новостей завершена</b>\n\n"
                 f"📥 Статей получено: {stats.get('articles_fetched', 0)}\n"
                 f"🤖 Статей обработано: {stats.get('articles_processed', 0)}\n"
-                f"🔗 Кластеров создано: {stats.get('clusters_created', 0)}\n"
-                f"🔄 Кластеров обновлено: {stats.get('clusters_updated', 0)}\n"
                 f"⏱ Время обработки: {duration:.1f}с\n"
             )
-            
             if stats.get('errors'):
                 summary += f"⚠️ Ошибок: {len(stats['errors'])}\n"
-            
-            if stats.get('telegram_digest_generated'):
-                summary += f"📱 Дайджест: {stats.get('telegram_digest_length', 0)} символов\n"
-                summary += f"📂 Категории: {stats.get('telegram_categories', 0)}\n"
-            
-            return await self.send_message(summary)
-            
+
+            return await self.send_service_message(summary)
         except Exception as e:
             logging.error(f"Error sending processing summary to Telegram: {e}")
             return False
     
     async def send_message(self, text: str) -> bool:
-        """
-        Send message to Telegram using Bot API.
-        
-        Args:
-            text: Message text (HTML formatted)
-            
-        Returns:
-            True if sent successfully, False otherwise
-        """
+        """Send message to the main news channel (HTML formatted)."""
+        return await self._send_to_chat(text, self.chat_id)
+
+    async def send_service_message(self, text: str) -> bool:
+        """Send message to the service channel (errors, alerts)."""
+        return await self._send_to_chat(text, self.service_chat_id)
+
+    async def _send_to_chat(self, text: str, chat_id: str) -> bool:
+        """Low-level send to a specific chat_id."""
         if not text or not str(text).strip():
-            logging.warning("Telegram send_message called with empty text")
+            logging.warning("Telegram _send_to_chat called with empty text")
             return False
 
-        # Telegram HTML parsing is strict; sanitize/validate to avoid 400 errors ("can't parse entities").
         cleaned_text = validate_telegram_html(text)
         if cleaned_text is None:
             cleaned_text = strip_html_tags(text)
 
         url = f"{self.api_url}/sendMessage"
-        
         data = {
-            "chat_id": self.chat_id,
+            "chat_id": chat_id,
             "text": cleaned_text,
             "parse_mode": "HTML",
-            "disable_web_page_preview": True
+            "disable_web_page_preview": True,
         }
-        
+
         try:
             async with get_http_client() as client:
                 response = await client.post(url, json=data)
-                
                 async with response:
                     if response.status == 200:
                         return True
-                    else:
-                        error_text = await response.text()
-                        logging.error(f"Telegram API error {response.status}: {error_text}")
-                        return False
-                        
+                    error_text = await response.text()
+                    logging.error(f"Telegram API error {response.status}: {error_text}")
+                    return False
         except Exception as e:
             logging.error(f"Telegram request failed: {e}")
             return False
     
     async def test_connection(self) -> bool:
-        """
-        Test Telegram bot connection.
-        
-        Returns:
-            True if connection is successful, False otherwise
-        """
+        """Test Telegram bot connection by sending to the service channel."""
         try:
             test_message = f"🧪 Test message from Evening News v2\n⏰ {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')} UTC"
-            return await self.send_message(test_message)
-            
+            return await self.send_service_message(test_message)
         except Exception as e:
             logging.error(f"Telegram connection test failed: {e}")
             return False
     
     async def send_message_with_keyboard(self, message: str, inline_keyboard: List[List[dict]]) -> bool:
-        """Send message with inline keyboard."""
-        if not self.bot_token or not self.chat_id:
-            logging.warning("Telegram not configured for keyboard messages")
-            return False
-        
+        """Send message with inline keyboard to the main news channel."""
         if not message or not message.strip():
             logging.warning("Empty message provided")
             return False
@@ -191,36 +163,27 @@ class TelegramService:
         cleaned_message = validate_telegram_html(message)
         if cleaned_message is None:
             cleaned_message = strip_html_tags(message)
-        
+
         try:
             url = f"{self.api_url}/sendMessage"
-            
-            # Prepare payload
             payload = {
                 "chat_id": self.chat_id,
                 "text": cleaned_message,
                 "parse_mode": "HTML",
-                "disable_web_page_preview": True
+                "disable_web_page_preview": True,
             }
-            
-            # Add keyboard if provided
             if inline_keyboard:
-                payload["reply_markup"] = {
-                    "inline_keyboard": inline_keyboard
-                }
-            
+                payload["reply_markup"] = {"inline_keyboard": inline_keyboard}
+
             async with get_http_client() as client:
                 response = await client.post(url, json=payload)
-                
                 async with response:
                     if response.status == 200:
                         logging.info("Telegram message with keyboard sent successfully")
                         return True
-                    else:
-                        error_text = await response.text()
-                        logging.error(f"Telegram API error {response.status}: {error_text}")
-                        return False
-        
+                    error_text = await response.text()
+                    logging.error(f"Telegram API error {response.status}: {error_text}")
+                    return False
         except Exception as e:
             logging.error(f"Failed to send Telegram message with keyboard: {e}")
             return False
@@ -230,11 +193,27 @@ class TelegramService:
 _telegram_service: Optional[TelegramService] = None
 
 
-def get_telegram_service() -> TelegramService:
-    """Get Telegram service instance."""
+def get_telegram_service(
+    chat_id: Optional[str] = None,
+    service_chat_id: Optional[str] = None,
+) -> TelegramService:
+    """Get (or create) the Telegram service singleton.
+
+    Pass explicit chat_id / service_chat_id to override env/config values —
+    used when settings are loaded from DB.
+    """
     global _telegram_service
-    
-    if _telegram_service is None:
-        _telegram_service = TelegramService()
-    
+
+    if _telegram_service is None or chat_id or service_chat_id:
+        _telegram_service = TelegramService(
+            chat_id=chat_id,
+            service_chat_id=service_chat_id,
+        )
+
     return _telegram_service
+
+
+def reset_telegram_service() -> None:
+    """Reset the singleton so the next call re-creates it with fresh settings."""
+    global _telegram_service
+    _telegram_service = None

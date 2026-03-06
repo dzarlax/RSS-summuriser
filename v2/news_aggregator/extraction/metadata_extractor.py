@@ -149,6 +149,84 @@ class MetadataExtractor:
         
         return None
     
+    def extract_primary_image(self, soup: BeautifulSoup) -> Optional[str]:
+        """Extract the primary article image from HTML.
+
+        Priority:
+        1. og:image / twitter:image meta tags
+        2. <link rel="image_src">
+        3. schema.org image in JSON-LD
+        4. First <img> inside <article> or <main> with reasonable size
+        """
+        # 1. Open Graph / Twitter card
+        og_selectors = [
+            ('meta', {'property': 'og:image'}),
+            ('meta', {'property': 'og:image:url'}),
+            ('meta', {'name': 'twitter:image'}),
+            ('meta', {'name': 'twitter:image:src'}),
+        ]
+        for tag, attrs in og_selectors:
+            el = soup.find(tag, attrs)
+            if el:
+                url = el.get('content', '').strip()
+                if url.startswith(('http://', 'https://', '//')):
+                    return url if not url.startswith('//') else f'https:{url}'
+
+        # 2. <link rel="image_src">
+        link_img = soup.find('link', rel=lambda v: v and 'image_src' in v)
+        if link_img and link_img.get('href', '').startswith('http'):
+            return link_img['href']
+
+        # 3. schema.org JSON-LD
+        for script in soup.find_all('script', type='application/ld+json'):
+            try:
+                import json
+                data = json.loads(script.string or '')
+                items = data if isinstance(data, list) else [data]
+                if isinstance(data, dict) and '@graph' in data:
+                    items = data['@graph']
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    img = item.get('image')
+                    if isinstance(img, str) and img.startswith('http'):
+                        return img
+                    if isinstance(img, dict) and img.get('url', '').startswith('http'):
+                        return img['url']
+                    if isinstance(img, list) and img:
+                        candidate = img[0]
+                        if isinstance(candidate, str) and candidate.startswith('http'):
+                            return candidate
+                        if isinstance(candidate, dict) and candidate.get('url', '').startswith('http'):
+                            return candidate['url']
+            except Exception:
+                continue
+
+        # 4. First substantial <img> inside article/main
+        for container_selector in ['article', 'main', '[role="main"]']:
+            container = soup.select_one(container_selector)
+            if not container:
+                continue
+            for img in container.find_all('img', src=True):
+                src = img.get('src', '').strip()
+                if not src or not src.startswith('http'):
+                    continue
+                # Skip tracking pixels and tiny images
+                width = img.get('width', '')
+                height = img.get('height', '')
+                try:
+                    if int(width) < 100 or int(height) < 100:
+                        continue
+                except (ValueError, TypeError):
+                    pass
+                # Skip icons/avatars by URL patterns
+                lower_src = src.lower()
+                if any(p in lower_src for p in ['icon', 'avatar', 'logo', 'pixel', 'tracker', '1x1']):
+                    continue
+                return src
+
+        return None
+
     def extract_author_info(self, soup: BeautifulSoup) -> Optional[str]:
         """Extract author information from various sources."""
         # Try schema.org microdata

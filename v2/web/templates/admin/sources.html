@@ -1,12 +1,8 @@
-{% extends "base.html" %}
+{% extends "admin/admin_base.html" %}
 
 {% block title %}Источники - Evening News v2{% endblock %}
 
 {% block content %}
-<div class="admin-container">
-    {% include "admin/_sidebar.html" %}
-
-    <div class="admin-main">
         <div class="sources-header flex justify-between items-center mb-6">
             <h1>Управление источниками RSS</h1>
             <button class="btn btn-primary" onclick="showAddSourceModal()" data-tooltip="Добавить новый RSS источник">
@@ -15,30 +11,14 @@
             </button>
         </div>
 
-        <div class="sources-stats-grid">
-            <div class="stat-card" data-tooltip="Общее количество RSS источников">
-                <h3>Всего источников</h3>
-                <div class="stat-number" id="total-sources">-</div>
-                <div class="stat-label">настроенных источников</div>
-            </div>
-
-            <div class="stat-card" data-tooltip="Количество активных источников">
-                <h3>Активные</h3>
-                <div class="stat-number" id="active-sources">-</div>
-                <div class="stat-label">активных источников</div>
-            </div>
-
-            <div class="stat-card" data-tooltip="Количество источников с ошибками">
-                <h3>Ошибки</h3>
-                <div class="stat-number" id="error-sources">-</div>
-                <div class="stat-label">источников с ошибками</div>
-            </div>
-
-            <div class="stat-card" data-tooltip="Время последней синхронизации">
-                <h3>Последняя синхронизация</h3>
-                <div class="stat-number" id="last-sync" style="font-size: 1.25rem;">-</div>
-                <div class="stat-label">время обновления</div>
-            </div>
+        <div class="sources-inline-stats">
+            <span><strong id="total-sources">-</strong> всего</span>
+            <span class="stat-sep">·</span>
+            <span><strong id="active-sources">-</strong> активных</span>
+            <span class="stat-sep">·</span>
+            <span><strong id="error-sources">-</strong> с ошибками</span>
+            <span class="stat-sep">·</span>
+            <span>Синхронизация: <strong id="last-sync">-</strong></span>
         </div>
 
         <div class="sources-filters flex gap-4 mb-6">
@@ -88,8 +68,6 @@
                 </tbody>
             </table>
         </div>
-    </div>
-</div>
 
 <!-- Add Source Modal -->
 <div id="add-source-modal" class="modal" style="display: none;">
@@ -117,9 +95,6 @@
                         <option value="">Выберите тип источника</option>
                         <option value="rss">RSS-канал</option>
                         <option value="telegram">Telegram-канал</option>
-                        <option value="reddit">Reddit</option>
-                        <option value="twitter">Twitter</option>
-                        <option value="news_api">News API</option>
                         <option value="custom">Кастомный парсер</option>
                     </select>
                 </div>
@@ -168,9 +143,6 @@
                         <option value="">Выберите тип источника</option>
                         <option value="rss">RSS-канал</option>
                         <option value="telegram">Telegram-канал</option>
-                        <option value="reddit">Reddit</option>
-                        <option value="twitter">Twitter</option>
-                        <option value="news_api">News API</option>
                         <option value="custom">Кастомный парсер</option>
                     </select>
                 </div>
@@ -225,11 +197,23 @@
         padding-bottom: 1.5rem;
     }
 
-    .sources-stats-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 1rem;
-        margin: 2rem 0;
+    .sources-inline-stats {
+        display: flex;
+        align-items: center;
+        gap: .5rem;
+        flex-wrap: wrap;
+        font-size: .875rem;
+        color: #64748b;
+        margin: 1rem 0 1.5rem;
+    }
+
+    .sources-inline-stats strong {
+        color: #1e293b;
+        font-weight: 600;
+    }
+
+    .stat-sep {
+        color: #cbd5e1;
     }
 
     .sources-filters {
@@ -373,21 +357,6 @@
 
     .badge-telegram {
         background: #0088cc;
-        color: white;
-    }
-
-    .badge-reddit {
-        background: #ff4500;
-        color: white;
-    }
-
-    .badge-twitter {
-        background: #1da1f2;
-        color: white;
-    }
-
-    .badge-news_api {
-        background: #6f42c1;
         color: white;
     }
 
@@ -854,9 +823,6 @@
         const sourceTypes = {
             'rss': 'RSS-канал',
             'telegram': 'Telegram',
-            'reddit': 'Reddit',
-            'twitter': 'Twitter',
-            'news_api': 'News API',
             'custom': 'Кастомный'
         };
         return sourceTypes[sourceType] || 'Неизвестно';

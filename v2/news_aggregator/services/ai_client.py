@@ -111,9 +111,11 @@ class AIClient:
             
             analysis_result = await self.analyze_article_complete(title, content, article_url)
             summary = analysis_result.get('summary') if analysis_result else None
-            
+            optimized_title = analysis_result.get('optimized_title') if analysis_result else None
+
             return {
                 'summary': summary,
+                'optimized_title': optimized_title,
                 'publication_date': metadata_result.get('publication_date'),
                 'full_article_url': metadata_result.get('full_article_url')
             }

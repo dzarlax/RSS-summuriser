@@ -100,8 +100,8 @@ class DateExtractor:
             return None, None
             
         except Exception as e:
-            return None
-    
+            return None, None
+
     def _extract_date_from_json_ld(self, soup: BeautifulSoup) -> tuple[Optional[str], Optional[str]]:
         """
         Extract publication date from JSON-LD structured data.

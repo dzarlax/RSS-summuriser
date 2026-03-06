@@ -106,6 +106,15 @@ class AIProcessor:
                                 # Update article with extracted content
                                 article_data['content'] = extracted_content
                                 update_fields = {'content': extracted_content}
+
+                                # Also save image_url if article has none and extraction found one
+                                if not article_data.get('image_url') and isinstance(extraction_result, dict):
+                                    extracted_image = extraction_result.get('image_url')
+                                    if extracted_image:
+                                        article_data['image_url'] = extracted_image
+                                        update_fields['image_url'] = extracted_image
+                                        logger.info(f"  🖼️ Found primary image via extraction: {extracted_image[:80]}")
+
                                 await self._save_article_fields(article_id, update_fields)
                                 
                                 # Re-check smart filter with new content (unless force_processing is enabled)
@@ -793,35 +802,31 @@ class AIProcessor:
         logger.info(f"  ✅ Article marked as fully processed")
         return {'success': True, 'content_length': len(article_data.get('content', ''))}
 
-    async def get_summary_by_source_type(self, article, source_type: str, stats: Dict[str, Any]) -> str:
-        """Get article summary based on source type."""
+    async def get_summary_by_source_type(self, article, source_type: str, stats: Dict[str, Any]) -> Dict[str, Any]:
+        """Get article summary and optimized title based on source type.
+
+        Returns dict with 'summary' and 'optimized_title' keys.
+        """
+        def _make(summary, optimized_title=None):
+            return {'summary': summary, 'optimized_title': optimized_title}
+
         try:
             if source_type == 'rss':
-                # RSS sources: use AI to extract and summarize full article content with metadata
                 ai_result = await self.ai_client.get_article_summary_with_metadata(article.url)
                 stats['api_calls_made'] += 1
-                
-                ai_summary = ai_result.get('summary')
-                pub_date = ai_result.get('publication_date')
-                
-                # Update published_at if we found a publication date
-                self._update_article_publication_date(article, pub_date, 'RSS')
-                
-                if ai_summary:
-                    return ai_summary
-                else:
-                    # Fallback to RSS content
-                    return article.content or article.title
-                    
+                self._update_article_publication_date(article, ai_result.get('publication_date'), 'RSS')
+                return _make(
+                    ai_result.get('summary') or article.content or article.title,
+                    ai_result.get('optimized_title'),
+                )
+
             elif source_type == 'telegram':
-                # Telegram sources: avoid heavy AI extraction for Telegram domains (t.me/telegram.me)
-                # Prefer external original link if present and NOT a Telegram domain
                 original_link = None
                 try:
                     if hasattr(article, 'raw_data') and article.raw_data:
                         original_link = article.raw_data.get('original_link')
                 except Exception:
-                    original_link = None
+                    pass
 
                 def _is_telegram_domain(url: str) -> bool:
                     try:
@@ -831,29 +836,31 @@ class AIProcessor:
                     except Exception:
                         return False
 
-                # Only attempt AI metadata extraction when we have a non-Telegram external link
                 if original_link and not _is_telegram_domain(original_link):
                     try:
                         ai_result = await self.ai_client.get_article_summary_with_metadata(original_link)
-                        pub_date = ai_result.get('publication_date')
-                        # Update published_at if we found a publication date
-                        self._update_article_publication_date(article, pub_date, 'Telegram')
-                        ai_summary = ai_result.get('summary')
-                        if ai_summary:
-                            # If AI managed to summarize external article, use it
-                            return ai_summary
+                        self._update_article_publication_date(article, ai_result.get('publication_date'), 'Telegram')
+                        if ai_result.get('summary'):
+                            return _make(ai_result['summary'], ai_result.get('optimized_title'))
                     except Exception as e:
                         logger.warning(f"  ⚠️ Skipping Telegram AI extraction (external link failed): {e}")
-                # Fallback: use Telegram preview content
-                return article.content or article.title
-                
+                return _make(article.content or article.title)
+
+            elif source_type == 'custom':
+                ai_result = await self.ai_client.get_article_summary_with_metadata(article.url)
+                stats['api_calls_made'] += 1
+                self._update_article_publication_date(article, ai_result.get('publication_date'), 'Custom')
+                return _make(
+                    ai_result.get('summary') or article.content or article.title,
+                    ai_result.get('optimized_title'),
+                )
+
             else:
-                # Other sources: use content as summary
-                return article.content or article.title
-                
+                return _make(article.content or article.title)
+
         except Exception as e:
             logger.error(f"  ❌ Summary generation failed for {source_type}: {e}")
-            return article.content or article.title or "Summary unavailable"
+            return _make(article.content or article.title or "Summary unavailable")
 
     def _update_article_publication_date(self, article, pub_date: str, source_type: str):
         """Update article publication date if provided."""

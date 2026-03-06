@@ -284,6 +284,10 @@ class DatabaseQueueManager:
                                 # Execute operation
                                 result = await task.operation(session)
 
+                                # Commit write operations (reads don't need commit)
+                                if task.operation_type == OperationType.WRITE:
+                                    await session.commit()
+
                                 # Check execution time
                                 duration = (datetime.now() - start_time).total_seconds()
 

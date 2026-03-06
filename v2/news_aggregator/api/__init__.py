@@ -73,8 +73,24 @@ def create_api_router() -> APIRouter:
         # Convert dict to CategoryMappingRequest
         mapping_request = CategoryMappingRequest(**payload)
         return await create_category_mapping(payload=mapping_request, db=db)
-    
-    # Add backups alias endpoint for frontend compatibility  
+
+    @router.put("/category-mappings/{mapping_id}", tags=["category-mappings"])
+    async def update_category_mapping_alias(mapping_id: int, payload: dict, db=Depends(get_db)):
+        from .categories_router import update_category_mapping, CategoryMappingRequest
+        mapping_request = CategoryMappingRequest(**payload)
+        return await update_category_mapping(mapping_id=mapping_id, payload=mapping_request, db=db)
+
+    @router.delete("/category-mappings/{mapping_id}", tags=["category-mappings"])
+    async def delete_category_mapping_alias(mapping_id: int, db=Depends(get_db)):
+        from .categories_router import delete_category_mapping
+        return await delete_category_mapping(mapping_id=mapping_id, db=db)
+
+    @router.post("/category-mappings/{mapping_id}/toggle", tags=["category-mappings"])
+    async def toggle_category_mapping_alias(mapping_id: int, db=Depends(get_db)):
+        from .categories_router import toggle_category_mapping
+        return await toggle_category_mapping(mapping_id=mapping_id, db=db)
+
+    # Add backups alias endpoint for frontend compatibility
     @router.get("/backups", tags=["backup"])
     async def list_backups_alias():
         from .backup_router import list_backups

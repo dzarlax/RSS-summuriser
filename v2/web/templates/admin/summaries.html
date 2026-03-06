@@ -1,15 +1,14 @@
-{% extends "base.html" %}
+{% extends "admin/admin_base.html" %}
 
 {% block title %}Дневные сводки - Evening News v2{% endblock %}
 
 {% block content %}
-<div class="admin-container">
-    {% include "admin/_sidebar.html" %}
-
-    <div class="admin-main">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
             <h1>Дневные сводки</h1>
             <div class="header-actions">
+                <button id="send-telegram-btn" class="btn-telegram" onclick="sendToTelegram()">
+                    📱 Отправить в Telegram
+                </button>
                 <button id="generate-summaries-btn" class="btn-generate" onclick="generateSummaries()">
                     ⚡ Создать сводки
                 </button>
@@ -29,8 +28,6 @@
         <div id="load-more" class="load-more" style="display: none;">
             <button onclick="loadMoreSummaries()">Загрузить ещё</button>
         </div>
-    </div>
-</div>
 
 <!-- Summary Modal -->
 <div id="summaryModal" class="modal-overlay">
@@ -67,6 +64,32 @@
     display: flex;
     align-items: center;
     gap: 15px;
+}
+
+.btn-telegram {
+    background: linear-gradient(135deg, #0088cc 0%, #0099dd 100%);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 4px rgba(0, 136, 204, 0.2);
+}
+
+.btn-telegram:hover {
+    background: linear-gradient(135deg, #007ab8 0%, #0088cc 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 136, 204, 0.3);
+}
+
+.btn-telegram:disabled {
+    background: #6c757d;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
 }
 
 .btn-generate {
@@ -775,6 +798,45 @@ async function copySummaryText() {
         } finally {
             document.body.removeChild(textArea);
         }
+    }
+}
+
+async function sendToTelegram() {
+    const button = document.getElementById('send-telegram-btn');
+    const originalText = button.textContent;
+
+    button.disabled = true;
+    button.textContent = '🔄 Отправляем...';
+
+    try {
+        const response = await fetch('/api/v1/telegram/send-digest', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            button.textContent = '✅ Отправлено!';
+            setTimeout(() => {
+                button.textContent = originalText;
+                button.disabled = false;
+            }, 3000);
+        } else {
+            button.textContent = '❌ Ошибка';
+            console.error('Error sending to Telegram:', data.error || data.message);
+            setTimeout(() => {
+                button.textContent = originalText;
+                button.disabled = false;
+            }, 3000);
+        }
+    } catch (error) {
+        console.error('Error sending to Telegram:', error);
+        button.textContent = '❌ Ошибка сети';
+        setTimeout(() => {
+            button.textContent = originalText;
+            button.disabled = false;
+        }, 3000);
     }
 }
 

@@ -10,10 +10,7 @@ from enum import Enum
 class SourceType(str, Enum):
     """Source types."""
     RSS = "rss"
-    TELEGRAM = "telegram" 
-    REDDIT = "reddit"
-    TWITTER = "twitter"
-    NEWS_API = "news_api"
+    TELEGRAM = "telegram"
     CUSTOM = "custom"
 
 

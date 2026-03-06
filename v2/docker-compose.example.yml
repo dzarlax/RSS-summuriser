@@ -11,7 +11,7 @@ services:
       - "8000:8000"
     environment:
       # Database
-      - DATABASE_URL=postgresql://newsuser:${DB_PASSWORD:-newspass123}@postgres:5432/newsdb
+      - DATABASE_URL=mysql+aiomysql://newsuser:${DB_PASSWORD:-newspass123}@mariadb:3306/newsdb
       
       # AI/API Configuration (обязательные для работы) - ЗАМЕНИТЕ НА ВАШИ ЗНАЧЕНИЯ
       # Google Gemini API
@@ -26,7 +26,8 @@ services:
       
       # Telegram Integration (обязательные) - ЗАМЕНИТЕ НА ВАШИ ЗНАЧЕНИЯ
       - TELEGRAM_TOKEN=1234567890:AAExxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-      - TELEGRAM_CHAT_ID=123456789
+      - TELEGRAM_CHAT_ID=123456789             # основной канал — дайджесты с новостями
+      - TELEGRAM_SERVICE_CHAT_ID=              # сервисный канал — ошибки и алерты (если пусто — используется TELEGRAM_CHAT_ID)
       - TELEGRAPH_ACCESS_TOKEN=your_telegraph_token_here
       
       # Application Settings
@@ -51,8 +52,8 @@ services:
       - DB_PASSWORD=${DB_PASSWORD:-newspass123}
 
       # CORS / trusted hosts
-      - ALLOWED_ORIGINS=https://news.dzarlax.dev,http://localhost:8000
-      - TRUSTED_HOSTS=news.dzarlax.dev,localhost,127.0.0.1
+      - ALLOWED_ORIGINS=https://your-domain.com,http://localhost:8000
+      - TRUSTED_HOSTS=your-domain.com,localhost,127.0.0.1
 
       # Database init (allow create_all for fresh installs; set false in prod)
       - ALLOW_CREATE_ALL=true
@@ -62,7 +63,7 @@ services:
       - DEFAULT_CATEGORY=Other
     
     depends_on:
-      postgres:
+      mariadb:
         condition: service_healthy
     
     volumes:
@@ -83,31 +84,31 @@ services:
       retries: 3
       start_period: 40s
 
-  # PostgreSQL Database
-  postgres:
-    image: postgres:15-alpine
+  # MariaDB Database
+  mariadb:
+    image: mariadb:11
     container_name: news_aggregator_db
     environment:
-      POSTGRES_DB: newsdb
-      POSTGRES_USER: newsuser
-      POSTGRES_PASSWORD: newspass123
-      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
-    
+      MARIADB_DATABASE: newsdb
+      MARIADB_USER: newsuser
+      MARIADB_PASSWORD: newspass123
+      MARIADB_ROOT_PASSWORD: rootpass123
+
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - mariadb_data:/var/lib/mysql
       - ./db/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
-      - ./backups/postgres:/backup
-    
+      - ./backups/mariadb:/backup
+
     ports:
-      - "5432:5432"
-    
+      - "3306:3306"
+
     networks:
       - news_network
-    
+
     restart: unless-stopped
-    
+
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U newsuser -d newsdb"]
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -116,7 +117,7 @@ services:
 
 # Named Volumes для персистентного хранения данных
 volumes:
-  postgres_data:
+  mariadb_data:
     driver: local
   app_cache:
     driver: local
@@ -149,11 +150,12 @@ networks:
 #    - Главная страница (новости): http://localhost:8000
 #    - Админ-панель: http://localhost:8000/admin (требует пароль)
 #    - API документация: http://localhost:8000/docs
-#    - База данных: localhost:5432 (newsuser/newspass123)
+#    - База данных: localhost:3306 (newsuser/newspass123)
 #
 # ВАЖНО: Перед запуском замените:
 # - GEMINI_API_KEY на ваш реальный ключ API Google Gemini
 # - TELEGRAM_TOKEN на токен вашего бота
-# - TELEGRAM_CHAT_ID на ID вашего чата
+# - TELEGRAM_CHAT_ID на ID основного канала (дайджесты)
+# - TELEGRAM_SERVICE_CHAT_ID на ID сервисного канала (ошибки/алерты, опционально)
 # - ADMIN_PASSWORD на надежный пароль для админки
 # - TELEGRAPH_ACCESS_TOKEN на ваш Telegraph токен (опционально)

@@ -70,13 +70,8 @@ class RSSSource(BaseSource):
             elif hasattr(entry, 'summary'):
                 summary = entry.summary
             
-            # Extract image URL
-            image_url = None
-            if hasattr(entry, 'enclosures') and entry.enclosures:
-                for enclosure in entry.enclosures:
-                    if hasattr(enclosure, 'type') and enclosure.type.startswith('image/'):
-                        image_url = enclosure.href
-                        break
+            # Extract image URL — try multiple sources in priority order
+            image_url = self._extract_entry_image(entry)
             
             # Parse published date
             published_at = self._parse_date(entry)
@@ -100,6 +95,62 @@ class RSSSource(BaseSource):
         except Exception as e:
             raise SourceError(f"Error parsing RSS entry: {e}")
     
+    def _extract_entry_image(self, entry) -> Optional[str]:
+        """Extract image URL from RSS entry, trying multiple common locations."""
+        # 1. <enclosure type="image/...">
+        if hasattr(entry, 'enclosures') and entry.enclosures:
+            for enclosure in entry.enclosures:
+                if hasattr(enclosure, 'type') and enclosure.type.startswith('image/'):
+                    return enclosure.href
+
+        # 2. <media:content medium="image"> or <media:content url="...">
+        if hasattr(entry, 'media_content') and entry.media_content:
+            for media in entry.media_content:
+                url = media.get('url')
+                if url:
+                    medium = media.get('medium', '')
+                    mime = media.get('type', '')
+                    if medium == 'image' or mime.startswith('image/') or self._looks_like_image_url(url):
+                        return url
+
+        # 3. <media:thumbnail url="...">
+        if hasattr(entry, 'media_thumbnail') and entry.media_thumbnail:
+            url = entry.media_thumbnail[0].get('url') if entry.media_thumbnail else None
+            if url:
+                return url
+
+        # 4. First <img> from the HTML content or description
+        html_blob = None
+        if hasattr(entry, 'content') and entry.content:
+            blob = entry.content[0].value if isinstance(entry.content, list) else entry.content
+            if blob:
+                html_blob = blob
+        if not html_blob and hasattr(entry, 'description') and entry.description:
+            html_blob = entry.description
+        if not html_blob and hasattr(entry, 'summary') and entry.summary:
+            html_blob = entry.summary
+
+        if html_blob and '<img' in html_blob:
+            try:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(html_blob, 'html.parser')
+                img = soup.find('img', src=True)
+                if img:
+                    src = img['src']
+                    if src.startswith(('http://', 'https://')) and self._looks_like_image_url(src):
+                        return src
+            except Exception:
+                pass
+
+        return None
+
+    def _looks_like_image_url(self, url: str) -> bool:
+        """Quick heuristic: does the URL point to an image?"""
+        if not url:
+            return False
+        lower = url.lower().split('?')[0]
+        return any(lower.endswith(ext) for ext in ('.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'))
+
     def _parse_date(self, entry) -> Optional[datetime]:
         """Parse date from RSS entry."""
         # Try different date fields

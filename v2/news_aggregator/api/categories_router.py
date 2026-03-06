@@ -404,13 +404,12 @@ async def get_unmapped_ai_categories(
     
     query = text("""
         SELECT DISTINCT ac.ai_category, COUNT(*) as usage_count
-        FROM article_categories ac 
-        LEFT JOIN category_mapping cm ON LOWER(ac.ai_category) = LOWER(cm.ai_category) 
-            AND cm.is_active = true
-        WHERE ac.ai_category IS NOT NULL 
+        FROM article_categories ac
+        LEFT JOIN category_mapping cm ON LOWER(ac.ai_category) = LOWER(cm.ai_category)
+        WHERE ac.ai_category IS NOT NULL
           AND ac.ai_category != ''
           AND cm.ai_category IS NULL
-        GROUP BY ac.ai_category 
+        GROUP BY ac.ai_category
         ORDER BY usage_count DESC, ac.ai_category
         LIMIT :limit
     """)
@@ -549,7 +548,6 @@ async def analyze_categories_with_ai(
         FROM article_categories ac
         JOIN articles a ON ac.article_id = a.id
         LEFT JOIN category_mapping cm ON LOWER(ac.ai_category) = LOWER(cm.ai_category)
-            AND cm.is_active = true
         WHERE ac.ai_category IS NOT NULL
           AND ac.ai_category != ''
           AND cm.ai_category IS NULL

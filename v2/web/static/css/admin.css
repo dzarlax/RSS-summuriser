@@ -1,0 +1,286 @@
+/* ============================================================
+   Admin Layout — Evening News v2
+   Full-viewport shell: sidebar (200px) + scrollable content
+   ============================================================ */
+
+/* Body reset for admin */
+body.admin-body {
+    overflow: hidden;
+    height: 100vh;
+    background: #f1f5f9;
+    display: flex;
+    flex-direction: column;
+}
+
+/* Shell: sidebar + content side by side */
+.admin-shell {
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* ============================================================
+   Sidebar
+   ============================================================ */
+.admin-sidenav {
+    width: 200px;
+    flex-shrink: 0;
+    background: #ffffff;
+    border-right: 1px solid #e2e8f0;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+/* Brand */
+.sidenav-brand {
+    display: flex;
+    align-items: center;
+    gap: .6rem;
+    padding: 1.25rem 1rem 1rem;
+    font-size: .95rem;
+    font-weight: 700;
+    color: #1e293b;
+    letter-spacing: -.01em;
+    border-bottom: 1px solid #f1f5f9;
+    text-decoration: none;
+    flex-shrink: 0;
+}
+
+.sidenav-brand .brand-icon {
+    font-size: 1.2rem;
+}
+
+.sidenav-brand .brand-text {
+    line-height: 1.2;
+}
+
+.sidenav-brand .brand-sub {
+    font-size: .65rem;
+    font-weight: 500;
+    color: #94a3b8;
+    display: block;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+
+/* Nav section */
+.sidenav-nav {
+    flex: 1;
+    padding: .75rem .5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.sidenav-label {
+    font-size: .65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: #94a3b8;
+    padding: .75rem .75rem .25rem;
+}
+
+.sidenav-link {
+    display: flex;
+    align-items: center;
+    gap: .625rem;
+    padding: .5rem .75rem;
+    border-radius: 6px;
+    color: #475569;
+    text-decoration: none;
+    font-size: .875rem;
+    font-weight: 500;
+    transition: background .12s, color .12s;
+    position: relative;
+}
+
+.sidenav-link .nav-icon {
+    font-size: .95rem;
+    width: 18px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.sidenav-link:hover {
+    background: #f8fafc;
+    color: #1e293b;
+}
+
+.sidenav-link.active {
+    background: #eff6ff;
+    color: #2563eb;
+    font-weight: 600;
+}
+
+.sidenav-link.active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 60%;
+    background: #2563eb;
+    border-radius: 0 2px 2px 0;
+}
+
+/* Bottom section */
+.sidenav-bottom {
+    padding: .5rem .5rem .75rem;
+    border-top: 1px solid #f1f5f9;
+}
+
+.sidenav-link.muted {
+    color: #94a3b8;
+    font-size: .8rem;
+}
+
+.sidenav-link.muted:hover {
+    color: #64748b;
+    background: #f8fafc;
+}
+
+/* ============================================================
+   Content area
+   ============================================================ */
+.admin-content-wrap {
+    flex: 1;
+    min-height: 0;          /* critical: allows flex child to shrink & scroll */
+    overflow-y: auto;
+    overflow-x: hidden;
+    background: #f8fafc;
+}
+
+/* Override admin-main card when inside new layout */
+.admin-content-wrap .admin-main {
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    border-radius: 0;
+    padding: 2rem 2.5rem;
+}
+
+/* Remove the gradient top line from admin-main */
+.admin-content-wrap .admin-main::before {
+    display: none;
+}
+
+/* Page heading row */
+.admin-content-wrap .admin-main h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #1e293b;
+    margin-bottom: 1.5rem;
+    letter-spacing: -.02em;
+}
+
+/* Slightly reduce stat cards for content width */
+.admin-content-wrap .stats-grid {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.admin-content-wrap .stat-card {
+    padding: 1.25rem 1.5rem;
+}
+
+.admin-content-wrap .stat-number {
+    font-size: 2rem;
+}
+
+/* Dashboard sections take 100% width */
+.admin-content-wrap .dashboard-section {
+    margin-bottom: 1.5rem;
+}
+
+/* ============================================================
+   Section header utility (used across pages)
+   ============================================================ */
+.section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.25rem;
+    flex-wrap: wrap;
+    gap: .75rem;
+}
+
+.section-header h2 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #1e293b;
+    margin: 0;
+}
+
+/* ============================================================
+   Card utility
+   ============================================================ */
+.card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    box-shadow: 0 1px 3px 0 rgba(0,0,0,.05);
+}
+
+.cards-grid {
+    display: grid;
+    gap: 1.5rem;
+}
+
+/* ============================================================
+   Spinner
+   ============================================================ */
+.spinner {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    border: 2px solid #e2e8f0;
+    border-top-color: #3b82f6;
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ============================================================
+   Responsive: collapse sidebar on smaller screens
+   ============================================================ */
+@media (max-width: 900px) {
+    .admin-sidenav {
+        width: 52px;
+    }
+    .sidenav-brand .brand-text,
+    .sidenav-link span:not(.nav-icon),
+    .sidenav-label,
+    .sidenav-bottom .sidenav-link span:not(.nav-icon) {
+        display: none;
+    }
+    .sidenav-brand {
+        justify-content: center;
+        padding: 1rem .5rem;
+    }
+    .sidenav-link {
+        justify-content: center;
+        padding: .6rem;
+    }
+    .sidenav-link .nav-icon {
+        width: auto;
+    }
+    .admin-content-wrap .admin-main {
+        padding: 1.25rem;
+    }
+}
+
+@media (max-width: 600px) {
+    .admin-sidenav {
+        display: none;
+    }
+    .admin-content-wrap .admin-main {
+        padding: 1rem;
+    }
+}

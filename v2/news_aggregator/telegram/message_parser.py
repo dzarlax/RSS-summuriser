@@ -36,24 +36,27 @@ class MessageParser:
     async def parse_message_element(self, message_div, base_url: str, soup=None) -> Optional[Article]:
         """Parse message div element into Article."""
         try:
-            # Clean up message div first
+            # Extract forwarded metadata BEFORE cleanup removes the forwarded block
+            forwarded_from = self._extract_forwarded_info(message_div)
+
+            # Clean up all Telegram UI chrome (forwarded block, footer, views, etc.)
             self._cleanup_message_div(message_div)
-            
+
             # Extract content
             content = self._extract_message_content(message_div, base_url)
             if len(content) < 10:
                 return None
-            
+
             # Extract basic message info
             message_url = self._extract_message_url(message_div, base_url)
             message_id = self._extract_message_id(message_div, message_url)
             published_at = self._extract_date(message_div)
-            
+
             # Extract media information
             image_url = self.media_extractor.extract_image_url(message_div)
             media_files = self.media_extractor.extract_media_files(message_div)
             media_info = self.media_extractor.extract_media_info(message_div)
-            
+
             # Extract Open Graph image if no media found and soup is available
             if not image_url and not media_files and soup:
                 og_image_url = self._extract_opengraph_image(soup)
@@ -66,11 +69,11 @@ class MessageParser:
                         'thumbnail': og_image_url,
                         'source': 'opengraph'
                     }]
-            
+
             # Extract links and metadata
             external_links = self._extract_external_links(message_div)
             original_link = self._find_original_link(external_links)
-            
+
             # Try to extract full content from external link if Telegram content is short
             if original_link and len(content) < 200:
                 full_content = await self._try_extract_full_content(original_link, content)
@@ -78,7 +81,6 @@ class MessageParser:
                     content = full_content
                     logger.info(f"  🎯 Using full content from external source ({len(content)} chars)")
             title = self._extract_title(content)
-            forwarded_from = self._extract_forwarded_info(message_div)
             hashtags = self._extract_hashtags(content)
             
             # Determine final URL (prefer external original link)
@@ -163,10 +165,21 @@ class MessageParser:
         return None
     
     def _cleanup_message_div(self, message_div) -> None:
-        """Remove quoted original from replies to avoid mixing content."""
+        """Remove all Telegram UI chrome that is not part of the message content."""
+        ui_selectors = [
+            '.tgme_widget_message_forwarded_from',  # "Forwarded from ChannelName" block
+            '.tgme_widget_message_reply',            # Quoted reply block
+            '.tgme_widget_message_footer',           # Footer (date, views, share)
+            '.tgme_widget_message_info',             # Message metadata
+            '.tgme_widget_message_date',             # Date link
+            '.tgme_widget_message_views',            # View count
+            '.tgme_widget_message_service',          # Service messages (pinned, etc.)
+            '.tgme_widget_message_keyboard',         # Inline keyboard buttons
+        ]
         try:
-            for reply in message_div.select('.tgme_widget_message_reply'):
-                reply.decompose()
+            for selector in ui_selectors:
+                for el in message_div.select(selector):
+                    el.decompose()
         except Exception:
             pass
     
@@ -425,10 +438,13 @@ class MessageParser:
         # Remove invisible/control characters (except newlines and tabs)
         content = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', content)
         
-        # Clean up common Telegram artifacts
+        # Clean up common Telegram UI artifacts that may leak as plain text
         content = re.sub(r'\s*\n\s*View in Telegram\s*$', '', content, flags=re.IGNORECASE)
         content = re.sub(r'\s*\n\s*Open in Telegram\s*$', '', content, flags=re.IGNORECASE)
-        
+        # Remove forwarded-from lines (e.g. "Forwarded from ChannelName", "↩ ChannelName")
+        content = re.sub(r'(?m)^[↩↪➡⬅→←]\s*.+$\n?', '', content)
+        content = re.sub(r'(?im)^Forwarded from\s*.+$\n?', '', content)
+
         return content.strip()
     
     def _smart_truncate_title(self, title: str) -> str:

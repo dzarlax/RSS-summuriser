@@ -3,25 +3,21 @@
 from typing import Dict, Type, Optional
 from .base import BaseSource, SourceType, SourceInfo
 from .rss_source import RSSSource
-from .generic_source import GenericSource
 from .telegram_source import TelegramSource
 from .page_monitor_adapter import PageMonitorAdapter
 
 
 class SourceRegistry:
     """Registry for news source types."""
-    
+
     def __init__(self):
         self._sources: Dict[SourceType, Type[BaseSource]] = {}
         self._register_default_sources()
-    
+
     def _register_default_sources(self):
         """Register built-in source types."""
         self.register(SourceType.RSS, RSSSource)
         self.register(SourceType.TELEGRAM, TelegramSource)
-        self.register(SourceType.REDDIT, GenericSource)
-        self.register(SourceType.TWITTER, GenericSource)
-        self.register(SourceType.NEWS_API, GenericSource)
         self.register(SourceType.CUSTOM, PageMonitorAdapter)
     
     def register(self, source_type: SourceType, source_class: Type[BaseSource]):

@@ -85,12 +85,19 @@ class MediaExtractor:
         
         # Avatar/profile selectors to exclude
         self.avatar_selectors = [
-            '.tgme_widget_message_user_photo img',  # User profile photos
-            '.tgme_widget_message_owner_photo img', # Channel owner photos
-            '.message_author_photo img',            # Author photos
-            '.avatar img',                          # Generic avatars
-            '.profile img',                         # Profile images
-            '.channel_photo img'                    # Channel photos
+            '.tgme_widget_message_user_photo img',       # User profile photos
+            '.tgme_widget_message_owner_photo img',      # Channel owner photos
+            '.tgme_widget_message_forwarded_from img',   # Forwarded-from channel icon
+            '.message_author_photo img',                 # Author photos
+            '.avatar img',                               # Generic avatars
+            '.profile img',                              # Profile images
+            '.channel_photo img'                         # Channel photos
+        ]
+
+        # Container selectors whose contents should be excluded entirely
+        self.excluded_containers = [
+            '.tgme_widget_message_forwarded_from',  # Forwarded-from block (has channel avatar)
+            '.tgme_widget_message_reply',           # Quoted reply block
         ]
     
     def extract_media_files(self, message_div) -> List[Dict[str, Any]]:
@@ -152,14 +159,37 @@ class MediaExtractor:
         return None
     
     def _collect_avatar_urls(self, message_div) -> Set[str]:
-        """Collect avatar URLs to exclude from media extraction."""
+        """Collect avatar/icon URLs to exclude from media extraction.
+
+        Includes:
+        - Explicit avatar img selectors
+        - All images inside excluded containers (forwarded-from, reply quote, etc.)
+        - Background-images inside excluded containers
+        """
         avatar_urls = set()
+
+        # Collect from explicit avatar selectors
         for selector in self.avatar_selectors:
-            avatar_imgs = message_div.select(selector)
-            for img in avatar_imgs:
+            for img in message_div.select(selector):
                 src = img.get('src') or img.get('data-src') or img.get('data-lazy-src')
                 if src:
                     avatar_urls.add(src)
+
+        # Collect all images from excluded container blocks
+        for container_selector in self.excluded_containers:
+            for container in message_div.select(container_selector):
+                # img src attributes
+                for img in container.select('img'):
+                    src = img.get('src') or img.get('data-src') or img.get('data-lazy-src')
+                    if src:
+                        avatar_urls.add(src)
+                # background-image in style attributes
+                for el in container.select('[style*="background-image"]'):
+                    style = el.get('style', '')
+                    for match in re.findall(r'background-image:\s*url\(["\']?(.*?)["\']?\)', style):
+                        if match:
+                            avatar_urls.add(match)
+
         return avatar_urls
     
     def _extract_images(self, message_div, avatar_urls: Set[str]) -> List[Dict[str, Any]]:

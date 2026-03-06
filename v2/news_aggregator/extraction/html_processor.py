@@ -104,10 +104,12 @@ class HTMLProcessor:
         ]
         
         # Check element classes and IDs
-        element_attrs = ' '.join([
-            element.get('class', []) if isinstance(element.get('class'), list) else [element.get('class', '')],
-            [element.get('id', '')]
-        ]).lower()
+        classes = element.get('class', [])
+        if isinstance(classes, list):
+            class_str = ' '.join(classes)
+        else:
+            class_str = str(classes) if classes else ''
+        element_attrs = (class_str + ' ' + element.get('id', '')).lower()
         
         # Score based on positive/negative indicators
         score = 0
@@ -176,20 +178,19 @@ class HTMLProcessor:
         # Remove excessive whitespace
         text = re.sub(r'\s+', ' ', text)
         
-        # Remove common unwanted patterns
+        # Remove common unwanted standalone patterns (anchored to avoid removing mid-sentence words)
         unwanted_patterns = [
-            r'Advertisement\s*',
-            r'Sponsored\s*',
-            r'Click here\s*',
-            r'Read more\s*',
-            r'Subscribe\s*',
-            r'Follow us\s*',
-            r'Share\s*',
-            r'Tweet\s*',
-            r'Like\s*',
-            r'Continue reading\s*'
+            r'(?<!\w)Advertisement(?!\w)\s*',
+            r'(?<!\w)Sponsored(?!\w)\s*',
+            r'(?<!\w)Click here(?!\w)\s*',
+            r'(?<!\w)Read more(?!\w)\s*',
+            r'(?<!\w)Subscribe(?!\w)\s*',
+            r'(?<!\w)Follow us(?!\w)\s*',
+            r'(?<!\w)Share(?!\w)\s*',
+            r'(?<!\w)Tweet(?!\w)\s*',
+            r'(?<!\w)Continue reading(?!\w)\s*'
         ]
-        
+
         for pattern in unwanted_patterns:
             text = re.sub(pattern, '', text, flags=re.IGNORECASE)
         

@@ -1,12 +1,8 @@
-{% extends "base.html" %}
+{% extends "admin/admin_base.html" %}
 
 {% block title %}Расписание задач - Evening News v2{% endblock %}
 
 {% block content %}
-<div class="admin-container">
-    {% include "admin/_sidebar.html" %}
-
-    <div class="admin-main">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
             <h1>Расписание задач</h1>
             <div style="display: flex; gap: 15px; align-items: center;">
@@ -681,17 +677,20 @@ async function saveScheduleSetting(taskName) {
         if (response.ok && result.success) {
             saveBtn.textContent = '✅ Сохранено';
             saveBtn.style.background = '#28a745';
-            
+
             // Update local cache
             scheduleSettings[taskName] = result.setting;
-            
+
             // Update next run display
             const nextRunEl = document.querySelector(`#card-${taskName} .next-run`);
-            const nextRun = result.setting.next_run ? 
-                new Date(result.setting.next_run).toLocaleString('ru-RU') : 
+            const nextRun = result.setting.next_run ?
+                new Date(result.setting.next_run).toLocaleString('ru-RU') :
                 'Не запланировано';
             nextRunEl.textContent = `Следующий запуск: ${nextRun}`;
-            
+
+            // Refresh status badge after any save (toggle, settings change, etc.)
+            updateScheduleStatus();
+
             setTimeout(() => {
                 saveBtn.textContent = 'Сохранить настройки';
                 saveBtn.style.background = '#007bff';

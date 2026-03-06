@@ -2,6 +2,7 @@ import logging
 """Different strategies for content extraction from web pages."""
 
 import asyncio
+import html as html_lib
 import time
 from typing import Optional, Dict, Any, List
 from urllib.parse import urljoin
@@ -99,6 +100,117 @@ class ExtractionStrategies:
             logger.warning(f"    ⚠️ Quality check failed: {e}, assuming content is valid")
             return True  # Fail open - if quality check fails, assume content is OK
 
+    async def _extract_reddit_json(self, url: str) -> Optional[Dict[str, Optional[str]]]:
+        """Extract Reddit post content via the public JSON API.
+
+        Returns a result dict (same shape as attempt_extraction_with_metadata) or None
+        if the URL is not a Reddit post or extraction fails.
+        """
+        import re
+        # Only handle reddit.com comment/post URLs
+        if not re.search(r'reddit\.com/r/\w+/comments/', url):
+            return None
+
+        json_url = url.rstrip('/') + '.json'
+        try:
+            async with get_http_client() as client:
+                async with await client.get(
+                    json_url,
+                    headers={**self.utils.get_headers(), 'Accept': 'application/json'},
+                ) as resp:
+                    if resp.status != 200:
+                        logger.warning(f"    ⚠️ Reddit JSON API returned {resp.status}")
+                        return None
+                    data = await resp.json(content_type=None)
+        except Exception as e:
+            logger.warning(f"    ⚠️ Reddit JSON fetch failed: {e}")
+            return None
+
+        try:
+            post = data[0]['data']['children'][0]['data']
+        except (KeyError, IndexError, TypeError) as e:
+            logger.warning(f"    ⚠️ Reddit JSON parse failed: {e}")
+            return None
+
+        title = post.get('title', '')
+        selftext = post.get('selftext', '').strip()
+        post_url = post.get('url', '')
+        post_hint = post.get('post_hint', '')
+        is_self = post.get('is_self', False)
+        author = post.get('author', '')
+        score = post.get('score', 0)
+        created_utc = post.get('created_utc')
+
+        # Extract image URL
+        image_url = None
+        if post_hint == 'image' or (post_url and re.search(r'\.(jpg|jpeg|png|gif|webp)$', post_url, re.I)):
+            image_url = post_url
+        # Prefer preview image (higher quality, always available)
+        preview_images = post.get('preview', {}).get('images', [])
+        if preview_images:
+            raw = preview_images[0].get('source', {}).get('url', '')
+            if raw:
+                image_url = html_lib.unescape(raw)
+
+        # Top comments for context (skip bots and auto-moderator)
+        comments_text = ''
+        try:
+            top_comments = data[1]['data']['children'][:10]
+            comment_lines = []
+            bot_authors = {'automoderator', 'automod', 'bot'}
+            for c in top_comments:
+                cdata = c.get('data', {})
+                body = cdata.get('body', '').strip()
+                cauthor = (cdata.get('author') or '').lower()
+                if (body
+                        and body not in ('[deleted]', '[removed]')
+                        and cauthor not in bot_authors
+                        and not cdata.get('distinguished')  # skip mod-distinguished
+                        and len(body) > 20):
+                    comment_lines.append(body)
+                if len(comment_lines) >= 5:
+                    break
+            if comment_lines:
+                comments_text = '\n\n'.join(comment_lines)
+        except Exception:
+            pass
+
+        # Build content depending on post type
+        if is_self and selftext:
+            content = f"{title}\n\n{selftext}"
+        elif post_hint == 'image' or not selftext:
+            # Image post or bare link — use title + comments
+            content = title
+            if comments_text:
+                content += f"\n\nКомментарии:\n{comments_text}"
+        else:
+            content = f"{title}\n\n{selftext}"
+            if comments_text:
+                content += f"\n\nКомментарии:\n{comments_text}"
+
+        if not content.strip():
+            return None
+
+        # Publication date from created_utc
+        pub_date = None
+        if created_utc:
+            from datetime import datetime, timezone
+            pub_date = datetime.fromtimestamp(created_utc, tz=timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+        logger.info(f"    ✅ Reddit JSON: post_hint={post_hint!r}, content={len(content)} chars, image={'yes' if image_url else 'no'}")
+        return {
+            'content': content,
+            'title': title,
+            'author': author,
+            'publication_date': pub_date,
+            'description': selftext[:200] if selftext else None,
+            'image_url': image_url,
+            'method_used': 'reddit_json',
+            'selector_used': 'reddit_json',
+            # For link posts, expose the linked URL so caller can optionally extract it
+            '_reddit_link_url': post_url if not is_self and post_hint not in ('image',) else None,
+        }
+
     async def attempt_extraction_with_metadata(
         self, url: str, domain: str, attempt_num: int
     ) -> Dict[str, Optional[str]]:
@@ -110,98 +222,90 @@ class ExtractionStrategies:
             "publication_date": None,
             "author": None,
             "description": None,
+            "image_url": None,
             "method_used": None,
         }
+
+        # Strategy 0: Reddit JSON API (before any HTML fetch)
+        if 'reddit.com' in domain:
+            reddit_result = await self._extract_reddit_json(url)
+            if reddit_result and reddit_result.get('content'):
+                result.update(reddit_result)
+                # For link posts, try to also extract the linked article
+                link_url = reddit_result.get('_reddit_link_url')
+                if link_url:
+                    logger.info(f"    🔗 Reddit link post — extracting linked URL: {link_url}")
+                    try:
+                        linked_html = await self.fetch_html_content(link_url)
+                        if linked_html:
+                            linked_soup = BeautifulSoup(linked_html, "html.parser")
+                            linked_content, _ = self.html_processor.extract_by_enhanced_selectors(linked_soup)
+                            if linked_content and self.utils.is_good_content(linked_content, is_full_article=True):
+                                result['content'] = linked_content
+                                if not result.get('image_url'):
+                                    result['image_url'] = self.metadata_extractor.extract_primary_image(linked_soup)
+                    except Exception as e:
+                        logger.warning(f"    ⚠️ Reddit linked URL extraction failed: {e}")
+                return result
+
+        # Fetch HTML once and reuse across strategies 1-3
+        shared_html: Optional[str] = None
+        shared_soup = None
+        try:
+            shared_html = await self.fetch_html_content(url)
+            if shared_html:
+                shared_soup = BeautifulSoup(shared_html, "html.parser")
+        except Exception as e:
+            logger.warning(f"    ⚠️ Initial HTML fetch failed: {e}")
+
+        def _fill_metadata(r: dict, soup) -> None:
+            """Populate metadata fields from a BeautifulSoup object."""
+            try:
+                r["title"] = self.metadata_extractor.extract_meta_title(soup)
+                pub_date, _ = self.date_extractor.extract_publication_date(soup)
+                r["publication_date"] = pub_date
+                r["author"] = self.metadata_extractor.extract_author_info(soup)
+                r["description"] = self.metadata_extractor.extract_meta_description(soup)
+                if not r.get("image_url"):
+                    r["image_url"] = self.metadata_extractor.extract_primary_image(soup)
+            except Exception as e:
+                logger.warning(f"    ⚠️ Metadata extraction failed: {e}")
 
         # Strategy 1: Try learned patterns first (fastest)
         extraction_memory = await get_extraction_memory()
         learned_pattern = await extraction_memory.get_successful_pattern(domain)
 
-        if learned_pattern:
+        if learned_pattern and shared_soup:
             logger.info(f"    📚 Trying learned pattern for {domain}")
             try:
-                content = await self.extract_with_learned_pattern(url, learned_pattern)
-                if (
-                    content
-                    and self.utils.is_good_content(content, is_full_article=True)
-                    and await self._is_high_quality_content(content, url=url)
-                ):
-                    result["content"] = content
-                    result["selector_used"] = learned_pattern.get("selector")
-                    original_method = learned_pattern.get("method", "unknown")
-                    result["method_used"] = self._normalize_learned_pattern_method(
-                        original_method
+                selector = learned_pattern.get("selector")
+                elements = shared_soup.select(selector) if selector else []
+                if elements:
+                    content = self.html_processor.clean_text(
+                        elements[0].get_text(separator=" ", strip=True)
                     )
-
-                    # Try to extract metadata with quick HTML fetch
-                    try:
-                        html = await self.fetch_html_content(url)
-                        if html:
-                            soup = BeautifulSoup(html, "html.parser")
-                            result["title"] = (
-                                self.metadata_extractor.extract_meta_title(soup)
-                            )
-                            pub_date, date_selector = (
-                                self.date_extractor.extract_publication_date(soup)
-                            )
-                            result["publication_date"] = pub_date
-                            result["author"] = (
-                                self.metadata_extractor.extract_author_info(soup)
-                            )
-                            result["description"] = (
-                                self.metadata_extractor.extract_meta_description(soup)
-                            )
-                    except Exception as e:
-                        logger.warning(f"    ⚠️ Metadata extraction failed: {e}")
-                    return result
+                    if (
+                        content
+                        and self.utils.is_good_content(content, is_full_article=True)
+                        and await self._is_high_quality_content(content, url=url)
+                    ):
+                        result["content"] = content
+                        result["selector_used"] = selector
+                        result["method_used"] = self._normalize_learned_pattern_method(
+                            learned_pattern.get("method", "unknown")
+                        )
+                        _fill_metadata(result, shared_soup)
+                        return result
             except Exception as e:
                 logger.error(f"    ❌ Learned pattern failed: {e}")
-        # Strategy 2: Readability with HTML fetch
-        try:
-            logger.info(f"    📖 Trying readability extraction")
-            content, selector = await self.extract_with_readability(url)
-            if (
-                content
-                and self.utils.is_good_content(content)
-                and await self._is_high_quality_content(content, url=url)
-            ):
-                result["content"] = content
-                result["selector_used"] = selector
-                result["method_used"] = "readability"
 
-                # Extract metadata from the same HTML
-                try:
-                    html = await self.fetch_html_content(url)
-                    if html:
-                        soup = BeautifulSoup(html, "html.parser")
-                        result["title"] = self.metadata_extractor.extract_meta_title(
-                            soup
-                        )
-                        pub_date, date_selector = (
-                            self.date_extractor.extract_publication_date(soup)
-                        )
-                        result["publication_date"] = pub_date
-                        result["author"] = self.metadata_extractor.extract_author_info(
-                            soup
-                        )
-                        result["description"] = (
-                            self.metadata_extractor.extract_meta_description(soup)
-                        )
-                except Exception as e:
-                    logger.warning(f"    ⚠️ Metadata extraction failed: {e}")
-                return result
-        except Exception as e:
-            logger.error(f"    ❌ Readability extraction failed: {e}")
-        # Strategy 3: Enhanced HTML selectors
-        try:
-            logger.info(f"    🎯 Trying enhanced selectors")
-            html = await self.fetch_html_content(url)
-            if html:
-                soup = BeautifulSoup(html, "html.parser")
+        # Strategy 2: Enhanced HTML selectors (cheaper than readability — try first)
+        if shared_soup:
+            try:
+                logger.info(f"    🎯 Trying enhanced selectors")
                 content, selector = self.html_processor.extract_by_enhanced_selectors(
-                    soup
+                    shared_soup
                 )
-
                 if (
                     content
                     and self.utils.is_good_content(content, is_full_article=True)
@@ -210,22 +314,38 @@ class ExtractionStrategies:
                     result["content"] = content
                     result["selector_used"] = selector
                     result["method_used"] = "enhanced_selectors"
-                    result["title"] = self.metadata_extractor.extract_meta_title(soup)
-                    pub_date, date_selector = (
-                        self.date_extractor.extract_publication_date(soup)
-                    )
-                    result["publication_date"] = pub_date
-                    result["author"] = self.metadata_extractor.extract_author_info(soup)
-                    result["description"] = (
-                        self.metadata_extractor.extract_meta_description(soup)
-                    )
+                    _fill_metadata(result, shared_soup)
                     return result
-        except Exception as e:
-            logger.error(f"    ❌ Enhanced selectors failed: {e}")
-        # Strategy 4: Browser rendering (more expensive)
+            except Exception as e:
+                logger.error(f"    ❌ Enhanced selectors failed: {e}")
+
+        # Strategy 3: Readability (reuse already-fetched HTML)
+        if shared_html:
+            try:
+                logger.info(f"    📖 Trying readability extraction")
+                doc = Document(shared_html)
+                readability_html = doc.summary()
+                if readability_html:
+                    r_soup = BeautifulSoup(readability_html, "html.parser")
+                    text_content = r_soup.get_text(separator=" ", strip=True)
+                    content = self.html_processor.clean_text(text_content)
+                    if (
+                        content
+                        and self.utils.is_good_content(content)
+                        and await self._is_high_quality_content(content, url=url)
+                    ):
+                        result["content"] = content
+                        result["selector_used"] = "readability"
+                        result["method_used"] = "readability"
+                        if shared_soup:
+                            _fill_metadata(result, shared_soup)
+                        return result
+            except Exception as e:
+                logger.error(f"    ❌ Readability extraction failed: {e}")
+        # Strategy 4: Browser rendering (more expensive) — extracts metadata in same session
         try:
             logger.info(f"    🎭 Trying browser rendering")
-            content, selector = await self.extract_with_browser_tuple(url)
+            content, selector, browser_html = await self._extract_with_browser_and_html(url)
             if (
                 content
                 and self.utils.is_good_content(content, is_full_article=True)
@@ -235,57 +355,29 @@ class ExtractionStrategies:
                 result["selector_used"] = selector
                 result["method_used"] = "browser_rendering"
 
-                # Try to get metadata through browser as well
-                try:
-                    async with self._browser_semaphore:
-                        await self._ensure_browser()
+                # Use HTML from the same browser session — no second request
+                if browser_html:
+                    try:
+                        b_soup = BeautifulSoup(browser_html, "html.parser")
+                        _fill_metadata(result, b_soup)
+                    except Exception as e:
+                        logger.warning(f"    ⚠️ Browser metadata extraction failed: {e}")
+                        # Fallback: metadata from initial shared_soup if available
+                        if shared_soup:
+                            _fill_metadata(result, shared_soup)
 
-                        context = None
-                        try:
-                            context = await self.browser.new_context()
-                            page = await context.new_page()
-                            await page.goto(url, timeout=PLAYWRIGHT_TIMEOUT_FIRST_MS)
-
-                            # Extract metadata through browser
-                            title = await page.title()
-                            if title:
-                                result["title"] = title
-
-                            # Get HTML for further metadata extraction
-                            html_content = await page.content()
-                            if html_content:
-                                soup = BeautifulSoup(html_content, "html.parser")
-                                pub_date, date_selector = (
-                                    self.date_extractor.extract_publication_date(soup)
-                                )
-                                result["publication_date"] = pub_date
-                                result["author"] = (
-                                    self.metadata_extractor.extract_author_info(soup)
-                                )
-                                result["description"] = (
-                                    self.metadata_extractor.extract_meta_description(
-                                        soup
-                                    )
-                                )
-                        finally:
-                            if context:
-                                try:
-                                    await context.close()
-                                except Exception:
-                                    pass
-                except Exception as e:
-                    logger.warning(f"    ⚠️ Browser metadata extraction failed: {e}")
                 return result
         except Exception as e:
             logger.error(f"    ❌ Browser rendering failed: {e}")
+
         # Strategy 5: Fallback to basic text extraction
         try:
             logger.info(f"    🔄 Trying fallback extraction")
-            html = await self.fetch_html_content_fallback(url)
-            if html:
-                soup = BeautifulSoup(html, "html.parser")
+            # Reuse already-fetched HTML when possible; only use sync fallback if needed
+            fallback_html = shared_html or await self.fetch_html_content_fallback(url)
+            if fallback_html:
+                soup = BeautifulSoup(fallback_html, "html.parser")
 
-                # Try multiple extraction methods
                 res = (
                     self.metadata_extractor.extract_from_json_ld(soup)
                     or self.metadata_extractor.extract_from_open_graph(soup)
@@ -299,307 +391,33 @@ class ExtractionStrategies:
                 else:
                     content = res
 
-                if content and len(content) > 100:
+                if content and self.utils.is_good_content(content):
                     result["content"] = content
                     result["selector_used"] = selector
                     result["method_used"] = "fallback_extraction"
-                    result["title"] = self.metadata_extractor.extract_meta_title(soup)
-                    pub_date, date_selector = (
-                        self.date_extractor.extract_publication_date(soup)
-                    )
-                    result["publication_date"] = pub_date
-                    result["author"] = self.metadata_extractor.extract_author_info(soup)
-                    result["description"] = (
-                        self.metadata_extractor.extract_meta_description(soup)
-                    )
+                    _fill_metadata(result, soup)
                     return result
         except Exception as e:
             logger.error(f"    ❌ Fallback extraction failed: {e}")
         return result
 
-    async def attempt_content_extraction(
-        self, url: str, domain: str, attempt_num: int
-    ) -> Optional[str]:
-        """Attempt content extraction using various strategies."""
-        logger.info(f"    🔄 Content extraction attempt #{attempt_num} for domain: {domain}")
-        # Strategy 1: Try learned patterns first
-        extraction_memory = await get_extraction_memory()
-        learned_pattern = await extraction_memory.get_successful_pattern(domain)
+    async def _extract_with_browser_and_html(
+        self, url: str
+    ) -> tuple[Optional[str], Optional[str], Optional[str]]:
+        """Extract content via browser and also return the rendered HTML for metadata.
 
-        if learned_pattern:
-            logger.info(f"    📚 Trying learned pattern")
-            try:
-                content = await self.extract_with_learned_pattern(url, learned_pattern)
-                if (
-                    content
-                    and self.utils.is_good_content(content, is_full_article=True)
-                    and await self._is_high_quality_content(content, url=url)
-                ):
-                    return content
-            except Exception as e:
-                logger.error(f"    ❌ Learned pattern failed: {e}")
-        # Strategy 2: Enhanced selectors with HTML fetch
-        try:
-            logger.info(f"    🎯 Trying enhanced selectors")
-            content, selector = await self.extract_with_enhanced_selectors_tuple(url)
-            if (
-                content
-                and self.utils.is_good_content(content, is_full_article=True)
-                and await self._is_high_quality_content(content, url=url)
-            ):
-                # Return tuple to report selector back for recording
-                return content, selector
-        except Exception as e:
-            logger.error(f"    ❌ Enhanced selectors failed: {e}")
-        # Strategy 3: Readability
-        try:
-            logger.info(f"    📖 Trying readability")
-            content, selector = await self.extract_with_readability(url)
-            if (
-                content
-                and self.utils.is_good_content(content, is_full_article=True)
-                and await self._is_high_quality_content(content, url=url)
-            ):
-                return content, selector
-        except Exception as e:
-            logger.error(f"    ❌ Readability failed: {e}")
-        # Strategy 4: Browser rendering
-        try:
-            logger.info(f"    🎭 Trying browser rendering")
-            content, selector = await self.extract_with_browser_tuple(url)
-            if (
-                content
-                and self.utils.is_good_content(content, is_full_article=True)
-                and await self._is_high_quality_content(content, url=url)
-            ):
-                return content, selector
-        except Exception as e:
-            logger.error(f"    ❌ Browser failed: {e}")
-        # Strategy 5: Encoding detection
-        try:
-            logger.info(f"    🔤 Trying encoding detection")
-            content, selector = await self.extract_with_encoding_detection(url)
-            if (
-                content
-                and self.utils.is_good_content(content)
-                and await self._is_high_quality_content(content, url=url)
-            ):
-                return content, selector
-        except Exception as e:
-            logger.error(f"    ❌ Encoding detection failed: {e}")
-        # Strategy 6: Simple direct extraction
-        try:
-            logger.info(f"    📄 Trying simple extraction")
-            content = await self.extract_simple_direct(url)
-            if content and len(content) > 50:
-                return content
-        except Exception as e:
-            logger.error(f"    ❌ Simple extraction failed: {e}")
-        return None
-
-    async def extract_with_learned_pattern(self, url: str, pattern) -> Optional[str]:
-        """Extract content using a learned CSS selector pattern."""
-        if not pattern or "selector" not in pattern:
-            return None
-
-        try:
-            html = await self.fetch_html_content(url)
-            if not html:
-                return None
-
-            # Use fetched HTML directly instead of re-fetching in extract_with_css_selector
-            soup = BeautifulSoup(html, "html.parser")
-            elements = soup.select(pattern["selector"])
-
-            if elements:
-                content = elements[0].get_text(separator=" ", strip=True)
-                return self.html_processor.clean_text(content)
-
-            return None
-        except Exception as e:
-            raise ContentExtractionError(f"Learned pattern extraction failed: {e}")
-
-    async def extract_with_css_selector(self, url: str, selector: str) -> Optional[str]:
-        """Extract content using a specific CSS selector."""
-        try:
-            html = await self.fetch_html_content(url)
-            if not html:
-                return None
-
-            soup = BeautifulSoup(html, "html.parser")
-            elements = soup.select(selector)
-
-            if elements:
-                content = elements[0].get_text(separator=" ", strip=True)
-                return self.html_processor.clean_text(content)
-
-        except Exception as e:
-            raise ContentExtractionError(f"CSS selector extraction failed: {e}")
-
-        return None
-
-    async def extract_with_playwright_selector(
-        self, url: str, selector: str
-    ) -> Optional[str]:
-        """Extract content using Playwright with CSS selector."""
+        Returns:
+            Tuple of (content, selector, page_html)
+        """
         async with self._browser_semaphore:
             context = None
             try:
                 await self._ensure_browser()
-
-                context = await self.browser.new_context()
-                page = await context.new_page()
-
-                await page.goto(url, timeout=PLAYWRIGHT_TIMEOUT_FIRST_MS)
-
-                # Wait for selector and extract content
-                await page.wait_for_selector(selector, timeout=5000)
-                element = await page.query_selector(selector)
-
-                if element:
-                    content = await element.inner_text()
-                    return self.html_processor.clean_text(content) if content else None
-
-                return None
-
-            except Exception as e:
-                raise ContentExtractionError(f"Playwright extraction failed: {e}")
-            finally:
-                if context:
-                    try:
-                        await context.close()
-                    except Exception:
-                        pass  # Ignore cleanup errors
-
-    async def extract_with_encoding_detection(self, url: str) -> Optional[str]:
-        """Extract content using automatic encoding detection for international sites."""
-        try:
-            async with get_http_client() as client:
-                async with await client.get(
-                    url, headers=self.utils.get_headers()
-                ) as response:
-                    if response.status != 200:
-                        return None
-
-                    # Get raw bytes
-                    content_bytes = await response.read()
-
-                    # Detect encoding
-                    encoding_info = chardet.detect(content_bytes)
-                    encoding = encoding_info.get("encoding", "utf-8")
-                    confidence = encoding_info.get("confidence", 0)
-
-                    logger.info(f"    🔤 Detected encoding: {encoding} (confidence: {confidence:.2f})")
-
-                    # Decode with detected or fallback encoding
-                    html = None
-                    if confidence < 0.7:  # Low confidence, try common encodings
-                        for fallback_encoding in ["utf-8", "cp1252", "iso-8859-1"]:
-                            try:
-                                html = content_bytes.decode(fallback_encoding)
-                                break
-                            except UnicodeDecodeError:
-                                continue
-                        if not html:
-                            return None
-                    else:
-                        try:
-                            html = content_bytes.decode(encoding)
-                        except UnicodeDecodeError:
-                            html = content_bytes.decode("utf-8", errors="ignore")
-
-                    # Parse and extract
-                    soup = BeautifulSoup(html, "html.parser")
-                    content, selector = (
-                        self.html_processor.extract_by_enhanced_selectors(soup)
-                    )
-
-                    if not content:
-                        content = self.html_processor.extract_by_enhanced_heuristics(
-                            soup
-                        )
-                        selector = "heuristics"
-
-                    return content, selector
-
-        except Exception as e:
-            logger.error(f"    ❌ Encoding detection extraction failed: {e}")
-        return None, None
-
-    async def extract_with_readability(
-        self, url: str
-    ) -> tuple[Optional[str], Optional[str]]:
-        """Extract content using Python readability library."""
-        try:
-            html = await self.fetch_html_content(url)
-            if not html:
-                return None, None
-
-            doc = Document(html)
-            content = doc.summary()
-
-            if content:
-                # Parse the readability output and extract text
-                soup = BeautifulSoup(content, "html.parser")
-                text_content = soup.get_text(separator=" ", strip=True)
-                return self.html_processor.clean_text(text_content), "readability"
-
-        except Exception as e:
-            raise ContentExtractionError(f"Readability extraction failed: {e}")
-
-        return None, None
-
-    async def extract_with_enhanced_selectors_tuple(
-        self, url: str
-    ) -> tuple[Optional[str], Optional[str]]:
-        """Extract content using enhanced CSS selectors and return selector used."""
-        try:
-            html = await self.fetch_html_content(url)
-            if not html:
-                return None, None
-
-            soup = BeautifulSoup(html, "html.parser")
-            return self.html_processor.extract_by_enhanced_selectors(soup)
-
-        except Exception as e:
-            raise ContentExtractionError(f"Enhanced selectors extraction failed: {e}")
-
-    async def extract_with_enhanced_selectors(self, url: str) -> Optional[str]:
-        """Extract content using enhanced CSS selectors (legacy simple return)."""
-        content, _ = await self.extract_with_enhanced_selectors_tuple(url)
-        return content
-
-    async def extract_with_browser_tuple(
-        self, url: str
-    ) -> tuple[Optional[str], Optional[str]]:
-        """Extract content using browser rendering and return (content, selector)."""
-        logger.info(f"      🎭 Starting browser extraction for: {url[:80]}...")
-        budget_start = time.time()
-
-        # Get domain for adaptive timeout
-        from urllib.parse import urlparse
-
-        domain = urlparse(url).netloc
-
-        # Get adaptive timeout based on domain history
-        stability_tracker = await get_stability_tracker()
-        adaptive_timeout = stability_tracker.get_method_timeout(
-            domain, "browser_rendering", PLAYWRIGHT_TIMEOUT_FIRST_MS
-        )
-        adaptive_total_budget = min(adaptive_timeout * 3, PLAYWRIGHT_TOTAL_BUDGET_MS)
-        logger.info(f"      ⏱️ Adaptive timeout: {adaptive_timeout}ms (budget: {adaptive_total_budget}ms)")
-
-        async with self._browser_semaphore:
-            context = None
-            try:
-                await self._ensure_browser()
-
                 context = await self.browser.new_context(
                     user_agent="Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                 )
                 page = await context.new_page()
 
-                # Set up route handler for resource blocking
                 async def route_handler(route):
                     if route.request.resource_type in ["image", "media", "font"]:
                         await route.abort()
@@ -608,208 +426,43 @@ class ExtractionStrategies:
 
                 await page.route("**/*", route_handler)
 
-                # Navigate with adaptive timeout
+                budget_start = time.time()
+                from urllib.parse import urlparse as _urlparse
+                domain = _urlparse(url).netloc
+                stability_tracker = await get_stability_tracker()
+                adaptive_timeout = stability_tracker.get_method_timeout(
+                    domain, "browser_rendering", PLAYWRIGHT_TIMEOUT_FIRST_MS
+                )
+                adaptive_total_budget = min(adaptive_timeout * 3, PLAYWRIGHT_TOTAL_BUDGET_MS)
+
                 def remaining_ms() -> int:
-                    elapsed_s = time.time() - budget_start
-                    remaining_s = max(0, adaptive_total_budget / 1000 - elapsed_s)
-                    return int(remaining_s * 1000)
+                    return max(0, int(adaptive_total_budget - (time.time() - budget_start) * 1000))
 
-                # Navigate with adaptive timeout and retry
-                max_nav_attempts = 2
-                for nav_attempt in range(1, max_nav_attempts + 1):
-                    try:
-                        timeout_ms = min(adaptive_timeout, remaining_ms())
-                        logger.info(f"      🌐 Navigating to URL (attempt {nav_attempt}/{max_nav_attempts}, timeout: {timeout_ms}ms)...")
-                        # Use 'domcontentloaded' as it's faster and usually enough for content processing
-                        await page.goto(
-                            url, timeout=timeout_ms, wait_until="domcontentloaded"
-                        )
-                        logger.info(f"      ✅ Page loaded successfully")
-                        break
-                    except Exception as e:
-                        if nav_attempt == max_nav_attempts or remaining_ms() < 5000:
-                            logger.error(f"      ❌ Page navigation failed after {nav_attempt} attempts: {e}")
-                            raise
-                        logger.warning(f"      ⚠️ Page navigation attempt {nav_attempt} failed: {e}. Retrying with remaining budget...")
-                        await asyncio.sleep(1)
+                await page.goto(url, timeout=min(adaptive_timeout, remaining_ms()), wait_until="domcontentloaded")
 
-                # Wait for content to load - improved for SPA sites
-                logger.info(f"      ⏳ Waiting for content to load...")
                 try:
-                    # Wait for network to be idle (initial load)
-                    logger.info(f"      🌐 Waiting for network idle...")
-                    await page.wait_for_load_state(
-                        "networkidle", timeout=min(5000, remaining_ms())
-                    )
-                    logger.info(f"      ✅ Network idle achieved")
-                    # For SPA sites, wait for content to actually appear
-                    logger.info(f"      📝 Waiting for substantial content (>500 chars)...")
+                    await page.wait_for_load_state("networkidle", timeout=min(5000, remaining_ms()))
                     await page.wait_for_function(
                         "() => document.body.innerText.length > 500",
                         timeout=min(10000, remaining_ms()),
                     )
-                    logger.info(f"      ✅ Substantial content detected")
-                except Exception as e:
-                    logger.warning(f"      ⚠️ Content detection failed: {e}")
-                    # If SPA detection fails, try waiting for common content selectors
-                    try:
-                        logger.info(f"      🎯 Waiting for content selectors...")
-                        await page.wait_for_selector(
-                            "article, main, .content, #content, p",
-                            timeout=min(8000, remaining_ms()),
-                        )
-                        logger.info(f"      ✅ Content selector found")
-                        # Give additional time for dynamic content to load
-                        await asyncio.sleep(min(2, remaining_ms() / 1000))
-                    except Exception as e2:
-                        logger.warning(f"      ⚠️ Content selector wait failed: {e2}")
-                        pass  # Continue even if content detection times out
+                except Exception:
+                    pass  # Continue even if content detection times out
 
-                # Extract content using multiple strategies
+                # Capture rendered HTML once for both content and metadata
+                page_html = await page.content()
+
+                # Extract content from rendered HTML using existing logic
                 content = None
+                selector_used = None
+                if page_html:
+                    soup = BeautifulSoup(page_html, "html.parser")
+                    content, selector_used = self.html_processor.extract_by_enhanced_selectors(soup)
+                    if not content:
+                        content = self.html_processor.extract_by_enhanced_heuristics(soup)
+                        selector_used = "heuristics"
 
-                # First, let's see what we're working with
-                logger.info(f"      📊 Analyzing page content...")
-                try:
-                    body_text_length = await page.evaluate(
-                        "() => document.body.innerText.length"
-                    )
-                    logger.info(f"      📏 Total body text length: {body_text_length} chars")
-                except:
-                    logger.warning(f"      ⚠️ Could not measure body text length")
-                # Strategy 1: Look for article/main content - comprehensive selectors
-                logger.info(f"      🎯 Trying content selectors...")
-                article_selectors = [
-                    # Semantic HTML5
-                    "article",
-                    "main",
-                    '[role="main"]',
-                    "section.article-content",
-                    # Common content containers
-                    ".content",
-                    "#content",
-                    ".post-content",
-                    ".article-content",
-                    ".entry-content",
-                    ".story-content",
-                    ".news-content",
-                    ".article__body",
-                    ".article__content",
-                    ".post-body",
-                    ".article-body",
-                    ".article-text",
-                    ".story-body",
-                    # Site-specific patterns
-                    ".mb-14",  # N+1.ru
-                    ".article__text",
-                    ".article__lead",
-                    # Generic content wrappers
-                    ".container .content",
-                    ".wrapper .content",
-                    "main .text",
-                    "article .text",
-                    ".prose",
-                    ".prose-lg",
-                    ".prose-xl",  # Tailwind
-                    # Try multiple paragraphs as content
-                    "div:has(> p:nth-child(3))",
-                    "section:has(> p:nth-child(2))",
-                ]
-
-                for i, selector in enumerate(article_selectors):
-                    try:
-                        logger.debug(f"        🔍 [{i+1}/{len(article_selectors)}] Trying selector: {selector}")
-                        element = await page.query_selector(selector)
-                        if element:
-                            text = await element.inner_text()
-                            text_len = len(text.strip()) if text else 0
-                            logger.info(f"        📝 Found element with {text_len} chars")
-                            if text and text_len > 150:
-                                content = self.html_processor.clean_text(text)
-                                if self.utils.is_good_content(
-                                    content, is_full_article=True
-                                ) and await self._is_high_quality_content(
-                                    content, url=url
-                                ):
-                                    logger.info(f"        ✅ Content accepted from selector: {selector}")
-                                    return content, selector
-                                else:
-                                    logger.error(f"        ❌ Content quality insufficient")
-                        else:
-                            logger.error(f"        ❌ Selector not found: {selector}")
-                    except Exception as e:
-                        logger.error(f"        ❌ Selector failed: {selector} - {e}")
-                        continue
-
-                # Strategy 1.5: Collect paragraphs if main content not found
-                if not content:
-                    logger.info(f"      📝 Collecting paragraphs...")
-                    try:
-                        # Find all meaningful paragraphs
-                        paragraphs = await page.query_selector_all("p")
-                        logger.info(f"        📊 Found {len(paragraphs)} paragraphs")
-                        if paragraphs and len(paragraphs) >= 3:
-                            paragraph_texts = []
-                            for i, p in enumerate(paragraphs):
-                                text = await p.inner_text()
-                                text_len = len(text.strip()) if text else 0
-                                if text and text_len > 50:  # Meaningful paragraph
-                                    paragraph_texts.append(text.strip())
-                                    logger.info(f"        P{i+1}: {text_len} chars - '{text[:60]}...'")
-                            logger.info(f"        Collected {len(paragraph_texts)} meaningful paragraphs")
-                            if len(paragraph_texts) >= 3:
-                                combined_text = "\n\n".join(paragraph_texts)
-                                logger.info(f"        📏 Combined text length: {len(combined_text)} chars")
-                                if len(combined_text) > 500:
-                                    content = self.html_processor.clean_text(
-                                        combined_text
-                                    )
-                                    if content:
-                                        quality_score = (
-                                            self.utils.assess_content_quality(content)
-                                        )
-                                        logger.info(f"        Content quality score: {quality_score:.2f} (min: 0.30)")
-                                        if self.utils.is_good_content(content, is_full_article=True) and await self._is_high_quality_content(
-                                            content, url=url
-                                        ):
-                                            logger.info(f"        ✅ Paragraph collection successful!")
-                                            return content, "paragraph_collection"
-                                        else:
-                                            logger.error(f"        ❌ Combined paragraph quality insufficient (score: {quality_score:.2f})")
-                    except Exception as e:
-                        logger.error(f"        ❌ Paragraph collection failed: {e}")
-                # Strategy 2: Fallback to body content
-                if not content:
-                    logger.info(f"      🚑 Fallback to body content...")
-                    try:
-                        body = await page.query_selector("body")
-                        if body:
-                            raw_content = await body.inner_text()
-                            content_len = len(raw_content) if raw_content else 0
-                            logger.info(f"        📏 Body text length: {content_len} chars")
-                            if raw_content and content_len > 200:
-                                content = self.html_processor.clean_text(raw_content)
-                                if (
-                                    content
-                                    and self.utils.is_good_content(
-                                        content, is_full_article=True
-                                    )
-                                    and await self._is_high_quality_content(
-                                        content, url=url
-                                    )
-                                ):
-                                    logger.info(f"        ✅ Body content accepted (cleaned: {len(content)} chars)")
-                                    return content, "body_fallback"
-                                else:
-                                    logger.error(f"        ❌ Body content quality insufficient")
-                                    content = None
-                            else:
-                                logger.error(f"        ❌ Body content too short")
-                        else:
-                            logger.error(f"        ❌ Body element not found")
-                    except Exception as e:
-                        logger.error(f"        ❌ Body extraction failed: {e}")
-                return None, None
+                return content, selector_used, page_html
 
             except Exception as e:
                 raise ContentExtractionError(f"Browser extraction failed: {e}")
@@ -818,31 +471,7 @@ class ExtractionStrategies:
                     try:
                         await context.close()
                     except Exception:
-                        pass  # Ignore cleanup errors
-
-    async def extract_with_browser(self, url: str) -> Optional[str]:
-        """Extract content using browser rendering (legacy simple return)."""
-        content, _ = await self.extract_with_browser_tuple(url)
-        return content
-
-    async def extract_simple_direct(self, url: str) -> Optional[str]:
-        """Simple direct extraction as last resort."""
-        try:
-            html = await self.fetch_html_content_fallback(url)
-            if not html:
-                return None
-
-            soup = BeautifulSoup(html, "html.parser")
-
-            # Remove unwanted elements
-            self.html_processor.remove_unwanted_elements(soup)
-
-            # Get all text
-            text = soup.get_text(separator=" ", strip=True)
-            return self.html_processor.clean_text(text)
-
-        except Exception as e:
-            raise ContentExtractionError(f"Simple extraction failed: {e}")
+                        pass
 
     async def fetch_html_content(self, url: str) -> Optional[str]:
         """Fetch HTML content using shared HTTP client."""
@@ -862,28 +491,22 @@ class ExtractionStrategies:
             return None
 
     async def fetch_html_content_fallback(self, url: str) -> Optional[str]:
-        """Fallback HTML fetching using requests library."""
+        """Fallback HTML fetching with a different User-Agent (async, non-blocking)."""
         try:
-            import requests
-            from requests.adapters import HTTPAdapter
-            from requests.packages.urllib3.util.retry import Retry
-
-            session = requests.Session()
-            retry_strategy = Retry(
-                total=2,
-                backoff_factor=1,
-                status_forcelist=[429, 500, 502, 503, 504],
+            import aiohttp
+            fallback_headers = dict(self.utils.get_headers())
+            # Use a slightly different UA to avoid caching/blocking issues
+            fallback_headers["User-Agent"] = (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
             )
-            session.mount("http://", HTTPAdapter(max_retries=retry_strategy))
-            session.mount("https://", HTTPAdapter(max_retries=retry_strategy))
-
-            response = session.get(url, headers=self.utils.get_headers(), timeout=10)
-
-            if response.status_code == 200:
-                return response.text
-            else:
-                return None
-
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=fallback_headers, timeout=aiohttp.ClientTimeout(total=15)) as response:
+                    if response.status == 200:
+                        return await response.text()
+                    else:
+                        logger.warning(f"    ⚠️ Fallback fetch HTTP {response.status} for {url}")
+                        return None
         except Exception as e:
             logger.error(f"    ❌ Fallback fetch failed: {e}")
             return None

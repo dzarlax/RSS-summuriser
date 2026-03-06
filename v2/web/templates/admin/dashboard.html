@@ -1,20 +1,9 @@
-{% extends "base.html" %}
+{% extends "admin/admin_base.html" %}
 
 {% block title %}{{ title }}{% endblock %}
 
 {% block content %}
-<div class="admin-container">
-    {% include "admin/_sidebar.html" %}
-
-    <div class="admin-main">
         <h1>Дашборд</h1>
-
-        <!-- View toggles -->
-        <div style="display:flex; gap:1rem; align-items:center; margin: 0 0 0.5rem 0; color: var(--text-muted);">
-            <label class="form-label" style="display:flex; align-items:center; gap:.5rem;">
-                <input type="checkbox" id="toggle-compact" onchange="toggleCompactStats()"> Компактные карточки
-            </label>
-        </div>
 
         <div class="stats-grid" id="stats-grid">
             <div class="stat-card sources-card" data-tooltip="Общее количество активных RSS источников">
@@ -47,16 +36,6 @@
                 </div>
             </div>
             
-            <div class="stat-card api-card" data-tooltip="Количество API вызовов за сегодня">
-                <div class="stat-icon">⚡</div>
-                <div class="stat-content">
-                    <h3>API вызовы</h3>
-                    <div class="stat-number" id="api-calls-count">-</div>
-                    <div class="stat-label">сегодня</div>
-                    <div class="stat-details" id="api-details">Загрузка...</div>
-                </div>
-            </div>
-            
             <div class="stat-card errors-card" data-tooltip="Ошибки обработки за сегодня">
                 <div class="stat-icon">⚠️</div>
                 <div class="stat-content">
@@ -77,86 +56,31 @@
                 </div>
             </div>
 
-            <!-- Extraction efficiency card -->
-            <div class="stat-card extractor-card" data-tooltip="Эффективность извлечения контента (сессия)">
-                <div class="stat-icon">🧩</div>
-                <div class="stat-content">
-                    <h3>Извлечение</h3>
-                    <div class="stat-number" id="extractor-success">-</div>
-                    <div class="stat-label">успешность</div>
-                    <div class="stat-details" id="extractor-details">Попыток: -, Выявленные паттерны: -</div>
-                </div>
-            </div>
         </div>
 
         <!-- Управление обработкой -->
-        <section class="dashboard-section control-panel" id="control-panel">
-            <div class="dashboard-header">
-                <h2>🎛️ Управление системой</h2>
-                <div class="last-sync" id="last-sync-info">
-                    Последняя синхронизация: Загрузка...
-                </div>
+        <div class="control-bar">
+            <span class="control-bar-label">Управление:</span>
+            <div class="control-bar-actions">
+                <button id="sync-button" class="btn btn-sm btn-primary" onclick="runManualSync()" data-tooltip="Синхронизировать все источники">
+                    <span class="sync-icon">🔄</span> Синхронизировать
+                </button>
+                <button id="telegram-button" class="btn btn-sm btn-success" onclick="sendTelegramDigest()" data-tooltip="Отправить дайджест в Telegram">
+                    📱 Отправить дайджест
+                </button>
+                <button id="summaries-button" class="btn btn-sm btn-info" onclick="generateSummaries()" data-tooltip="Создать дневные сводки">
+                    📊 Создать сводки
+                </button>
+                <button id="cleanup-button" class="btn btn-sm btn-warning" onclick="cleanupOldData()" data-tooltip="Очистить старые данные">
+                    🧹 Очистить
+                </button>
             </div>
-            
-            <div class="control-grid">
-                <div class="control-card">
-                    <div class="control-icon">🔄</div>
-                    <div class="control-content">
-                        <h3>Синхронизация</h3>
-                        <p>Обновить все источники новостей</p>
-                        <button id="sync-button" class="btn btn-primary" onclick="runManualSync()" data-tooltip="Запустить синхронизацию всех источников">
-                            <span class="sync-icon">🔄</span>
-                            <span>Синхронизировать</span>
-                        </button>
-                    </div>
-                </div>
-                
-                <div class="control-card">
-                    <div class="control-icon">📱</div>
-                    <div class="control-content">
-                        <h3>Telegram</h3>
-                        <p>Отправить дайджест в канал</p>
-                        <button id="telegram-button" class="btn btn-success" onclick="sendTelegramDigest()" data-tooltip="Отправить сводку в Telegram">
-                            <span class="telegram-icon">📱</span>
-                            <span>Отправить дайджест</span>
-                        </button>
-                    </div>
-                </div>
-                
-                <div class="control-card">
-                    <div class="control-icon">📊</div>
-                    <div class="control-content">
-                        <h3>Сводки</h3>
-                        <p>Генерация дневных сводок</p>
-                        <button id="summaries-button" class="btn btn-info" onclick="generateSummaries()" data-tooltip="Создать дневные сводки">
-                            <span>📊</span>
-                            <span>Создать сводки</span>
-                        </button>
-                    </div>
-                </div>
-                
-                <div class="control-card">
-                    <div class="control-icon">🧹</div>
-                    <div class="control-content">
-                        <h3>Очистка</h3>
-                        <p>Очистить старые данные</p>
-                        <button id="cleanup-button" class="btn btn-warning" onclick="cleanupOldData()" data-tooltip="Очистить старые данные">
-                            <span>🧹</span>
-                            <span>Очистить</span>
-                        </button>
-                    </div>
-                </div>
+            <span class="control-bar-sync" id="last-sync-info">Загрузка...</span>
+            <div id="sync-status" class="sync-status-inline" style="display: none;">
+                <span id="sync-message"></span>
+                <div class="sync-progress-mini"><div class="sync-progress-bar"></div></div>
             </div>
-            
-            <div id="sync-status" class="sync-status" style="display: none;">
-                <div class="sync-status-content">
-                    <p id="sync-message">Инициализация...</p>
-                    <div class="sync-progress">
-                        <div class="sync-progress-bar"></div>
-                    </div>
-                </div>
-            </div>
-        </section>
+        </div>
 
         <div class="dashboard-sections">
             <section class="dashboard-section news-section" id="news-section">
@@ -248,85 +172,7 @@
                 </div>
             </section>
             
-            <section class="dashboard-section queue-section section-collapsed" id="queue-section">
-                <div class="section-header">
-                    <h2>🚀 Статистика очередей БД</h2>
-                    <div>
-                        <button class="btn btn-sm btn-outline" onclick="loadQueueStats()">🔄 Обновить</button>
-                        <button class="btn btn-sm btn-ghost" onclick="toggleSection('queue-section')" title="Свернуть/развернуть">▾</button>
-                    </div>
-                </div>
-                <div class="section-body">
-                <div class="queue-stats">
-                    <div class="queue-stat-item" id="read-queue">
-                        <div class="queue-indicator">
-                            <span class="queue-type">Чтение</span>
-                            <span class="queue-details" id="read-queue-details">Загрузка...</span>
-                        </div>
-                        <div class="queue-metrics">
-                            <span class="metric" id="read-operations">-</span>
-                            <span class="metric-label">операций</span>
-                        </div>
-                    </div>
-                    <div class="queue-stat-item" id="write-queue">
-                        <div class="queue-indicator">
-                            <span class="queue-type">Запись</span>
-                            <span class="queue-details" id="write-queue-details">Загрузка...</span>
-                        </div>
-                        <div class="queue-metrics">
-                            <span class="metric" id="write-operations">-</span>
-                            <span class="metric-label">операций</span>
-                        </div>
-                    </div>
-                </div>
-                <div class="queue-details-grid">
-                    <div class="queue-detail">
-                        <span class="label">Общий размер очереди:</span>
-                        <span class="value" id="total-queue-size">-</span>
-                    </div>
-                    <div class="queue-detail">
-                        <span class="label">Доступные соединения:</span>
-                        <span class="value" id="available-connections">-</span>
-                    </div>
-                    <div class="queue-detail">
-                        <span class="label">Активные воркеры:</span>
-                        <span class="value" id="active-workers">-</span>
-                    </div>
-                    <div class="queue-detail">
-                        <span class="label">Статус очереди:</span>
-                        <span class="value" id="queue-health">-</span>
-                    </div>
-                    <div class="queue-detail">
-                        <span class="label">Всего обработано:</span>
-                        <span class="value" id="total-processed">-</span>
-                    </div>
-                    <div class="queue-detail">
-                        <span class="label">Пул БД соединений:</span>
-                        <span class="value" id="db-pool-status">-</span>
-                    </div>
-                </div>
-                </div>
-            </section>
-
-            <!-- Extraction per-domain section -->
-            <section class="dashboard-section extractor-section section-collapsed" id="extractor-section">
-                <div class="section-header">
-                    <h2>🧠 Извлечение: домены с проблемами</h2>
-                    <div>
-                        <button class="btn btn-sm btn-outline" onclick="loadExtractorStats()">🔄 Обновить</button>
-                        <button class="btn btn-sm btn-ghost" onclick="toggleSection('extractor-section')" title="Свернуть/развернуть">▾</button>
-                    </div>
-                </div>
-                <div id="extractor-domains" class="recent-news-container section-body">
-                    <div class="loading-state">
-                        <div class="spinner"></div>
-                        <p>Загрузка статистики извлечения...</p>
-                    </div>
-                </div>
-            </section>
         </div>
-    </div>
-</div>
 
 <style>
 /* Dashboard-specific styles */
@@ -354,10 +200,6 @@
     gap: 1.5rem;
     margin-bottom: 2rem;
 }
-
-/* Compact stats mode */
-#stats-grid.stats-compact .stat-card { padding: 1rem; }
-#stats-grid.stats-compact .stat-details { display: none; }
 
 .stat-card {
     background: var(--surface-color);
@@ -441,113 +283,67 @@
 .sources-card::before { background: #3b82f6; }
 .articles-card::before { background: #10b981; }
 .categories-card::before { background: #f59e0b; }
-.api-card::before { background: #8b5cf6; }
 .errors-card::before { background: #ef4444; }
 .performance-card::before { background: #06b6d4; }
 
-/* Control panel */
-.control-panel {
-    background: linear-gradient(135deg, var(--surface-color) 0%, var(--surface-hover) 100%);
-    border-radius: var(--border-radius-lg);
-    padding: 2rem;
-    margin-bottom: 2rem;
-    border: 1px solid var(--border-color);
-}
-
-.control-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-    gap: 1.5rem;
-    margin-top: 1.5rem;
-}
-
-.control-card {
+/* Compact control bar */
+.control-bar {
+    display: flex;
+    align-items: center;
+    gap: .75rem;
+    flex-wrap: wrap;
     background: var(--surface-color);
     border: 1px solid var(--border-color);
     border-radius: var(--border-radius-md);
-    padding: 1.5rem;
-    text-align: center;
-    transition: all 0.3s ease;
-    position: relative;
+    padding: .75rem 1rem;
+    margin-bottom: 1.5rem;
 }
 
-.control-card:hover {
-    box-shadow: var(--shadow-md);
-    transform: translateY(-2px);
-}
-
-.control-icon {
-    font-size: 2.5rem;
-    margin-bottom: 1rem;
-    opacity: 0.8;
-}
-
-.control-content h3 {
-    margin: 0 0 0.5rem 0;
-    font-size: 1.1rem;
-    color: var(--text-color);
-}
-
-.control-content p {
-    margin: 0 0 1rem 0;
+.control-bar-label {
+    font-size: .8rem;
+    font-weight: 600;
     color: var(--text-muted);
-    font-size: 0.9rem;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    white-space: nowrap;
 }
 
-.control-content .btn {
-    width: 100%;
-    justify-content: center;
-}
-
-.sync-status {
-    background: var(--surface-hover);
-    padding: 1.5rem;
-    border-radius: var(--border-radius-sm);
-    border: 1px solid var(--border-color);
-    margin-top: 1rem;
-}
-
-.sync-status-content {
+.control-bar-actions {
     display: flex;
-    flex-direction: column;
-    gap: 1rem;
+    gap: .5rem;
+    flex-wrap: wrap;
+    flex: 1;
 }
 
-.sync-progress {
-    width: 100%;
-    height: 8px;
+.control-bar-sync {
+    font-size: .8rem;
+    color: var(--text-muted);
+    margin-left: auto;
+    white-space: nowrap;
+}
+
+.sync-status-inline {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    font-size: .8rem;
+    color: var(--text-muted);
+}
+
+.sync-progress-mini {
+    width: 80px;
+    height: 4px;
     background: var(--border-color);
-    border-radius: 4px;
+    border-radius: 2px;
     overflow: hidden;
 }
 
 .sync-progress-bar {
     height: 100%;
-    background: var(--gradient-primary);
+    background: var(--primary-color);
     width: 0%;
     transition: width 0.3s ease;
-    border-radius: 4px;
-}
-
-.sync-btn {
-    position: relative;
-    overflow: hidden;
-}
-
-.sync-btn .sync-icon {
-    transition: transform 0.3s ease;
-}
-
-.sync-btn.syncing .sync-icon {
-    animation: spin 1s linear infinite;
-}
-
-.telegram-btn .telegram-icon {
-    transition: transform 0.2s ease;
-}
-
-.telegram-btn:hover .telegram-icon {
-    transform: scale(1.2);
+    border-radius: 2px;
 }
 
 /* Dashboard sections */
@@ -942,11 +738,6 @@
         font-size: 3rem;
     }
     
-    .control-grid {
-        grid-template-columns: 1fr;
-        gap: 1rem;
-    }
-    
     .dashboard-sections {
         grid-template-columns: 1fr;
         gap: 1rem;
@@ -960,137 +751,20 @@
 }
 
 @media (max-width: 480px) {
-    .control-panel {
-        padding: 1rem;
-    }
-    
     .news-section,
     .status-section {
         padding: 1rem;
     }
-    
+
     .stat-card {
         padding: 1rem;
     }
-    
+
     .stat-number {
         font-size: 2rem;
     }
-    
-    .control-card {
-        padding: 1rem;
-    }
 }
 
-/* Queue Statistics Styles */
-.queue-section {
-    background: var(--surface-color);
-    border: 1px solid var(--border-color);
-    border-radius: var(--border-radius-md);
-    padding: 1.5rem;
-}
-
-.queue-stats {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1rem;
-    margin-bottom: 1.5rem;
-}
-
-.queue-stat-item {
-    background: var(--surface-hover);
-    border: 1px solid var(--border-color);
-    border-radius: var(--border-radius-sm);
-    padding: 1rem;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.queue-indicator .queue-type {
-    font-weight: 600;
-    color: var(--text-color);
-    display: block;
-    margin-bottom: 0.25rem;
-}
-
-.queue-indicator .queue-details {
-    font-size: 0.8rem;
-    color: var(--text-muted);
-}
-
-.queue-metrics {
-    text-align: right;
-}
-
-.queue-metrics .metric {
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: var(--primary-color);
-    display: block;
-}
-
-.queue-metrics .metric-label {
-    font-size: 0.7rem;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-
-.queue-details-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 1rem;
-}
-
-.queue-detail {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.5rem 0;
-    border-bottom: 1px solid var(--border-color);
-}
-
-.queue-detail .label {
-    font-size: 0.9rem;
-    color: var(--text-muted);
-}
-
-.queue-detail .value {
-    font-weight: 600;
-    color: var(--text-color);
-}
-
-.queue-detail .value small {
-    font-weight: 400;
-    color: var(--text-muted);
-    font-size: 0.8em;
-}
-
-#queue-health {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-#db-pool-status {
-    font-family: monospace;
-    font-size: 0.8em;
-    background: var(--surface-hover);
-    padding: 0.2rem 0.4rem;
-    border-radius: var(--border-radius-sm);
-    border: 1px solid var(--border-color);
-}
-
-@media (max-width: 768px) {
-    .queue-stats {
-        grid-template-columns: 1fr;
-    }
-    
-    .queue-details-grid {
-        grid-template-columns: 1fr;
-    }
-}
 </style>
 
 <script>
@@ -1146,20 +820,6 @@ function showNotification(message, type = 'info') {
     // For now, just log. Could be enhanced later.
 }
 
-// Compact stats toggle
-function toggleCompactStats() {
-    const grid = document.getElementById('stats-grid');
-    const cb = document.getElementById('toggle-compact');
-    if (!grid || !cb) return;
-    if (cb.checked) {
-        grid.classList.add('stats-compact');
-        localStorage.setItem('dash_stats_compact', '1');
-    } else {
-        grid.classList.remove('stats-compact');
-        localStorage.removeItem('dash_stats_compact');
-    }
-}
-
 // Section collapse/expand with persistence
 function toggleSection(sectionId) {
     const sec = document.getElementById(sectionId);
@@ -1171,15 +831,7 @@ function toggleSection(sectionId) {
 
 // Restore UI state
 document.addEventListener('DOMContentLoaded', () => {
-    const compact = localStorage.getItem('dash_stats_compact') === '1';
-    const cb = document.getElementById('toggle-compact');
-    if (cb) cb.checked = compact;
-    if (compact) {
-        const grid = document.getElementById('stats-grid');
-        if (grid) grid.classList.add('stats-compact');
-    }
-
-    ['news-section', 'status-section', 'queue-section', 'extractor-section'].forEach(id => {
+    ['news-section', 'status-section'].forEach(id => {
         const val = localStorage.getItem('dash_collapse_' + id);
         const sec = document.getElementById(id);
         if (sec && val === '1') {
@@ -1231,16 +883,6 @@ async function loadDashboardData() {
                 `${response.top_category || 'N/A'} — самая популярная`;
         }
         
-        if (response.api_calls_today !== undefined) {
-            animateNumber(
-                document.getElementById('api-calls-count'), 
-                response.api_calls_today
-            );
-            document.getElementById('api-details').textContent = 
-                `${response.api_success_rate || 0}% успешных запросов`;
-        }
-        
-        // New stats
         if (response.errors_today !== undefined) {
             animateNumber(
                 document.getElementById('errors-count'), 
@@ -1265,10 +907,6 @@ async function loadDashboardData() {
         
         // Load recent news
         loadRecentNews();
-
-        // Load extractor high-level stats and per-domain details
-        loadExtractorStats();
-        loadQueueStats();
         
     } catch (error) {
         console.error('Error loading dashboard data:', error);
@@ -1556,102 +1194,6 @@ function getNotificationIcon(type) {
     }
 }
 
-async function loadQueueStats() {
-    try {
-        const stats = await apiRequest('/api/v1/stats/queue');
-        
-        if (stats && typeof stats === 'object' && !stats.error) {
-            
-            // Update read queue stats
-            document.getElementById('read-operations').textContent = stats.read_operations || 0;
-            document.getElementById('read-queue-details').textContent = 
-                `Очередь: ${stats.read_queue_size || 0}, Ошибок: ${stats.read_errors || 0}`;
-            
-            // Update write queue stats  
-            document.getElementById('write-operations').textContent = stats.write_operations || 0;
-            document.getElementById('write-queue-details').textContent = 
-                `Очередь: ${stats.write_queue_size || 0}, Ошибок: ${stats.write_errors || 0}`;
-            
-            // Update summary stats
-            document.getElementById('total-queue-size').textContent = 
-                `${(stats.read_queue_size || 0) + (stats.write_queue_size || 0)}`;
-            document.getElementById('available-connections').textContent = 
-                `Ч: ${stats.read_connections_available || 0}, З: ${stats.write_connections_available || 0}`;
-            document.getElementById('active-workers').textContent = 
-                `${stats.active_workers || 0}/${stats.expected_workers || 0}`;
-            
-            // Queue health status with visual indicator
-            const healthStatus = stats.healthy ? '🟢 Здорова' : '🔴 Проблемы';
-            const healthDetails = stats.running ? 'работает' : 'остановлена';
-            document.getElementById('queue-health').innerHTML = 
-                `${healthStatus} <small>(${healthDetails})</small>`;
-                
-            document.getElementById('total-processed').textContent = 
-                `${stats.total_processed || 0}`;
-                
-            // Database pool status  
-            document.getElementById('db-pool-status').textContent = 
-                stats.db_pool_status || 'Недоступно';
-                
-        } else {
-            // Show error state
-            document.getElementById('read-queue-details').textContent = 'Ошибка загрузки';
-            document.getElementById('write-queue-details').textContent = 'Ошибка загрузки';
-        }
-        
-    } catch (error) {
-        console.error('Error loading queue stats:', error);
-        document.getElementById('read-queue-details').textContent = 'Ошибка соединения';
-        document.getElementById('write-queue-details').textContent = 'Ошибка соединения';
-    }
-}
-
-// Load queue stats when page loads and add to dashboard data loading
-document.addEventListener('DOMContentLoaded', function() {
-    loadQueueStats();
-    // Auto-refresh every 30 seconds
-    setInterval(loadQueueStats, 30000);
-});
-
-async function loadExtractorStats() {
-    try {
-        const response = await apiRequest('/api/v1/stats/extractor');
-        const recent = response.recent_extractions || {};
-        const successRate = Math.round(recent.success_rate || 0);
-
-        document.getElementById('extractor-success').textContent = `${successRate}%`;
-        document.getElementById('extractor-details').textContent =
-            `???????: ${recent.total || 0}, ????????: ${recent.successful || 0}`;
-
-        const container = document.getElementById('extractor-domains');
-        const domains = (response.domain_stats || []).slice(0, 10);
-        if (domains.length === 0) {
-            container.innerHTML = `<div class="loading-state"><p style="margin:0;">?????? ???</p></div>`;
-            return;
-        }
-
-        const rows = domains.map(d => {
-            const rate = Math.round(d.success_rate || 0);
-            const avgTime = Math.round(d.avg_extraction_time_ms || 0);
-            const avgQuality = (d.avg_quality_score || 0).toFixed(2);
-            return `
-                <div class="news-item">
-                    <h4>${d.domain}</h4>
-                    <div class="news-meta">
-                        <span>???????: ${d.total_attempts} ? ?????: ${rate}%</span>
-                        <span class="news-category">?????: ${avgTime}?? ? ????????: ${avgQuality}</span>
-                    </div>
-                </div>
-            `;
-        }).join('');
-        container.innerHTML = rows;
-    } catch (error) {
-        console.error('Error loading extractor stats:', error);
-        document.getElementById('extractor-domains').innerHTML = `
-            <div class="loading-state"><p style="margin:0;color:var(--error-color);">?????? ????????</p></div>
-        `;
-    }
-}
 
 </script>
 {% endblock %}

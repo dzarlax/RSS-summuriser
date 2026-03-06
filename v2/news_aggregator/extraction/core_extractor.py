@@ -3,14 +3,10 @@
 import asyncio
 import logging
 import time
-from typing import Optional, Dict, Any, List
-from urllib.parse import urljoin
+from typing import Optional, Dict, Any
 
-from ..core.cache import cached
 from ..services.extraction_memory import get_extraction_memory, ExtractionAttempt
 from ..services.domain_stability_tracker import get_stability_tracker
-from ..services.ai_extraction_optimizer import get_ai_extraction_optimizer
-from ..services.extraction_constants import HTML_CACHE_TTL_SECONDS, SELECTOR_CACHE_TTL_SECONDS
 
 from .extraction_utils import ExtractionUtils
 from .html_processor import HTMLProcessor
@@ -28,10 +24,6 @@ class CoreExtractor:
         self.utils = utils
         self.html_processor = html_processor
         self.strategies = strategies
-        
-        # Lightweight in-process caches
-        self._html_cache: Dict[str, Any] = {}
-        self._selector_cache: Dict[str, Any] = {}
         
         # Browser management (delegated to strategies)
         self.browser = None  # Will be managed by strategies
@@ -287,144 +279,14 @@ class CoreExtractor:
                'author': None, 'description': None, 'method_used': 'failed'}
     
     async def extract_article_content(self, url: str, retry_count: int = 2) -> Optional[str]:
-        """
-        Extract article content (main public method for backward compatibility).
-        
-        Args:
-            url: URL to extract from
-            retry_count: Number of retry attempts
-            
-        Returns:
-            Extracted content or None if extraction failed
-        """
-        if not url:
-            return None
-        
-        # Clean URL first
-        clean_url = self.utils.clean_url(url)
-        domain = self.utils.extract_domain(clean_url)
-        
-        logger.info(f"🔍 Extracting content from: {domain}")
-        logger.info(f"  🔗 URL: {clean_url[:100]}{'...' if len(clean_url) > 100 else ''}")
-        extraction_start = time.time()
-        last_exception = None
-        
-        for attempt in range(1, retry_count + 1):
-            try:
-                logger.info(f"  📝 Extraction attempt {attempt}/{retry_count}")
-                res = await self.strategies.attempt_content_extraction(clean_url, domain, attempt)
-                
-                # attempt_content_extraction now returns (content, selector) or content
-                content = None
-                selector_used = None
-                
-                if isinstance(res, tuple):
-                    content, selector_used = res
-                else:
-                    content = res
-                
-                if content and self.utils.is_good_content(content):
-                    extraction_time = time.time() - extraction_start
-                    content_length = len(content)
-                    
-                    logger.info(f"  ✅ Extraction successful!")
-                    logger.info(f"     Content length: {content_length} characters")
-                    logger.info(f"     Time taken: {extraction_time:.2f}s")
-                    # Record success for learning
-                    try:
-                        extraction_memory = await get_extraction_memory()
-                        await extraction_memory.record_extraction_attempt(ExtractionAttempt(
-                            article_url=url,
-                            domain=domain,
-                            extraction_strategy="content_extraction",
-                            selector_used=selector_used,
-                            success=True,
-                            content_length=content_length,
-                            extraction_time_ms=int(extraction_time * 1000)
-                        ))
-                    except Exception as e:
-                        logger.warning(f"  ⚠️ Failed to record success: {e}")
-                    # Update domain stability
-                    try:
-                        stability_tracker = await get_stability_tracker()
-                        await stability_tracker.record_success(domain, "content_extraction")
-                    except Exception as e:
-                        logger.warning(f"  ⚠️ Failed to update domain stability: {e}")
-                    return self.utils.finalize_content(content)
-                    
-                else:
-                    logger.error(f"  ❌ Attempt {attempt} failed - content quality insufficient")
-                    if attempt < retry_count:
-                        await asyncio.sleep(0.5)  # Brief delay before retry
-                        
-            except Exception as e:
-                last_exception = e
-                logger.error(f"  ❌ Attempt {attempt} failed with error: {e}")
-                # Record failure for learning
-                await self.strategies.record_extraction_failure(
-                    domain=domain,
-                    method=f"content_attempt_{attempt}",
-                    error=str(e)
-                )
-                
-                if attempt < retry_count:
-                    await asyncio.sleep(0.5)
-        
-        # All attempts failed
-        extraction_time = time.time() - extraction_start
-        logger.info(f"  💀 All content extraction attempts failed after {extraction_time:.2f}s")
-        # Try alternative URLs if available
-        try:
-            html = await self.strategies.fetch_html_content(clean_url)
-            if html:
-                from bs4 import BeautifulSoup
-                soup = BeautifulSoup(html, 'html.parser')
-                alt_urls = self.strategies.metadata_extractor.find_alt_article_links(soup, clean_url)
-                
-                for alt_url in alt_urls[:1]:  # Try 1 alternative URL for content-only extraction
-                    logger.info(f"  🔄 Trying alternative URL: {alt_url}")
-                    try:
-                        alt_content = await self.strategies.attempt_content_extraction(alt_url, domain, 1)
-                        if alt_content and self.utils.is_good_content(alt_content):
-                            logger.info(f"  ✅ Alternative URL successful!")
-                            return self.utils.finalize_content(alt_content)
-                    except Exception as e:
-                        logger.error(f"  ❌ Alternative URL failed: {e}")
-                        continue
-        except Exception as e:
-            logger.warning(f"  ⚠️ Failed to try alternative URLs: {e}")
-        return None
-    
-    @cached(ttl=HTML_CACHE_TTL_SECONDS)
-    async def _extract_from_html(self, html: str) -> Optional[str]:
-        """Extract content from already fetched HTML using soup-based strategies."""
-        if not html:
-            return None
-        
-        try:
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(html, 'html.parser')
-            
-            # Try multiple extraction methods in order of preference
-            content = (
-                self.strategies.metadata_extractor.extract_from_json_ld(soup) or
-                self.html_processor.extract_by_enhanced_selectors(soup) or
-                self.strategies.metadata_extractor.extract_from_open_graph(soup) or
-                self.html_processor.extract_by_enhanced_heuristics(soup)
-            )
-            
-            if content and self.utils.is_good_content(content):
-                return self.utils.finalize_content(content)
-                
-        except Exception as e:
-            logger.info(f"HTML extraction failed: {e}")
-        return None
+        """Extract article content (delegates to extract_article_content_with_metadata)."""
+        result = await self.extract_article_content_with_metadata(url, retry_count)
+        content = result.get('content')
+        return content if content else None
     
     def get_extraction_stats(self) -> Dict[str, Any]:
         """Get extraction performance statistics."""
         return {
-            'html_cache_size': len(self._html_cache),
-            'selector_cache_size': len(self._selector_cache),
             'browser_active': self.browser is not None
         }
 

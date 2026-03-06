@@ -144,7 +144,7 @@ async def sources():
 
 @cli.command()
 @click.argument('name')
-@click.argument('source_type', type=click.Choice(['rss', 'telegram', 'reddit', 'twitter']))
+@click.argument('source_type', type=click.Choice(['rss', 'telegram', 'custom']))
 @click.argument('url')
 async def add_source(name: str, source_type: str, url: str):
     """Add a new news source."""

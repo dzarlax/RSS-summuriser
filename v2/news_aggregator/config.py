@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     # Telegram
     telegram_token: Optional[SecretStr] = Field(default=None, alias="TELEGRAM_TOKEN")
     telegram_chat_id: Optional[str] = Field(default=None, alias="TELEGRAM_CHAT_ID")
+    telegram_service_chat_id: Optional[str] = Field(default=None, alias="TELEGRAM_SERVICE_CHAT_ID")
     telegraph_access_token: Optional[str] = Field(default=None, alias="TELEGRAPH_ACCESS_TOKEN")
     
     # Application
@@ -120,6 +121,7 @@ class Settings(BaseSettings):
             "TELEGRAM_BOT_TOKEN": self.telegram_token.get_secret_value() if self.telegram_token else None,
             "TELEGRAM_TOKEN": self.telegram_token.get_secret_value() if self.telegram_token else None,
             "TELEGRAM_CHAT_ID": self.telegram_chat_id,
+            "TELEGRAM_SERVICE_CHAT_ID": self.telegram_service_chat_id or self.telegram_chat_id,
             "TELEGRAPH_ACCESS_TOKEN": self.telegraph_access_token,
         }
         return legacy_mapping.get(key)

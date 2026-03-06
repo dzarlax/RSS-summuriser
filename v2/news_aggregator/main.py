@@ -14,11 +14,12 @@ from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 from .config import settings
 from .database import init_db, AsyncSessionLocal
 from .migrations.universal_migration_manager import create_migration_manager
-# MediaFilesMigration removed - media caching functionality disabled
-# Category migrations removed - already executed and managed via web interface
+from .utils.logging_config import setup_logging
 
 import logging
 
+# Initialize logging before anything else
+setup_logging()
 logger = logging.getLogger(__name__)
 
 

@@ -109,3 +109,15 @@ async def admin_categories(request: Request, admin_user: str = Depends(get_curre
         "active_menu": "categories"
     })
     return _with_admin_cookie(response, admin_user)
+
+
+@router.get("/telegram", response_class=HTMLResponse)
+async def admin_telegram(request: Request, admin_user: str = Depends(get_current_admin_user)):
+    """Telegram settings page."""
+    response = templates.TemplateResponse("admin/telegram.html", {
+        "request": request,
+        "title": "Настройки Telegram",
+        "admin_user": admin_user,
+        "active_menu": "telegram"
+    })
+    return _with_admin_cookie(response, admin_user)

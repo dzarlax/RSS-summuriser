@@ -14,11 +14,12 @@ logger = logging.getLogger(__name__)
 
 class CategoryDisplayService:
     """Service for mapping AI categories to display categories."""
-    
-    # Fixed list of allowed display categories
-    FIXED_CATEGORIES = {
+
+    # Fallback display info used only when DB is unavailable
+    FALLBACK_CATEGORIES = {
         'Serbia': {'display_name': 'Сербия', 'color': '#dc3545'},
         'Tech': {'display_name': 'Технологии', 'color': '#007bff'},
+        'AI': {'display_name': 'Искусственный интеллект', 'color': '#17a2b8'},
         'Business': {'display_name': 'Бизнес', 'color': '#28a745'},
         'Science': {'display_name': 'Наука', 'color': '#6f42c1'},
         'Politics': {'display_name': 'Политика', 'color': '#839933'},
@@ -32,8 +33,8 @@ class CategoryDisplayService:
         'technology': 'Tech',
         'tech': 'Tech',
         'software': 'Tech',
-        'ai': 'Tech',
-        'artificial intelligence': 'Tech',
+        'ai': 'AI',
+        'artificial intelligence': 'AI',
         'computer': 'Tech',
         'digital': 'Tech',
         'internet': 'Tech',
@@ -141,7 +142,20 @@ class CategoryDisplayService:
     
     def __init__(self, db: AsyncSession):
         self.db = db
-    
+
+    async def _get_category_info(self, category_name: str) -> Dict[str, str]:
+        """Get category display info from DB, fallback to FALLBACK_CATEGORIES."""
+        try:
+            result = await self.db.execute(
+                select(Category).where(Category.name == category_name).limit(1)
+            )
+            cat = result.scalar_one_or_none()
+            if cat:
+                return {'display_name': cat.display_name, 'color': cat.color}
+        except Exception as e:
+            logger.debug(f"DB category lookup failed for '{category_name}': {e}")
+        return self.FALLBACK_CATEGORIES.get(category_name, self.FALLBACK_CATEGORIES['Other'])
+
     async def map_ai_category_to_display(self, ai_category: str) -> Dict[str, Any]:
         """Map AI category to display category with details."""
         if not ai_category or ai_category.strip() == '':
@@ -162,10 +176,10 @@ class CategoryDisplayService:
                 db_mapping.usage_count += 1
                 db_mapping.last_used = func.now()
                 await self.db.commit()
-                
+
                 fixed_category = db_mapping.fixed_category
-                display_info = self.FIXED_CATEGORIES.get(fixed_category, self.FIXED_CATEGORIES['Other'])
-                
+                display_info = await self._get_category_info(fixed_category)
+
                 return {
                     'name': fixed_category,
                     'display_name': display_info['display_name'],
@@ -175,14 +189,15 @@ class CategoryDisplayService:
                 }
         except Exception as e:
             logger.warning(f"  ⚠️ Database mapping lookup failed for '{ai_category}': {e}")
+
         # Try default mapping rules
         ai_lower = ai_category.lower().strip()
-        
+
         # Exact match
         if ai_lower in self.DEFAULT_MAPPING:
             fixed_category = self.DEFAULT_MAPPING[ai_lower]
-            display_info = self.FIXED_CATEGORIES.get(fixed_category, self.FIXED_CATEGORIES['Other'])
-            
+            display_info = await self._get_category_info(fixed_category)
+
             return {
                 'name': fixed_category,
                 'display_name': display_info['display_name'],
@@ -190,12 +205,12 @@ class CategoryDisplayService:
                 'ai_category': ai_category,
                 'mapping_source': 'default_exact'
             }
-        
+
         # Partial match
         for keyword, fixed_category in self.DEFAULT_MAPPING.items():
             if keyword in ai_lower or ai_lower in keyword:
-                display_info = self.FIXED_CATEGORIES.get(fixed_category, self.FIXED_CATEGORIES['Other'])
-                
+                display_info = await self._get_category_info(fixed_category)
+
                 return {
                     'name': fixed_category,
                     'display_name': display_info['display_name'],
@@ -203,9 +218,9 @@ class CategoryDisplayService:
                     'ai_category': ai_category,
                     'mapping_source': f'default_partial:{keyword}'
                 }
-        
+
         # Fallback to Other
-        display_info = self.FIXED_CATEGORIES['Other']
+        display_info = await self._get_category_info('Other')
         return {
             'name': 'Other',
             'display_name': display_info['display_name'],
@@ -238,17 +253,22 @@ class CategoryDisplayService:
         return list(unique_categories.values())
     
     async def get_all_display_categories(self) -> List[Dict[str, Any]]:
-        """Get all available display categories."""
-        categories = []
-        
-        for name, info in self.FIXED_CATEGORIES.items():
-            categories.append({
-                'name': name,
-                'display_name': info['display_name'],
-                'color': info['color']
-            })
-        
-        return categories
+        """Get all available display categories from DB, fallback to FALLBACK_CATEGORIES."""
+        try:
+            result = await self.db.execute(select(Category).order_by(Category.name))
+            db_categories = result.scalars().all()
+            if db_categories:
+                return [
+                    {'name': cat.name, 'display_name': cat.display_name, 'color': cat.color}
+                    for cat in db_categories
+                ]
+        except Exception as e:
+            logger.warning(f"  ⚠️ Failed to load display categories from DB: {e}")
+
+        return [
+            {'name': name, 'display_name': info['display_name'], 'color': info['color']}
+            for name, info in self.FALLBACK_CATEGORIES.items()
+        ]
 
 
 async def get_category_display_service(db: AsyncSession) -> CategoryDisplayService:
