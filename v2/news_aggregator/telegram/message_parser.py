@@ -129,20 +129,6 @@ class MessageParser:
         # Only try full extraction if content is very short (likely just title + @channel)
         if len(short_content) > 200:  # Content already substantial
             return None
-            
-        # Skip known non-news domains (social media, stores, promo, etc.)
-        skip_domains = [
-            't.me', 'telegram.me', 'telegra.ph',
-            'instagram.com', 'facebook.com', 'twitter.com', 'x.com',
-            'youtube.com', 'youtu.be', 'tiktok.com',
-            'amazon.com', 'wildberries.ru', 'ozon.ru',
-            'app.adjust.com', 'bit.ly', 'goo.gl', 'tinyurl.com',
-        ]
-
-        if any(domain in external_link.lower() for domain in skip_domains):
-            logger.info(f"  ⏭️  Skipping non-news domain: {external_link}")
-            return None
-            
         try:
             logger.info(f"  🔗 Trying to extract full content from: {external_link}")
             # Lazy import to avoid circular import
