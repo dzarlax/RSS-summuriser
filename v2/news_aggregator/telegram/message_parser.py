@@ -130,15 +130,16 @@ class MessageParser:
         if len(short_content) > 200:  # Content already substantial
             return None
             
-        # Skip non-news domains to avoid processing promotional links
-        news_domains = [
-            'euronews.rs', 'blic.rs', 'rts.rs', 'b92.net', 'danas.rs', 
-            'politika.rs', 'novosti.rs', 'telegraf.rs', 'alo.rs',
-            'kurir.rs', 'n1info.rs', 'beta.rs', 'tanjug.rs',
-            'balkaninsight.com', 'balkaninfo.rs'
+        # Skip known non-news domains (social media, stores, promo, etc.)
+        skip_domains = [
+            't.me', 'telegram.me', 'telegra.ph',
+            'instagram.com', 'facebook.com', 'twitter.com', 'x.com',
+            'youtube.com', 'youtu.be', 'tiktok.com',
+            'amazon.com', 'wildberries.ru', 'ozon.ru',
+            'app.adjust.com', 'bit.ly', 'goo.gl', 'tinyurl.com',
         ]
-        
-        if not any(domain in external_link.lower() for domain in news_domains):
+
+        if any(domain in external_link.lower() for domain in skip_domains):
             logger.info(f"  ⏭️  Skipping non-news domain: {external_link}")
             return None
             
