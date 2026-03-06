@@ -4,13 +4,10 @@ uvicorn[standard]>=0.24.0
 
 # Database
 aiomysql>=0.2.0  # Async MySQL/MariaDB driver
-alembic>=1.13.0
 sqlalchemy[asyncio]>=2.0.23
-PyMySQL>=1.1.0  # Fallback sync driver
 
 # HTTP clients
 aiohttp>=3.9.1
-httpx>=0.25.2
 tenacity>=8.2.3
 Brotli>=1.1.0                   # Brotli compression support
 
@@ -33,15 +30,12 @@ pytz>=2023.3
 # File operations
 aiofiles>=23.2.1
 python-magic>=0.4.27  # MIME type detection for media files
-Pillow>=10.1.0  # Image processing for media optimization
 
 # Cloud storage (removed - using DB only)
 # boto3>=1.34.0
 # aiobotocore>=2.8.0
 
 # Monitoring
-structlog>=23.2.0
-prometheus-client>=0.19.0
 
 # Task scheduling (removed - using direct async processing)
 
@@ -54,7 +48,6 @@ python-multipart>=0.0.6
 # Security and authentication
 PyJWT>=2.8.0                  # JWT tokens
 slowapi>=0.1.9                # Rate limiting
-passlib[bcrypt]>=1.7.4         # Password hashing (optional)
 
 # CLI interface
 click>=8.1.7
@@ -73,6 +66,4 @@ psutil>=5.9.6                 # System and process monitoring
 # Content extraction improvements
 readability-lxml>=0.8.1       # Mozilla readability algorithm
 playwright>=1.40.0            # JavaScript rendering for SPA sites
-langdetect>=1.0.9             # Language detection
-textstat>=0.7.3               # Text quality metrics
 chardet>=5.2.0                # Character encoding detection
