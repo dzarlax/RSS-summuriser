@@ -827,13 +827,6 @@ class AIProcessor:
                 )
 
             elif source_type == 'telegram':
-                original_link = None
-                try:
-                    if hasattr(article, 'raw_data') and article.raw_data:
-                        original_link = article.raw_data.get('original_link')
-                except Exception:
-                    pass
-
                 def _is_telegram_domain(url: str) -> bool:
                     try:
                         from urllib.parse import urlparse
@@ -842,9 +835,13 @@ class AIProcessor:
                     except Exception:
                         return False
 
-                if original_link and not _is_telegram_domain(original_link):
+                # article.url is already the external URL (final_url = original_link or message_url)
+                # raw_data is not persisted to DB, so use article.url directly
+                external_url = article.url if not _is_telegram_domain(article.url) else None
+
+                if external_url:
                     try:
-                        ai_result = await self.ai_client.get_article_summary_with_metadata(original_link)
+                        ai_result = await self.ai_client.get_article_summary_with_metadata(external_url)
                         self._update_article_publication_date(article, ai_result.get('publication_date'), 'Telegram')
                         if ai_result.get('summary'):
                             return _make(ai_result['summary'], ai_result.get('optimized_title'))
