@@ -36,43 +36,32 @@ class MessageParser:
     async def parse_message_element(self, message_div, base_url: str, soup=None) -> Optional[Article]:
         """Parse message div element into Article."""
         try:
-            # Extract forwarded metadata BEFORE cleanup removes the forwarded block
+            # === Phase 1: Extract ALL metadata from the ORIGINAL div ===
+            # cleanup_message_div destroys UI chrome elements (footer, date, forwarded block)
+            # so everything that reads those elements MUST happen before cleanup.
+
             forwarded_from = self._extract_forwarded_info(message_div)
-
-            # Clean up all Telegram UI chrome (forwarded block, footer, views, etc.)
-            self._cleanup_message_div(message_div)
-
-            # Extract content
-            content = self._extract_message_content(message_div, base_url)
-            if len(content) < 10:
-                return None
-
-            # Extract basic message info
             message_url = self._extract_message_url(message_div, base_url)
             message_id = self._extract_message_id(message_div, message_url)
             published_at = self._extract_date(message_div)
+            external_links = self._extract_external_links(message_div)
+            original_link = self._find_original_link(external_links)
 
-            # Extract media information
+            # Media extraction also reads forwarded-from block for avatar exclusion
             image_url = self.media_extractor.extract_image_url(message_div)
             media_files = self.media_extractor.extract_media_files(message_div)
             media_info = self.media_extractor.extract_media_info(message_div)
 
-            # Extract Open Graph image if no media found and soup is available
-            if not image_url and not media_files and soup:
-                og_image_url = self._extract_opengraph_image(soup)
-                if og_image_url:
-                    image_url = og_image_url
-                    # Add to media_files as well
-                    media_files = [{
-                        'url': og_image_url,
-                        'type': 'image',
-                        'thumbnail': og_image_url,
-                        'source': 'opengraph'
-                    }]
+            # Note: OG image fallback removed — for Telegram channel pages,
+            # og:image is the channel logo, not per-message content.
 
-            # Extract links and metadata
-            external_links = self._extract_external_links(message_div)
-            original_link = self._find_original_link(external_links)
+            # === Phase 2: Clean div, then extract text content ===
+            # Only text extraction benefits from cleanup (removes UI text noise).
+            self._cleanup_message_div(message_div)
+
+            content = self._extract_message_content(message_div, base_url)
+            if len(content) < 10:
+                return None
 
             # Try to extract full content from external link if Telegram content is short
             if original_link and len(content) < 200:
@@ -83,8 +72,8 @@ class MessageParser:
             title = self._extract_title(content)
             hashtags = self._extract_hashtags(content)
             
-            # Determine final URL (prefer external original link)
-            final_url = (self._normalize_external_url(original_link) if original_link else None) or message_url
+            # Determine final URL (prefer external original link, already normalized)
+            final_url = original_link or message_url
             
             return Article(
                 title=title,
@@ -192,11 +181,9 @@ class MessageParser:
                 content = text_element.get_text(separator='\n', strip=True)
                 break
         
-        # Strategy 2: If no specific text element, try to get all text from message
+        # Strategy 2: If no specific text element, get all remaining text
+        # (UI chrome already removed by _cleanup_message_div before this call)
         if not content:
-            # Remove navigation elements first
-            for elem in message_div.select('.tgme_widget_message_footer, .tgme_widget_message_info, .tgme_widget_message_date'):
-                elem.decompose()
             content = message_div.get_text(separator='\n', strip=True)
         
         # Strategy 3: Fallback to meta tags for very short content
@@ -210,25 +197,35 @@ class MessageParser:
         return self._clean_message_content(content)
     
     def _extract_message_url(self, message_div, base_url: str) -> str:
-        """Extract message URL from div."""
-        # Try to find link to specific message
-        link_selectors = [
-            'a.tgme_widget_message_date',
-            'a[href*="/"]',
-            '.message-link'
-        ]
-        
-        for selector in link_selectors:
-            link = message_div.select_one(selector)
-            if link and link.get('href'):
-                href = link['href']
+        """Extract message permalink URL from div.
+
+        Must be called BEFORE _cleanup_message_div which removes the date element.
+        """
+        # 1. Best: dedicated date/permalink element
+        date_link = message_div.select_one('a.tgme_widget_message_date')
+        if date_link and date_link.get('href'):
+            href = date_link['href']
+            if href.startswith('http'):
+                return href
+            elif href.startswith('/'):
+                return f"https://t.me{href}"
+
+        # 2. data-post attribute (e.g. "Serbia/100683") → build URL
+        data_post = message_div.get('data-post')
+        if data_post:
+            return f"https://t.me/{data_post}"
+
+        # 3. Any link pointing to t.me (but NOT external sites)
+        for link in message_div.select('a[href]'):
+            href = link.get('href', '')
+            if 't.me/' in href or 'telegram.me/' in href:
                 if href.startswith('http'):
                     return href
                 elif href.startswith('/'):
                     return f"https://t.me{href}"
-        
-        # Fallback to channel URL
-        return f"https://t.me/{self.channel_username}"
+
+        # 4. Fallback: channel URL (no specific message ID)
+        return f"https://t.me/s/{self.channel_username}"
     
     def _extract_message_id(self, message_div, message_url: str) -> Optional[str]:
         """Extract message ID from data attributes or URL."""
@@ -330,7 +327,7 @@ class MessageParser:
             try:
                 host = urlparse(link).netloc.lower()
                 if not any(b in host for b in blacklist):
-                    return self._normalize_external_url(link)
+                    return link  # already normalized by _extract_external_links
             except Exception:
                 continue
         

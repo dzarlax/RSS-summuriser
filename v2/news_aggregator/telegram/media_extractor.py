@@ -91,7 +91,10 @@ class MediaExtractor:
             '.message_author_photo img',                 # Author photos
             '.avatar img',                               # Generic avatars
             '.profile img',                              # Profile images
-            '.channel_photo img'                         # Channel photos
+            '.channel_photo img',                        # Channel photos
+            '.emoji img',                                # Regular emoji images
+            '.tg-emoji img',                             # Custom emoji sticker images
+            'tg-emoji img',                              # Custom emoji (tag selector)
         ]
 
         # Container selectors whose contents should be excluded entirely
@@ -158,22 +161,45 @@ class MediaExtractor:
         
         return None
     
+    # Avatar/profile containers whose background-images should be excluded
+    AVATAR_BG_SELECTORS = [
+        '.tgme_widget_message_user_photo',
+        '.tgme_widget_message_owner_photo',
+        '.message_author_photo',
+        '.avatar',
+        '.profile',
+        '.channel_photo',
+    ]
+
     def _collect_avatar_urls(self, message_div) -> Set[str]:
         """Collect avatar/icon URLs to exclude from media extraction.
 
         Includes:
         - Explicit avatar img selectors
+        - Background-images from avatar containers (user photo, owner photo, etc.)
         - All images inside excluded containers (forwarded-from, reply quote, etc.)
         - Background-images inside excluded containers
         """
         avatar_urls = set()
 
-        # Collect from explicit avatar selectors
+        # Collect from explicit avatar selectors (img tags)
         for selector in self.avatar_selectors:
             for img in message_div.select(selector):
                 src = img.get('src') or img.get('data-src') or img.get('data-lazy-src')
                 if src:
                     avatar_urls.add(src)
+
+        # Collect background-images from avatar containers
+        # (Telegram uses background-image on <i> elements for channel/user photos)
+        for selector in self.AVATAR_BG_SELECTORS:
+            for container in message_div.select(selector):
+                # Check the container itself and all children for background-image
+                for el in [container] + container.select('[style*="background-image"]'):
+                    style = el.get('style', '')
+                    if 'background-image' in style:
+                        for match in re.findall(r'background-image:\s*url\(["\']?(.*?)["\']?\)', style):
+                            if match:
+                                avatar_urls.add(match)
 
         # Collect all images from excluded container blocks
         for container_selector in self.excluded_containers:
@@ -594,10 +620,25 @@ class MediaExtractor:
         
         return None
     
+    # CSS classes on elements whose background-image is never content
+    BG_IMAGE_EXCLUDED_CLASSES = {
+        'tg-emoji', 'emoji', 'tg-emoji-wrap',          # custom & regular emoji stickers
+        'tgme_widget_message_user_photo',               # channel/user avatar
+        'tgme_widget_message_owner_photo',              # owner avatar
+        'message_author_photo', 'avatar', 'channel_photo',  # other avatars
+        'bgcolor0', 'bgcolor1', 'bgcolor2', 'bgcolor3',
+        'bgcolor4', 'bgcolor5', 'bgcolor6', 'bgcolor7',  # color placeholders for avatars
+    }
+
     def _extract_background_images(self, message_div, avatar_urls: Set[str]) -> List[Dict[str, Any]]:
-        """Extract background images from style attributes."""
+        """Extract background images from style attributes, skipping emoji and avatar elements."""
         bg_images = []
         for element in message_div.select('[style*="background-image"]'):
+            # Skip elements that are emoji or avatar by CSS class
+            el_classes = set(element.get('class', []))
+            if el_classes & self.BG_IMAGE_EXCLUDED_CLASSES:
+                continue
+
             style = element.get('style', '')
             bg_matches = re.findall(r'background-image:\s*url\(["\']?(.*?)["\']?\)', style)
             for match in bg_matches:
@@ -751,6 +792,7 @@ class MediaExtractor:
         # Skip channel logos and profile photos
         if any(pattern in url.lower() for pattern in ['/userpic/', '/channel_photo/', '/profile_photo/']):
             return False
+
         
         # Skip small images that are likely icons or avatars
         size_indicators = ['16x16', '32x32', '50x50', '64x64', 'thumb', 'icon', 'avatar']

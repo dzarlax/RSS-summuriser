@@ -245,10 +245,11 @@ class TelegramSource(BaseSource):
             raise SourceError("All browser methods failed")
             
         except Exception as e:
-            if self.browser and not self._ws_endpoint:
+            from ..config import settings
+            if self.browser and not settings.browser_ws_endpoint:
                 await self.browser.close()
                 self.browser = None
-            if self._playwright and not self._ws_endpoint:
+            if self._playwright and not settings.browser_ws_endpoint:
                 await self._playwright.stop()
                 self._playwright = None
             raise SourceError(f"Browser access failed: {e}")
