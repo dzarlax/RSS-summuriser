@@ -152,12 +152,11 @@ class TaskScheduler:
         
     async def _scheduler_loop(self):
         """Main scheduler loop."""
-        logger.info("Scheduler loop started (enhanced version)")
         logger.info("Scheduler loop started")
-        
+
         # Check for stuck tasks on startup
         await self._reset_stuck_tasks()
-        
+
         while self.running:
             try:
                 self._reset_counter += 1
@@ -167,13 +166,11 @@ class TaskScheduler:
 
                 await self._check_and_run_tasks()
                 await asyncio.sleep(self._check_interval)
-                
+
             except asyncio.CancelledError:
-                logger.info("Scheduler loop cancelled")
                 logger.info("Scheduler loop cancelled")
                 break
             except Exception as e:
-                logger.info(f"Error in scheduler loop: {e}")
                 logger.error(f"Error in scheduler loop: {e}", exc_info=True)
                 await asyncio.sleep(self._check_interval)
 
@@ -221,7 +218,6 @@ class TaskScheduler:
             await execute_custom_write(reset_operation)
             
         except Exception as e:
-            logger.info(f"Error checking stuck tasks: {e}")
             logger.error(f"Error checking stuck tasks: {e}", exc_info=True)
 
                 
@@ -269,7 +265,6 @@ class TaskScheduler:
                         )
                         continue
 
-                    logger.info(f"Starting scheduled task: {setting.task_name}")
                     logger.info(f"Running scheduled task: {setting.task_name}")
                     
                     # Mark as running through write queue
@@ -301,7 +296,6 @@ class TaskScheduler:
                         raise
                         
         except Exception as e:
-            logger.info(f"Error checking tasks: {e}")
             logger.error(f"Error checking tasks: {e}", exc_info=True)
             
     async def _should_run_task(self, setting: ScheduleSettings, now_utc: datetime) -> bool:
@@ -327,7 +321,6 @@ class TaskScheduler:
             return should_run
             
         except Exception as e:
-            logger.info(f"Error checking if task {setting.task_name} should run: {e}")
             logger.error(f"Error checking if task {setting.task_name} should run: {e}", exc_info=True)
             return False
         
@@ -335,7 +328,6 @@ class TaskScheduler:
         """Run a specific task."""
         start_time = datetime.utcnow()
         try:
-            logger.info(f"Executing task: {task_name}")
             logger.info(f"Executing task: {task_name}")
 
             timeout_seconds = self._task_timeout_seconds
@@ -352,8 +344,6 @@ class TaskScheduler:
                 task_coro = self._run_telegram_digest(task_config)
             elif task_name == "news_processing":
                 task_coro = self._run_news_processing(task_config)
-            elif task_name == "daily_summaries":
-                task_coro = self._run_daily_summaries(task_config)
             elif task_name == "backup":
                 task_coro = self._run_backup_task(task_config)
             elif task_name == "reprocess_failed":
@@ -372,12 +362,10 @@ class TaskScheduler:
                 
             duration = (datetime.utcnow() - start_time).total_seconds()
             logger.info(f"Task completed successfully: {task_name} (took {duration:.1f}s)")
-            logger.info(f"Task completed successfully: {task_name} (took {duration:.1f}s)")
             
         except Exception as e:
             duration = (datetime.utcnow() - start_time).total_seconds()
-            logger.info(f"Error running task {task_name} after {duration:.1f}s: {e}")
-            logger.error(f"Error running task {task_name}: {e}", exc_info=True)
+            logger.error(f"Error running task {task_name} after {duration:.1f}s: {e}", exc_info=True)
             
         finally:
             # Mark task as not running and calculate next run
@@ -390,7 +378,6 @@ class TaskScheduler:
         """Run telegram digest task using unified orchestrator logic."""
         try:
             logger.info("Starting telegram digest task...")
-            logger.info("Starting telegram digest task via orchestrator")
             
             # Use the same logic as button-triggered digest for consistency
             result = await self.orchestrator.send_telegram_digest()
@@ -398,13 +385,10 @@ class TaskScheduler:
             if result.get('success'):
                 parts_sent = result.get('parts_sent', 0)
                 logger.info(f"Telegram digest sent successfully ({parts_sent} parts)")
-                logger.info(f"Telegram digest sent successfully ({parts_sent} parts)")
             else:
-                logger.info("Failed to send telegram digest")
                 logger.warning(f"Failed to send telegram digest: {result.get('error', 'unknown error')}")
                 
         except Exception as e:
-            logger.info(f"Error in telegram digest task: {e}")
             logger.error(f"Error in telegram digest task: {e}", exc_info=True)
             raise
                 
@@ -415,9 +399,7 @@ class TaskScheduler:
             stats = await self.orchestrator.run_full_cycle()
             processed = stats.get('articles_processed', 0)
             logger.info(f"News processing completed: {processed} articles processed")
-            logger.info(f"News processing completed: {processed} articles processed")
         except Exception as e:
-            logger.info(f"News processing failed: {e}")
             logger.error(f"News processing failed: {e}", exc_info=True)
             raise
         
@@ -446,12 +428,6 @@ class TaskScheduler:
             logger.error(f"Error in news digest cycle: {e}", exc_info=True)
             raise
 
-    async def _run_daily_summaries(self, config: Dict[str, Any]):
-        """Run daily summaries generation task."""
-        # This is typically done as part of news processing
-        # But can be run separately if needed
-        logger.info("Daily summaries generation task - handled by news processing")
-        
     async def _update_task_schedule(self, setting_id: int):
         """Update task schedule after completion."""
         try:
@@ -491,54 +467,20 @@ class TaskScheduler:
     async def _calculate_next_run(self, setting: ScheduleSettings) -> Optional[datetime]:
         """Calculate the next run time for a task."""
         try:
-            tz = pytz.timezone(setting.timezone)
-            now = datetime.now(tz)
-            
-            if setting.schedule_type == "daily":
-                # Next run at specified time
-                next_run = now.replace(
-                    hour=setting.hour, 
-                    minute=setting.minute, 
-                    second=0, 
-                    microsecond=0
-                )
-                
-                # If time has passed today, schedule for tomorrow
-                if next_run <= now:
-                    next_run += timedelta(days=1)
-                    
-                # Check weekdays if specified
-                if setting.weekdays:
-                    while next_run.isoweekday() not in setting.weekdays:
-                        next_run += timedelta(days=1)
-                        
-            elif setting.schedule_type == "hourly":
-                # Next run at specified minute of next hour
-                next_run = now.replace(minute=setting.minute, second=0, microsecond=0)
-                if next_run <= now:
-                    next_run += timedelta(hours=1)
-                    
-                # Check weekdays if specified
-                if setting.weekdays and next_run.isoweekday() not in setting.weekdays:
-                    # Skip to next valid weekday
-                    while next_run.isoweekday() not in setting.weekdays:
-                        next_run += timedelta(days=1)
-                    next_run = next_run.replace(hour=0, minute=setting.minute)
-            elif setting.schedule_type == "interval":
-                # Generic interval in minutes stored in task_config.interval_minutes (default 30)
+            interval_minutes = 30
+            if setting.schedule_type == "interval":
                 try:
                     interval_minutes = int((setting.task_config or {}).get('interval_minutes', 30))
                 except Exception:
-                    interval_minutes = 30
-                interval_minutes = max(1, min(interval_minutes, 24*60))
-                next_run = now + timedelta(minutes=interval_minutes)
-                    
-            else:
-                logger.warning(f"Unknown schedule type: {setting.schedule_type}")
-                return None
-                
-            return next_run.astimezone(pytz.UTC).replace(tzinfo=None)
-            
+                    pass
+            return calculate_next_run(
+                schedule_type=setting.schedule_type,
+                hour=setting.hour,
+                minute=setting.minute,
+                weekdays=setting.weekdays or [],
+                timezone=setting.timezone,
+                interval_minutes=interval_minutes,
+            )
         except Exception as e:
             logger.error(f"Error calculating next run: {e}", exc_info=True)
             return None
@@ -619,11 +561,9 @@ class TaskScheduler:
             
             if dry_run:
                 logger.info(f"  Dry run completed: {candidates_count} articles would be reprocessed")
-                logger.info(f"Reprocess dry run: {candidates_count} candidates found")
             else:
                 logger.info(f"  Reprocessing completed: {processed_count} processed, {improved_count} improved, {failed_count} failed")
-                logger.info(f"Reprocessing completed: processed={processed_count}, improved={improved_count}, failed={failed_count}")
-                
+                    
                 # Log any errors
                 errors = results.get('errors', [])
                 if errors:
@@ -632,7 +572,6 @@ class TaskScheduler:
                         logger.warning(f"Reprocessing error: {error}")
                         
         except Exception as e:
-            logger.info(f"Error in failed extraction reprocessing task: {e}")
             logger.error(f"Error in failed extraction reprocessing task: {e}", exc_info=True)
             raise
             
