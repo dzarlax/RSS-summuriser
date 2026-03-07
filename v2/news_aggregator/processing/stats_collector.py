@@ -30,7 +30,7 @@ class StatsCollector:
         Returns:
             Dictionary with processing results and statistics
         """
-        from ..database import fetch_all
+        from ..database_helpers import fetch_all
         
         logger.info(f"🔍 Finding articles with failed content extraction (limit: {limit})...")
         # Find articles where title equals summary (indicates failed extraction)

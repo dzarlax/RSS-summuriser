@@ -18,7 +18,7 @@ from .processing.categorization_processor import CategorizationProcessor
 from .processing.digest_builder import DigestBuilder
 from .processing.stats_collector import StatsCollector
 from .services.ai_client import get_ai_client
-from .services.telegram_service import get_telegram_service
+from .services.telegram_service import get_telegram_service, TelegramService
 from .services.database_queue import get_database_queue, DatabaseQueueManager
 from .services.article_limiter import get_article_limiter, ArticleLimiter
 from .core.exceptions import NewsAggregatorError
@@ -203,11 +203,32 @@ class NewsOrchestrator:
             stats['errors'].append(error_msg)
             return stats
     
+    async def _get_telegram_service_with_db_overrides(self) -> TelegramService:
+        """Load telegram channel IDs from DB and return a properly configured service."""
+        from .models import Setting
+
+        async def _load(db):
+            chat_id_row = await db.get(Setting, "telegram_chat_id")
+            service_chat_id_row = await db.get(Setting, "telegram_service_chat_id")
+            return (
+                chat_id_row.value if chat_id_row else None,
+                service_chat_id_row.value if service_chat_id_row else None,
+            )
+
+        chat_id, service_chat_id = await self.db_queue_manager.execute_read(_load, timeout=5.0)
+        return get_telegram_service(
+            chat_id=chat_id or None,
+            service_chat_id=service_chat_id or None,
+        )
+
     async def send_telegram_digest(self) -> Dict[str, Any]:
         """Generate and send Telegram digest."""
         try:
             logger.info("📱 Generating and sending Telegram digest...")
             today = datetime.utcnow().date()
+
+            # Reload telegram service with DB overrides so admin UI changes take effect
+            self.telegram_service = await self._get_telegram_service_with_db_overrides()
 
             # Step 1: Check if daily summaries exist (fast read)
             async def check_summaries_operation(db):

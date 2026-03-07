@@ -184,6 +184,10 @@ def get_database_queue() -> DatabaseQueueManager:
     return _queue_manager
 
 
+# Backward-compatibility alias (several modules still use the old name)
+get_db_queue_manager = get_database_queue
+
+
 async def ensure_database_queue_running() -> DatabaseQueueManager:
     """Ensure database queue is running and return the instance."""
     queue = get_database_queue()

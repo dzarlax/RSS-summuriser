@@ -173,7 +173,7 @@ class CategoryDisplayService:
             
             if db_mapping:
                 # Update usage stats
-                db_mapping.usage_count += 1
+                db_mapping.usage_count = (db_mapping.usage_count or 0) + 1
                 db_mapping.last_used = func.now()
                 await self.db.commit()
 
