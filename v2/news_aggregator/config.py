@@ -43,8 +43,6 @@ class Settings(BaseSettings):
     # Application
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     development: bool = Field(default=False, alias="DEVELOPMENT")
-    use_custom_parsers: bool = Field(default=False, alias="USE_CUSTOM_PARSERS")
-    
     # Admin authentication
     admin_username: str = Field(default="admin", alias="ADMIN_USERNAME")
     admin_password: Optional[str] = Field(default=None, alias="ADMIN_PASSWORD")

@@ -40,11 +40,6 @@ class CacheError(NewsAggregatorError):
     pass
 
 
-class ClusteringError(NewsAggregatorError):
-    """Clustering and deduplication errors."""
-    pass
-
-
 class TelegramError(NewsAggregatorError):
     """Telegram integration errors."""
     pass

@@ -10,7 +10,6 @@ from typing import List, Dict, Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text
 
-from .database import get_db
 from .database import AsyncSessionLocal
 from .models import Source, Article, ProcessingStat, DailySummary
 from .services.source_manager import SourceManager
@@ -101,7 +100,7 @@ class NewsOrchestrator:
         return self.db_queue_manager.get_stats()
         
     async def run_full_cycle(self) -> Dict[str, Any]:
-        """Run complete news processing cycle without clustering."""
+        """Run complete news processing cycle."""
         start_time = datetime.utcnow()
         stats = {
             'start_time': start_time.isoformat(),

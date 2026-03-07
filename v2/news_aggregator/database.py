@@ -8,27 +8,12 @@ from sqlalchemy import text
 from .config import settings
 
 # Create async engine with enhanced connection pool settings
-# Detect database type and set appropriate driver
 db_url = settings.database_url
-if db_url.startswith("postgresql://"):
-    db_url = db_url.replace("postgresql://", "postgresql+asyncpg://")
-    connect_args = {
-        "server_settings": {
-            "application_name": "Evening_News_V2",
-            "statement_timeout": str(settings.db_statement_timeout),
-        },
-        "command_timeout": 60,
-    }
-elif db_url.startswith("mysql://") and "+aiomysql" not in db_url:
+if db_url.startswith("mysql://") and "+aiomysql" not in db_url:
     db_url = db_url.replace("mysql://", "mysql+aiomysql://")
-    connect_args = {
-        "charset": "utf8mb4",
-    }
-else:
-    # Already has driver specified or is mysql+aiomysql
-    connect_args = {
-        "charset": "utf8mb4",
-    }
+connect_args = {
+    "charset": "utf8mb4",
+}
 
 engine = create_async_engine(
     db_url,

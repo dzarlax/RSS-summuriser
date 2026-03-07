@@ -55,8 +55,6 @@ def process(verbose: bool):
                 console.print("\n[bold green]Processing Summary:[/bold green]")
                 console.print(f"• Articles fetched: {stats['articles_fetched']}")
                 console.print(f"• Articles processed: {stats['articles_processed']}")
-                console.print(f"• Clusters created: {stats['clusters_created']}")
-                console.print(f"• Clusters updated: {stats['clusters_updated']}")
                 console.print(f"• API calls made: {stats['api_calls_made']}")
                 console.print(f"• Duration: {stats.get('duration_seconds', 0):.1f}s")
                 
@@ -208,7 +206,6 @@ async def stats(days: int):
         console.print(f"[bold blue]Statistics for last {days} days:[/bold blue]")
         console.print(f"• Articles fetched: {totals['articles_fetched']}")
         console.print(f"• Articles processed: {totals['articles_processed']}")
-        console.print(f"• Clusters created: {totals['clusters_created']}")
         console.print(f"• API calls made: {totals['api_calls_made']}")
         console.print(f"• Total processing time: {totals['total_processing_time']}s")
         
@@ -221,7 +218,6 @@ async def stats(days: int):
             table = Table()
             table.add_column("Date")
             table.add_column("Articles", justify="right")
-            table.add_column("Clusters", justify="right")
             table.add_column("API Calls", justify="right")
             table.add_column("Errors", justify="right", style="red")
             
@@ -229,7 +225,6 @@ async def stats(days: int):
                 table.add_row(
                     day_stat['date'],
                     str(day_stat['articles_fetched']),
-                    str(day_stat['clusters_created']),
                     str(day_stat['api_calls_made']),
                     str(day_stat['errors_count']) if day_stat['errors_count'] > 0 else "-"
                 )
@@ -253,8 +248,7 @@ async def config():
     
     config_items = [
         ("Database URL", settings.database_url),
-        ("Redis URL", settings.redis_url),
-        ("API Endpoint", str(settings.api_endpoint) if settings.api_endpoint else "Not configured"),
+        ("Gemini API Endpoint", settings.gemini_api_endpoint),
         ("API Rate Limit", f"{settings.api_rate_limit} req/sec"),
         ("Log Level", settings.log_level),
         ("Max Workers", str(settings.max_workers)),

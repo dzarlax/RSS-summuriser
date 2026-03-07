@@ -197,8 +197,6 @@ class ProcessingStat(Base):
     date = Column(Date, default=func.current_date(), unique=True)
     articles_fetched = Column(Integer, default=0)
     articles_processed = Column(Integer, default=0)
-    clusters_created = Column(Integer, default=0)
-    clusters_updated = Column(Integer, default=0)
     api_calls_made = Column(Integer, default=0)
     errors_count = Column(Integer, default=0)
     processing_time_seconds = Column(Integer, default=0)
