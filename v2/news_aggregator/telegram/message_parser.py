@@ -141,7 +141,11 @@ class MessageParser:
                 async with session.get(external_link, allow_redirects=True) as resp:
                     if resp.status != 200:
                         return None
-                    html = await resp.text()
+                    raw = await resp.read()
+                    import chardet
+                    detected = chardet.detect(raw)
+                    enc = detected.get('encoding') or 'utf-8'
+                    html = raw.decode(enc, errors='replace')
 
             doc = Document(html)
             full_content = doc.summary(html_partial=True)
