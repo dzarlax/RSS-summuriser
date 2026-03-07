@@ -10,7 +10,6 @@ from typing import List, Dict, Any, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text
 
-from .database import AsyncSessionLocal
 from .models import Source, Article, ProcessingStat, DailySummary
 from .services.source_manager import SourceManager
 from .processing.ai_processor import AIProcessor
@@ -189,8 +188,9 @@ class NewsOrchestrator:
             try:
                 from .processing.processing_stats_service import get_processing_stats_service
                 processing_stats_service = get_processing_stats_service()
-                async with AsyncSessionLocal() as stats_db:
-                    await processing_stats_service.update_processing_stats(stats_db, stats)
+                await self.db_queue_manager.execute_write(
+                    lambda db: processing_stats_service.update_processing_stats(db, stats)
+                )
             except Exception as e:
                 logger.info(f"  Failed to update processing stats: {e}")
             return stats

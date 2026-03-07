@@ -7,7 +7,6 @@ from typing import Dict, Any, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from ..database import AsyncSessionLocal
 from ..models import ProcessingStat
 from ..database_helpers import fetch_all
 

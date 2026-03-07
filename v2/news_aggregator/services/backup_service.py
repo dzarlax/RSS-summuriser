@@ -14,7 +14,6 @@ import pytz
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import AsyncSessionLocal
 from ..models import ScheduleSettings
 from ..config import settings
 
@@ -250,30 +249,29 @@ class BackupService:
     
     async def _create_or_update_schedule_task(self, schedule_time: str, keep_days: int):
         """Create or update backup schedule task in database."""
+        from .database_queue import get_db_queue_manager
+
         try:
-            async with AsyncSessionLocal() as db:
-                # Check if backup task already exists
+            hour, minute = map(int, schedule_time.split(':'))
+            next_run = self._calculate_next_run(hour, minute)
+
+            async def _upsert_task(db):
                 result = await db.execute(
                     select(ScheduleSettings).where(
                         ScheduleSettings.task_name == "backup"
                     )
                 )
                 existing_task = result.scalar_one_or_none()
-                
-                # Parse schedule time
-                hour, minute = map(int, schedule_time.split(':'))
-                
+
                 if existing_task:
-                    # Update existing task
                     existing_task.enabled = True
                     existing_task.hour = hour
                     existing_task.minute = minute
                     existing_task.task_config = {"keep_days": keep_days}
-                    existing_task.next_run = self._calculate_next_run(hour, minute)
+                    existing_task.next_run = next_run
                     existing_task.updated_at = datetime.utcnow()
                     logger.info(f"Updated existing backup task: {existing_task.id}")
                 else:
-                    # Create new task
                     new_task = ScheduleSettings(
                         task_name="backup",
                         schedule_type="daily",
@@ -281,46 +279,38 @@ class BackupService:
                         hour=hour,
                         minute=minute,
                         task_config={"keep_days": keep_days},
-                        next_run=self._calculate_next_run(hour, minute),
+                        next_run=next_run,
                         created_at=datetime.utcnow(),
                         updated_at=datetime.utcnow()
                     )
                     db.add(new_task)
                     logger.info(f"Created new backup task at {schedule_time}")
-                
-                try:
-                    await db.commit()
-                except Exception as e:
-                    await db.rollback()
-                    logger.error(f"Failed to commit backup schedule task create/update: {e}")
-                    raise
-                
+
+            await get_db_queue_manager().execute_write(_upsert_task)
+
         except Exception as e:
             logger.error(f"Error creating/updating schedule task: {e}")
             raise
     
     async def _disable_schedule_task(self):
         """Disable backup schedule task in database."""
+        from .database_queue import get_db_queue_manager
+
         try:
-            async with AsyncSessionLocal() as db:
+            async def _disable(db):
                 result = await db.execute(
                     select(ScheduleSettings).where(
                         ScheduleSettings.task_name == "backup"
                     )
                 )
                 task = result.scalar_one_or_none()
-                
                 if task:
                     task.enabled = False
                     task.updated_at = datetime.utcnow()
-                    try:
-                        await db.commit()
-                    except Exception as e:
-                        await db.rollback()
-                        logger.error(f"Failed to commit disabling schedule task: {e}")
-                        raise
                     logger.info("Disabled backup schedule task")
-                
+
+            await get_db_queue_manager().execute_write(_disable)
+
         except Exception as e:
             logger.error(f"Error disabling schedule task: {e}")
             raise

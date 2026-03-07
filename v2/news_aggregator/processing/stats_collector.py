@@ -6,7 +6,6 @@ from sqlalchemy import select, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import Article
-from ..database import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
 
@@ -79,12 +78,16 @@ class StatsCollector:
                 logger.info(f"   URL: {article.url}")
                 logger.info(f"   Current content: {len(article.content or '')} chars")
                 # Reset processing flags to force complete reprocessing
-                async with AsyncSessionLocal() as reset_session:
-                    await reset_session.execute(
+                from ..services.database_queue import get_db_queue_manager
+                _article_id = article.id
+
+                async def _reset_flags(db):
+                    await db.execute(
                         text("UPDATE articles SET summary_processed = false, category_processed = false, ad_processed = false WHERE id = :article_id"),
-                        {'article_id': article.id}
+                        {'article_id': _article_id}
                     )
-                    await reset_session.commit()
+
+                await get_db_queue_manager().execute_write(_reset_flags)
                 
                 # Create article data for processing
                 article_data = {
@@ -110,12 +113,16 @@ class StatsCollector:
                         if new_content and len(new_content) > len(article.content or ''):
                             logger.info(f"   ✅ Content improved: {len(article.content or '')} → {len(new_content)} chars")
                             # Update content in database
-                            async with AsyncSessionLocal() as update_session:
-                                await update_session.execute(
+                            _new_content = new_content
+                            _art_id = article.id
+
+                            async def _update_content(db):
+                                await db.execute(
                                     text("UPDATE articles SET content = :content WHERE id = :article_id"),
-                                    {'content': new_content, 'article_id': article.id}
+                                    {'content': _new_content, 'article_id': _art_id}
                                 )
-                                await update_session.commit()
+
+                            await get_db_queue_manager().execute_write(_update_content)
                             
                             article_data['content'] = new_content
                             
@@ -158,7 +165,9 @@ class StatsCollector:
     
     async def get_content_extraction_stats(self) -> Dict[str, Any]:
         """Get statistics about content extraction quality."""
-        async with AsyncSessionLocal() as db:
+        from ..services.database_queue import get_db_queue_manager
+
+        async def _get_stats(db):
             # Articles with very short content (potential extraction failures)
             short_content_result = await db.execute(
                 select(func.count(Article.id)).where(
@@ -166,7 +175,7 @@ class StatsCollector:
                 )
             )
             short_content_count = short_content_result.scalar() or 0
-            
+
             # Articles where title equals summary (likely extraction failures)
             failed_extraction_result = await db.execute(
                 select(func.count(Article.id)).where(
@@ -174,15 +183,15 @@ class StatsCollector:
                 )
             )
             failed_extraction_count = failed_extraction_result.scalar() or 0
-            
+
             # Total articles
             total_result = await db.execute(select(func.count(Article.id)))
             total_articles = total_result.scalar() or 0
-            
+
             # Success rates
             good_extraction_rate = ((total_articles - failed_extraction_count) / total_articles * 100) if total_articles > 0 else 0
             content_quality_rate = ((total_articles - short_content_count) / total_articles * 100) if total_articles > 0 else 0
-            
+
             return {
                 'total_articles': total_articles,
                 'short_content_count': short_content_count,
@@ -192,14 +201,18 @@ class StatsCollector:
                 'extraction_success_count': total_articles - failed_extraction_count,
                 'quality_content_count': total_articles - short_content_count
             }
+
+        return await get_db_queue_manager().execute_read(_get_stats)
     
     async def get_source_performance_stats(self) -> Dict[str, Any]:
         """Get performance statistics by source type."""
-        async with AsyncSessionLocal() as db:
+        from ..services.database_queue import get_db_queue_manager
+
+        async def _get_perf_stats(db):
             # Articles by source type
             source_stats_result = await db.execute(
                 text("""
-                    SELECT 
+                    SELECT
                         s.source_type,
                         COUNT(a.id) as article_count,
                         AVG(LENGTH(COALESCE(a.content, ''))) as avg_content_length,
@@ -210,12 +223,12 @@ class StatsCollector:
                     ORDER BY article_count DESC
                 """)
             )
-            
+
             source_stats = []
             for row in source_stats_result.fetchall():
                 source_type, count, avg_length, failed = row
                 success_rate = ((count - failed) / count * 100) if count > 0 else 0
-                
+
                 source_stats.append({
                     'source_type': source_type,
                     'article_count': count,
@@ -223,8 +236,10 @@ class StatsCollector:
                     'failed_extractions': failed,
                     'success_rate': round(success_rate, 2)
                 })
-            
+
             return {
                 'source_stats': source_stats,
                 'total_sources': len(source_stats)
             }
+
+        return await get_db_queue_manager().execute_read(_get_perf_stats)

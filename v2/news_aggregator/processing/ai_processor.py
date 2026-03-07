@@ -7,7 +7,6 @@ from typing import Dict, Any, List, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import AsyncSessionLocal
 from ..services.ai_client import get_ai_client
 
 logger = logging.getLogger(__name__)
@@ -402,30 +401,33 @@ class AIProcessor:
                             categories_info = [f"{c['display_name']} ({c['confidence']:.2f})" for c in assigned_categories]
                             logger.info(f"  🏷️ Multiple categories assigned: {', '.join(categories_info)}")
                     else:
-                        async with AsyncSessionLocal() as category_db:
+                        from ..services.database_queue import get_db_queue_manager
+
+                        # Build categories with confidence data
+                        categories_with_confidence = []
+                        for i, category_name in enumerate(categories_result):
+                            confidence = confidences_result[i] if i < len(confidences_result) else 0.8
+                            # Use original AI category from original_categories array
+                            ai_category = original_categories[i] if i < len(original_categories) else category_name
+                            categories_with_confidence.append({
+                                'name': category_name,
+                                'confidence': max(0.0, min(1.0, float(confidence))),  # Clamp to 0-1 range
+                                'ai_category': ai_category  # Store ACTUAL original AI category
+                            })
+
+                        async def _assign_categories(category_db):
                             category_service = await get_category_service(category_db)
-                            
-                            # Build categories with confidence data
-                            categories_with_confidence = []
-                            for i, category_name in enumerate(categories_result):
-                                confidence = confidences_result[i] if i < len(confidences_result) else 0.8
-                                # Use original AI category from original_categories array
-                                ai_category = original_categories[i] if i < len(original_categories) else category_name
-                                categories_with_confidence.append({
-                                    'name': category_name,
-                                    'confidence': max(0.0, min(1.0, float(confidence))),  # Clamp to 0-1 range
-                                    'ai_category': ai_category  # Store ACTUAL original AI category
-                                })
-                            
-                            assigned_categories = await category_service.assign_categories_with_confidences(
+                            return await category_service.assign_categories_with_confidences(
                                 article_id=article_id,
                                 categories_with_confidence=categories_with_confidence
                             )
-                            update_fields['category_processed'] = True
-                            
-                            if assigned_categories:
-                                categories_info = [f"{c['display_name']} ({c['confidence']:.2f})" for c in assigned_categories]
-                                logger.info(f"  🏷️ Multiple categories assigned: {', '.join(categories_info)}")
+
+                        assigned_categories = await get_db_queue_manager().execute_write(_assign_categories)
+                        update_fields['category_processed'] = True
+
+                        if assigned_categories:
+                            categories_info = [f"{c['display_name']} ({c['confidence']:.2f})" for c in assigned_categories]
+                            logger.info(f"  🏷️ Multiple categories assigned: {', '.join(categories_info)}")
                 except Exception as e:
                     logger.warning(f"  ⚠️ Multiple categories assignment failed: {e}")
                     # DO NOT set category_processed = True here - let it retry
@@ -733,13 +735,17 @@ class AIProcessor:
                         logger.info(f"  ✅ Categorization completed in {elapsed_time:.1f}s")
                         await self._save_article_fields(article_id, {'category_processed': True})
                     else:
-                        async with AsyncSessionLocal() as category_db:
+                        from ..services.database_queue import get_db_queue_manager
+
+                        async def _assign_cats(category_db):
                             category_service = await get_category_service(category_db)
                             await category_service.assign_categories_with_confidences(
                                 article_id, categories_result
                             )
-                            logger.info(f"  ✅ Categorization completed in {elapsed_time:.1f}s")
-                            await self._save_article_fields(article_id, {'category_processed': True})
+
+                        await get_db_queue_manager().execute_write(_assign_cats)
+                        logger.info(f"  ✅ Categorization completed in {elapsed_time:.1f}s")
+                        await self._save_article_fields(article_id, {'category_processed': True})
                         
             except Exception as e:
                 logger.error(f"  ❌ Categorization failed: {e}")
@@ -904,25 +910,23 @@ class AIProcessor:
                         logger.warning(f"⚠️ Article has no field '{field_name}'")
                 await db.commit()
             else:
-                # Create new session  
-                async with AsyncSessionLocal() as new_db:
-                    from ..models import Article
-                    from sqlalchemy import select
-                    
+                from ..services.database_queue import get_db_queue_manager
+                from ..models import Article
+                from sqlalchemy import select
+
+                async def _update_fields(new_db):
                     result = await new_db.execute(select(Article).where(Article.id == article_id))
                     article = result.scalar_one_or_none()
-                    
                     if not article:
                         logger.warning(f"⚠️ Article {article_id} not found for fields update")
                         return
-                    
-                    # Set all fields from dictionary
                     for field_name, field_value in fields_dict.items():
                         if hasattr(article, field_name):
                             setattr(article, field_name, field_value)
                         else:
                             logger.warning(f"⚠️ Article has no field '{field_name}'")
-                    await new_db.commit()
+
+                await get_db_queue_manager().execute_write(_update_fields)
                     
         except Exception as e:
             logger.error(f"  ❌ Failed to save article fields for {article_id}: {e}")

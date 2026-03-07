@@ -5,26 +5,37 @@ This module contains all AI prompts used throughout the application.
 Centralizing prompts makes them easier to maintain, version, and improve.
 """
 
+import time
 from typing import Dict, Any, Optional
+
+# In-memory cache for categories (avoid DB hit on every article)
+_categories_cache = None
+_categories_cache_time = 0
+_CATEGORIES_CACHE_TTL = 300  # 5 minutes
 
 
 class NewsPrompts:
     """Collection of all AI prompts for news processing."""
-    
+
     # =============================================================================
     # DYNAMIC CATEGORY METADATA
     # =============================================================================
-    
+
     @staticmethod
     async def get_available_categories():
         """Get available categories from database, enriched with accumulated mapping examples."""
+        global _categories_cache, _categories_cache_time
+
+        if _categories_cache and (time.time() - _categories_cache_time) < _CATEGORIES_CACHE_TTL:
+            return _categories_cache
+
         try:
             from collections import defaultdict
-            from ..database import AsyncSessionLocal
             from ..models import Category, CategoryMapping
+            from ..services.database_queue import get_db_queue_manager
             from sqlalchemy import select
 
-            async with AsyncSessionLocal() as session:
+            async def _load_categories(session):
                 # Fetch categories
                 cat_result = await session.execute(
                     select(Category.name, Category.display_name).order_by(Category.name)
@@ -49,6 +60,11 @@ class NewsPrompts:
                     else:
                         result.append(f"{name} ({display_name})")
                 return result
+
+            result = await get_db_queue_manager().execute_read(_load_categories)
+            _categories_cache = result
+            _categories_cache_time = time.time()
+            return result
 
         except Exception:
             # Fallback to default categories if database is unavailable

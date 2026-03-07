@@ -8,7 +8,6 @@ from typing import Dict, Any, List, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, text
 
-from ..database import AsyncSessionLocal
 from ..models import Article, DailySummary
 from ..services.telegram_service import get_telegram_service
 
