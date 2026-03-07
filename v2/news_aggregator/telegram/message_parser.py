@@ -131,26 +131,29 @@ class MessageParser:
             return None
         try:
             logger.info(f"  🔗 Trying to extract full content from: {external_link}")
-            # Lazy import to avoid circular import
             import asyncio
-            from ..extraction import ContentExtractor
-            
-            async with ContentExtractor() as content_extractor:
-                # Extract full content from external link (5s timeout — best-effort enrichment)
-                result = await asyncio.wait_for(
-                    content_extractor.extract_article_content_with_metadata(external_link),
-                    timeout=5.0
-                )
-                
-                if result and result.get('content'):
-                    full_content = result['content']
-                    if len(full_content) > len(short_content) * 2:  # Significant improvement
-                        logger.info(f"  ✅ Extracted full content: {len(full_content)} chars vs {len(short_content)} chars")
-                        return full_content
-                    else:
-                        logger.warning(f"  ⚠️  External content not much longer than Telegram content")
-                else:
-                    logger.error(f"  ❌ No content extracted from external link")
+            import aiohttp
+            from readability.readability import Document
+
+            timeout = aiohttp.ClientTimeout(total=5)
+            headers = {"User-Agent": "Mozilla/5.0 (compatible; NewsBot/1.0)"}
+            async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+                async with session.get(external_link, allow_redirects=True) as resp:
+                    if resp.status != 200:
+                        return None
+                    html = await resp.text()
+
+            doc = Document(html)
+            full_content = doc.summary(html_partial=True)
+            # Strip tags for plain text
+            from bs4 import BeautifulSoup
+            full_content = BeautifulSoup(full_content, 'html.parser').get_text(separator=' ', strip=True)
+
+            if len(full_content) > len(short_content) * 2:
+                logger.info(f"  ✅ Extracted full content: {len(full_content)} chars vs {len(short_content)} chars")
+                return full_content
+            else:
+                logger.warning(f"  ⚠️  External content not much longer than Telegram content")
         except Exception as e:
             logger.warning(f"  ⚠️  Full content extraction failed: {e}")
         return None
