@@ -343,65 +343,81 @@ class NewsOrchestrator:
                 return {'articles_processed': 0, 'articles_summarized': 0, 'articles_categorized': 0}
 
             logger.info(f"  🔄 Processing {len(articles_data)} unprocessed articles (transaction closed)...")
-            # Step 2: Process with AI (NO database transaction - semaphore is free!)
+            # Step 2: Process with AI in parallel (NO database transaction - semaphore is free!)
             processed_count = 0
             summarized_count = 0
             categorized_count = 0
+            _lock = asyncio.Lock()
 
-            for article_data in articles_data:
-                try:
-                    source_type = article_data['source_type']
-                    article_url = article_data['url']
-                    article_id = article_data['id']
+            # Max 5 articles processed concurrently to avoid hammering the AI API
+            _ai_semaphore = asyncio.Semaphore(5)
 
-                    # Process summary if needed
-                    if not article_data['summary_processed']:
-                        stats['api_calls_made'] += 1
+            async def _process_one(article_data: dict) -> bool:
+                nonlocal processed_count, summarized_count, categorized_count
+                async with _ai_semaphore:
+                    try:
+                        source_type = article_data['source_type']
+                        article_url = article_data['url']
 
-                        summary_result = await self.ai_processor.get_summary_by_source_type(
-                            ArticleDTO.for_summarization(article_data), source_type, stats
-                        )
+                        if not article_data['summary_processed']:
+                            async with _lock:
+                                stats['api_calls_made'] += 1
+                            summary_result = await self.ai_processor.get_summary_by_source_type(
+                                ArticleDTO.for_summarization(article_data), source_type, stats
+                            )
+                            summary = summary_result.get('summary') if isinstance(summary_result, dict) else summary_result
+                            optimized_title = summary_result.get('optimized_title') if isinstance(summary_result, dict) else None
+                            if summary:
+                                article_data['summary'] = summary
+                                async with _lock:
+                                    summarized_count += 1
+                            if optimized_title and optimized_title != article_data.get('title'):
+                                article_data['title'] = optimized_title
 
-                        summary = summary_result.get('summary') if isinstance(summary_result, dict) else summary_result
-                        optimized_title = summary_result.get('optimized_title') if isinstance(summary_result, dict) else None
+                        if not article_data['category_processed']:
+                            async with _lock:
+                                stats['api_calls_made'] += 1
+                            categories = await self.categorization_processor.categorize_by_source_type_new(
+                                ArticleDTO.for_categorization(article_data), source_type, stats
+                            )
+                            if categories:
+                                article_data['categories'] = categories
+                                async with _lock:
+                                    categorized_count += 1
 
-                        if summary:
-                            article_data['summary'] = summary
-                            summarized_count += 1
+                        article_data['summary_processed'] = True
+                        article_data['category_processed'] = True
+                        article_data['ad_processed'] = True
+                        async with _lock:
+                            processed_count += 1
+                        return True
 
-                        if optimized_title and optimized_title != article_data.get('title'):
-                            article_data['title'] = optimized_title
+                    except Exception as e:
+                        logger.warning(f"  ⚠️ Error processing article {article_data.get('url')}: {e}")
+                        return False
 
-                    # Process category if needed
-                    if not article_data['category_processed']:
-                        stats['api_calls_made'] += 1
-
-                        categories = await self.categorization_processor.categorize_by_source_type_new(
-                            ArticleDTO.for_categorization(article_data), source_type, stats
-                        )
-
-                        if categories:
-                            article_data['categories'] = categories
-                            categorized_count += 1
-
-                    article_data['summary_processed'] = True
-                    article_data['category_processed'] = True
-                    article_data['ad_processed'] = True  # Mark as processed
-                    processed_count += 1
-
-                except Exception as e:
-                    logger.warning(f"  ⚠️ Error processing article {article_url}: {e}")
-                    continue
-
+            await asyncio.gather(*[_process_one(a) for a in articles_data])
             logger.info(f"  ✅ AI processing completed: {processed_count} articles, {summarized_count} summaries, {categorized_count} categories")
             # Step 3: Save results to database (new transaction, only writes)
             logger.info("  💾 Saving processed results to database...")
             async def save_results_operation(db):
                 updated_count = 0
+
+                # Batch-load all articles in one query instead of N×db.get()
+                article_ids = [a['id'] for a in articles_data]
+                result = await db.execute(select(Article).where(Article.id.in_(article_ids)))
+                articles_by_id = {a.id: a for a in result.scalars().all()}
+
+                # Pre-load categories once for all articles
+                from .models import Category
+                cat_result = await db.execute(select(Category))
+                categories_by_name: Dict[str, int] = {
+                    c.name.lower(): c.id for c in cat_result.scalars().all()
+                }
+
                 for article_data in articles_data:
                     try:
-                        # Get article
-                        article = await db.get(Article, article_data['id'])
+                        article = articles_by_id.get(article_data['id'])
                         if not article:
                             continue
 
@@ -423,7 +439,10 @@ class NewsOrchestrator:
                         # Save categories in the same transaction
                         categories = article_data.get('categories')
                         if categories:
-                            await self._save_ai_categories_to_database(db, article_data['id'], categories)
+                            await self._save_ai_categories_to_database(
+                                db, article_data['id'], categories,
+                                preloaded_categories=categories_by_name
+                            )
 
                         updated_count += 1
 
@@ -527,10 +546,15 @@ class NewsOrchestrator:
 
         return grouped
 
-    async def _save_ai_categories_to_database(self, db: AsyncSession, article_id: int, ai_categories: List[Dict[str, Any]]):
-        """Save AI categories to database, resolving category_id via display service mapping."""
+    async def _save_ai_categories_to_database(self, db: AsyncSession, article_id: int,
+                                              ai_categories: List[Dict[str, Any]],
+                                              preloaded_categories: Optional[Dict[str, int]] = None):
+        """Save AI categories to database, resolving category_id via display service mapping.
+
+        Pass preloaded_categories to avoid repeated SELECT Category queries when saving
+        multiple articles in the same transaction.
+        """
         try:
-            from .models import Category
             from sqlalchemy import text
             from .services.category_display_service import get_category_display_service
 
@@ -542,18 +566,20 @@ class NewsOrchestrator:
 
             category_display_service = await get_category_display_service(db)
 
-            # Pre-load all categories for fast lookup
-            result = await db.execute(select(Category))
-            categories_by_name: Dict[str, int] = {
-                c.name.lower(): c.id for c in result.scalars().all()
-            }
+            # Use preloaded categories if provided, otherwise load from DB
+            if preloaded_categories is not None:
+                categories_by_name = preloaded_categories
+            else:
+                from .models import Category
+                result = await db.execute(select(Category))
+                categories_by_name = {c.name.lower(): c.id for c in result.scalars().all()}
+
             other_id = categories_by_name.get('other')
 
             for cat_data in ai_categories:
                 ai_category_name = cat_data.get('name', 'Other')
                 confidence = cat_data.get('confidence', 1.0)
 
-                # Map AI category name to display category
                 display = await category_display_service.map_ai_category_to_display(ai_category_name)
                 display_name = (display.get('name') or display.get('display_name') or ai_category_name).lower()
                 category_id = categories_by_name.get(display_name) or other_id
@@ -562,8 +588,6 @@ class NewsOrchestrator:
                     logger.warning(f"  ⚠️ No category found for '{ai_category_name}', skipping")
                     continue
 
-                # INSERT IGNORE skips duplicate (article_id, category_id) pairs
-                # without raising an error or breaking the session transaction
                 await db.execute(
                     text(
                         "INSERT IGNORE INTO article_categories "
@@ -578,20 +602,9 @@ class NewsOrchestrator:
                     }
                 )
 
-            logger.info(f"  🏷️ Saved {len(ai_categories)} AI categories for article {article_id}")
+            logger.debug(f"  Saved {len(ai_categories)} AI categories for article {article_id}")
         except Exception as e:
             logger.warning(f"  ⚠️ Error saving AI categories: {e}")
-    async def _save_article_categories(self, article_id: int, categories: List[Dict[str, Any]]):
-        """Save article categories using new system (creates own session for backwards compatibility)."""
-        try:
-            async def category_operation(db):
-                await self._save_ai_categories_to_database(db, article_id, categories)
-                return {'success': True}
-            
-            await self.db_queue_manager.execute_write(category_operation)
-                
-        except Exception as e:
-            logger.warning(f"  ⚠️ Error saving article categories: {e}")
     # Delegate methods to specialized processors
     async def get_processing_stats(self, days: int = 7) -> Dict[str, Any]:
         """Get processing statistics."""
