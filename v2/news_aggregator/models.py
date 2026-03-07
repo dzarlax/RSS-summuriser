@@ -19,7 +19,7 @@ class Source(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(255), nullable=False)
-    source_type = Column(String(50), nullable=False)  # rss, telegram, reddit, etc.
+    source_type = Column(String(50), nullable=False)  # rss, telegram, custom
     url = Column(Text, nullable=False)
     enabled = Column(Boolean, default=True)
     # Use default factory to avoid shared mutable default
@@ -65,7 +65,6 @@ class Article(Base):
 
     # Relationships
     source = relationship("Source", back_populates="articles")
-    cluster_articles = relationship("ClusterArticle", back_populates="article")
     article_categories = relationship("ArticleCategory", back_populates="article", cascade="all, delete-orphan")
 
     @property
@@ -163,40 +162,6 @@ class ArticleCategory(Base):
     __table_args__ = (
         UniqueConstraint('article_id', 'category_id', name='unique_article_category'),
     )
-
-
-class NewsCluster(Base):
-    """News cluster model."""
-    __tablename__ = "news_clusters"
-
-    id = Column(Integer, primary_key=True, index=True)
-    cluster_id = Column(String(255), unique=True, nullable=False)
-    canonical_title = Column(Text, nullable=False)
-    canonical_summary = Column(Text)
-    canonical_image = Column(Text)
-    topics = Column(JSON)  # Changed from ARRAY(String) for MySQL compatibility
-    similarity_threshold = Column(Float, default=0.8)
-    created_at = Column(DateTime, default=func.now())
-    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
-
-    # Relationships
-    cluster_articles = relationship("ClusterArticle", back_populates="cluster")
-
-
-class ClusterArticle(Base):
-    """Many-to-many relationship between clusters and articles."""
-    __tablename__ = "cluster_articles"
-
-    id = Column(Integer, primary_key=True, index=True)
-    cluster_id = Column(Integer, ForeignKey("news_clusters.id", ondelete="CASCADE"))
-    article_id = Column(Integer, ForeignKey("articles.id", ondelete="CASCADE"))
-    similarity_score = Column(Float, nullable=False)
-    is_canonical = Column(Boolean, default=False)
-    added_at = Column(DateTime, default=func.now())
-
-    # Relationships
-    cluster = relationship("NewsCluster", back_populates="cluster_articles")
-    article = relationship("Article", back_populates="cluster_articles")
 
 
 class DailySummary(Base):
