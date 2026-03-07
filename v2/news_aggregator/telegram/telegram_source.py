@@ -245,10 +245,10 @@ class TelegramSource(BaseSource):
             raise SourceError("All browser methods failed")
             
         except Exception as e:
-            if self.browser:
+            if self.browser and not self._ws_endpoint:
                 await self.browser.close()
                 self.browser = None
-            if self._playwright:
+            if self._playwright and not self._ws_endpoint:
                 await self._playwright.stop()
                 self._playwright = None
             raise SourceError(f"Browser access failed: {e}")
@@ -317,7 +317,9 @@ class TelegramSource(BaseSource):
             return False
     
     async def close(self):
-        """Clean up resources."""
+        """Clean up resources. For remote browser, only disconnect — don't kill the server."""
+        from ..config import settings
+        is_remote = bool(settings.browser_ws_endpoint)
         if self.browser:
             try:
                 await self.browser.close()
@@ -325,7 +327,7 @@ class TelegramSource(BaseSource):
                 logger.info(f"Error closing browser: {e}")
             finally:
                 self.browser = None
-        if self._playwright:
+        if self._playwright and not is_remote:
             try:
                 await self._playwright.stop()
             except Exception as e:

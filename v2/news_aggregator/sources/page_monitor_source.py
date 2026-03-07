@@ -194,11 +194,13 @@ class PageMonitorSource(BaseSource):
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Close browser."""
+        """Close browser. For remote, only disconnect — don't kill the server."""
+        from ..config import settings
+        is_remote = bool(settings.browser_ws_endpoint)
         if self.browser:
             await self.browser.close()
             self.browser = None
-        if self._playwright:
+        if self._playwright and not is_remote:
             await self._playwright.stop()
             self._playwright = None
     

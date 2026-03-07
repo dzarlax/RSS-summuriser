@@ -473,6 +473,18 @@ class ExtractionStrategies:
                     except Exception:
                         pass
 
+    @staticmethod
+    def _decode_response_bytes(data: bytes, charset: Optional[str]) -> str:
+        """Decode raw response bytes, falling back to chardet then replacing errors."""
+        if charset:
+            try:
+                return data.decode(charset)
+            except (UnicodeDecodeError, LookupError):
+                pass
+        detected = chardet.detect(data)
+        enc = detected.get('encoding') or 'utf-8'
+        return data.decode(enc, errors='replace')
+
     async def fetch_html_content(self, url: str) -> Optional[str]:
         """Fetch HTML content using shared HTTP client."""
         try:
@@ -481,7 +493,8 @@ class ExtractionStrategies:
                     url, headers=self.utils.get_headers()
                 ) as response:
                     if response.status == 200:
-                        return await response.text()
+                        data = await response.read()
+                        return self._decode_response_bytes(data, response.charset)
                     else:
                         logger.warning(f"    ⚠️ HTTP {response.status} for {url}")
                         return None
@@ -495,7 +508,6 @@ class ExtractionStrategies:
         try:
             import aiohttp
             fallback_headers = dict(self.utils.get_headers())
-            # Use a slightly different UA to avoid caching/blocking issues
             fallback_headers["User-Agent"] = (
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                 "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
@@ -503,7 +515,8 @@ class ExtractionStrategies:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=fallback_headers, timeout=aiohttp.ClientTimeout(total=15)) as response:
                     if response.status == 200:
-                        return await response.text()
+                        data = await response.read()
+                        return self._decode_response_bytes(data, response.charset)
                     else:
                         logger.warning(f"    ⚠️ Fallback fetch HTTP {response.status} for {url}")
                         return None
@@ -616,19 +629,34 @@ class ExtractionStrategies:
                         raise last_error
 
     async def close_browser(self):
-        """Close browser and stop Playwright context to release all resources."""
+        """Close browser and stop Playwright context.
+
+        For remote browsers (ws_endpoint set): only disconnect, don't close the server.
+        For local browsers: close the process and stop playwright context.
+        """
+        from ..config import settings
+        is_remote = bool(settings.browser_ws_endpoint)
+
         if self.browser:
             try:
-                await self.browser.close()
-                logger.info("      ✅ Browser closed")
+                if is_remote:
+                    # Remote: just disconnect, leave the browser server running
+                    await self.browser.close()
+                    logger.debug("      🔌 Disconnected from remote browser")
+                else:
+                    await self.browser.close()
+                    logger.info("      ✅ Local browser closed")
             except Exception as e:
                 logger.warning(f"      ⚠️ Error closing browser: {e}")
             self.browser = None
 
-        if self._playwright_context:
+        if self._playwright_context and not is_remote:
             try:
                 await self._playwright_context.stop()
                 logger.info("      ✅ Playwright context stopped")
             except Exception as e:
                 logger.warning(f"      ⚠️ Error stopping Playwright: {e}")
             self._playwright_context = None
+        elif self._playwright_context and is_remote:
+            # Keep playwright context alive for remote — reused across calls
+            pass
