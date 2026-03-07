@@ -606,7 +606,8 @@ class ExtractionMemoryService:
                         updated_at=datetime.utcnow()
                     )
                     self._patterns[domain].append(pattern)
-            
+                    asyncio.create_task(self._save_pattern_to_db(pattern))
+
             logger.info(f"  🤖 Recorded {len(patterns)} AI-discovered patterns for {domain}")
             return True
             
