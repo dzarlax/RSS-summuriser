@@ -132,11 +132,15 @@ class MessageParser:
         try:
             logger.info(f"  🔗 Trying to extract full content from: {external_link}")
             # Lazy import to avoid circular import
+            import asyncio
             from ..extraction import ContentExtractor
             
             async with ContentExtractor() as content_extractor:
-                # Extract full content from external link
-                result = await content_extractor.extract_article_content_with_metadata(external_link)
+                # Extract full content from external link (5s timeout — best-effort enrichment)
+                result = await asyncio.wait_for(
+                    content_extractor.extract_article_content_with_metadata(external_link),
+                    timeout=5.0
+                )
                 
                 if result and result.get('content'):
                     full_content = result['content']
