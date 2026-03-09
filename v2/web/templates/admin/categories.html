@@ -917,8 +917,13 @@ async function applyAISuggestions() {
     const btn = document.getElementById('ai-apply-btn');
     btn.disabled = true;
 
+    // Copy and clear before closing so closeAIModal won't double-save
+    const toSave = new Map(aiSelections);
+    aiSelections.clear();
+    updateAISelectedCount();
+
     let ok = 0, fail = 0;
-    for (const [aiCat, fixedCat] of aiSelections) {
+    for (const [aiCat, fixedCat] of toSave) {
         try {
             await saveMappingDirect(aiCat, fixedCat, 'AI-suggested mapping approved via admin panel');
             ok++;
@@ -929,11 +934,25 @@ async function applyAISuggestions() {
     if (ok) showAlert(`Применено ${ok} маппингов`);
     if (fail) showAlert(`Ошибок: ${fail}`, 'error');
 
-    if (!fail) { closeAIModal(); await loadMappings(); await loadUnmapped(); }
-    else { await loadMappings(); await loadUnmapped(); }
+    closeAIModal();
+    await loadMappings();
+    await loadUnmapped();
 }
 
-function closeAIModal() {
+async function closeAIModal() {
+    // Auto-save remaining selections when closing without "Применить"
+    if (aiSelections.size > 0) {
+        let ok = 0, fail = 0;
+        for (const [aiCat, fixedCat] of aiSelections) {
+            try {
+                await saveMappingDirect(aiCat, fixedCat, 'AI-suggested mapping (auto-saved)');
+                ok++;
+            } catch { fail++; }
+        }
+        if (ok) showAlert(`Автосохранено ${ok} маппингов`);
+        if (fail) showAlert(`Ошибок при сохранении: ${fail}`, 'error');
+        if (ok || fail) { await loadMappings(); await loadUnmapped(); }
+    }
     document.getElementById('ai-modal').style.display = 'none';
     aiSelections.clear();
 }
@@ -1043,11 +1062,14 @@ function escAttr(str) {
 
 // Close modals on backdrop click
 ['mapping-modal','edit-category-modal','ai-modal'].forEach(id => {
-    document.getElementById(id).addEventListener('click', function(e) {
+    document.getElementById(id).addEventListener('click', async function(e) {
         if (e.target === this) {
-            this.style.display = 'none';
-            if (id === 'mapping-modal') editingMappingId = null;
-            if (id === 'ai-modal') aiSelections.clear();
+            if (id === 'ai-modal') {
+                await closeAIModal();
+            } else {
+                this.style.display = 'none';
+                if (id === 'mapping-modal') editingMappingId = null;
+            }
         }
     });
 });

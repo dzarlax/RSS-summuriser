@@ -154,8 +154,8 @@ class TaskScheduler:
         """Main scheduler loop."""
         logger.info("Scheduler loop started")
 
-        # Check for stuck tasks on startup
-        await self._reset_stuck_tasks()
+        # On startup reset ALL is_running tasks — asyncio tasks don't survive restarts
+        await self._reset_stuck_tasks(startup=True)
 
         while self.running:
             try:
@@ -174,49 +174,67 @@ class TaskScheduler:
                 logger.error(f"Error in scheduler loop: {e}", exc_info=True)
                 await asyncio.sleep(self._check_interval)
 
-    async def _reset_stuck_tasks(self):
-        """Reset tasks that are stuck in running state for too long."""
+    async def _reset_stuck_tasks(self, startup: bool = False):
+        """Reset tasks that are stuck in running state for too long.
+
+        On startup (startup=True) ALL is_running tasks are reset unconditionally,
+        because asyncio tasks cannot survive a process restart.  During normal
+        periodic checks only tasks running longer than _stuck_hours are reset.
+        """
         try:
-            logger.info("Checking for stuck scheduler tasks...")
+            cutoff_time = datetime.utcnow() - timedelta(hours=self._stuck_hours)
+            label = "startup" if startup else f"running > {self._stuck_hours}h"
+            logger.info(f"Checking for stuck scheduler tasks ({label})...")
+
             async def reset_operation(session):
                 from sqlalchemy import update
-                
-                # Find tasks running for too long (or with missing last_run)
-                cutoff_time = datetime.utcnow() - timedelta(hours=self._stuck_hours)
-                
-                # Get stuck tasks first for logging
-                query = select(ScheduleSettings).where(
-                    ScheduleSettings.is_running == True,
-                    or_(
-                        ScheduleSettings.last_run < cutoff_time,
-                        ScheduleSettings.last_run.is_(None),
+
+                if startup:
+                    # Reset every task currently marked as running — no time threshold
+                    query = select(ScheduleSettings).where(
+                        ScheduleSettings.is_running == True
                     )
-                )
-                result = await session.execute(query)
-                stuck_tasks = result.scalars().all()
-                
-                if stuck_tasks:
-                    logger.info(f"Found {len(stuck_tasks)} stuck tasks (running > 4h):")
-                    for task in stuck_tasks:
-                        logger.info(f"  - {task.task_name} (Last run: {task.last_run})")
-                        logger.warning(f"Resetting stuck task: {task.task_name}")
-                        
-                    # Reset them
-                    stmt = update(ScheduleSettings).where(
+                else:
+                    query = select(ScheduleSettings).where(
                         ScheduleSettings.is_running == True,
                         or_(
                             ScheduleSettings.last_run < cutoff_time,
                             ScheduleSettings.last_run.is_(None),
                         )
-                    ).values(is_running=False)
-                    
+                    )
+
+                result = await session.execute(query)
+                stuck_tasks = result.scalars().all()
+
+                if stuck_tasks:
+                    logger.info(f"Found {len(stuck_tasks)} stuck tasks ({label}):")
+                    for task in stuck_tasks:
+                        logger.warning(
+                            f"Resetting stuck task: {task.task_name} "
+                            f"(last_run={task.last_run})"
+                        )
+
+                    if startup:
+                        stmt = update(ScheduleSettings).where(
+                            ScheduleSettings.is_running == True
+                        ).values(is_running=False)
+                    else:
+                        stmt = update(ScheduleSettings).where(
+                            ScheduleSettings.is_running == True,
+                            or_(
+                                ScheduleSettings.last_run < cutoff_time,
+                                ScheduleSettings.last_run.is_(None),
+                            )
+                        ).values(is_running=False)
+
                     await session.execute(stmt)
-                    await session.commit()
+                    # No explicit commit — execute_custom_write commits automatically
                     logger.info(f"Reset {len(stuck_tasks)} stuck tasks")
                 else:
                     logger.info("No stuck tasks found")
+
             await execute_custom_write(reset_operation)
-            
+
         except Exception as e:
             logger.error(f"Error checking stuck tasks: {e}", exc_info=True)
 
@@ -436,29 +454,28 @@ class TaskScheduler:
                     select(ScheduleSettings).where(ScheduleSettings.id == setting_id)
                 )
                 setting = result.scalar_one_or_none()
-                
+
                 if not setting:
                     return
-                    
-                # Mark as not running
+
                 setting.is_running = False
-                
-                # Calculate next run time
+
                 if setting.enabled:
                     next_run = await self._calculate_next_run(setting)
+                    if next_run is None:
+                        logger.error(
+                            f"_calculate_next_run returned None for {setting.task_name} "
+                            f"(type={setting.schedule_type}, tz={setting.timezone}); "
+                            f"task will not fire again until manually re-enabled"
+                        )
                     setting.next_run = next_run
                 else:
                     setting.next_run = None
-                    
-                try:
-                    await db.commit()
-                except Exception as e:
-                    await db.rollback()
-                    logger.error(f"Failed to commit schedule update for {setting.task_name}: {e}")
-                    raise
+
+                # No explicit commit — execute_custom_write commits automatically
                 logger.info(f"Updated schedule for {setting.task_name}, next run: {setting.next_run}")
                 return setting
-                
+
             await execute_custom_write(update_operation)
             
         except Exception as e:

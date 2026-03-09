@@ -323,13 +323,16 @@ class NewsOrchestrator:
 
             async def fetch_articles_operation(db):
                 # Build base query
+                from sqlalchemy import and_ as sa_and
                 unprocessed_query = select(Article).options(
                     selectinload(Article.source)  # Eager load source
                 ).where(
                     (Article.processed == False) |
                     (Article.summary_processed == False) |
                     (Article.category_processed == False) |
-                    (Article.ad_processed == False)
+                    (Article.ad_processed == False) |
+                    # Re-process articles that were marked done but have no summary
+                    sa_and(Article.summary.is_(None), Article.content.isnot(None))
                 )
 
                 # Apply limits
@@ -379,7 +382,7 @@ class NewsOrchestrator:
                         source_type = article_data['source_type']
                         article_url = article_data['url']
 
-                        if not article_data['summary_processed']:
+                        if not article_data['summary_processed'] or (not article_data.get('summary') and article_data.get('content')):
                             async with _lock:
                                 stats['api_calls_made'] += 1
                             summary_result = await self.ai_processor.get_summary_by_source_type(

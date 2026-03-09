@@ -246,31 +246,37 @@ async def create_category_mapping(
     """Create a new AI category to fixed category mapping."""
     # TODO: Add admin auth when security is fixed
     
-    # Check if mapping already exists
+    # Upsert: if a mapping for this ai_category already exists, update it
     existing_result = await db.execute(
         select(CategoryMapping).where(
-            CategoryMapping.ai_category == payload.ai_category,
-            CategoryMapping.fixed_category == payload.fixed_category
+            CategoryMapping.ai_category == payload.ai_category
         )
     )
-    
-    if existing_result.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Mapping already exists")
-    
-    # Create new mapping
-    mapping = CategoryMapping(
-        ai_category=payload.ai_category,
-        fixed_category=payload.fixed_category,
-        confidence_threshold=payload.confidence_threshold if payload.confidence_threshold is not None else 0.7,
-        description=payload.description,
-        created_by="admin",  # TODO: Get from auth
-        usage_count=0,
-        is_active=True
-    )
-    
-    db.add(mapping)
-    await db.commit()
-    await db.refresh(mapping)
+    existing = existing_result.scalar_one_or_none()
+
+    if existing:
+        existing.fixed_category = payload.fixed_category
+        existing.confidence_threshold = payload.confidence_threshold if payload.confidence_threshold is not None else 0.7
+        existing.description = payload.description
+        existing.is_active = True
+        existing.updated_at = datetime.utcnow()
+        await db.commit()
+        await db.refresh(existing)
+        mapping = existing
+    else:
+        # Create new mapping
+        mapping = CategoryMapping(
+            ai_category=payload.ai_category,
+            fixed_category=payload.fixed_category,
+            confidence_threshold=payload.confidence_threshold if payload.confidence_threshold is not None else 0.7,
+            description=payload.description,
+            created_by="admin",
+            usage_count=0,
+            is_active=True
+        )
+        db.add(mapping)
+        await db.commit()
+        await db.refresh(mapping)
     
     return CategoryMappingResponse(
         id=mapping.id,
