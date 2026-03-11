@@ -107,12 +107,14 @@ class TaskScheduler:
         )
         self._stuck_hours = max(1, int(os.getenv("SCHEDULER_STUCK_HOURS", "4")))
         self._task_timeout_seconds = max(
-            0, int(os.getenv("SCHEDULER_TASK_TIMEOUT_SECONDS", "0"))
+            0, int(os.getenv("SCHEDULER_TASK_TIMEOUT_SECONDS", "3600"))
         )
         self._max_concurrent_tasks = max(
             1, int(os.getenv("SCHEDULER_MAX_CONCURRENT_TASKS", "1"))
         )
         self._task_semaphore = asyncio.Semaphore(self._max_concurrent_tasks)
+        # Maps setting_id → running asyncio.Task so stuck checker can cancel them
+        self._task_handles: Dict[int, asyncio.Task] = {}
         
     async def start(self):
         """Start the scheduler."""
@@ -207,12 +209,27 @@ class TaskScheduler:
                 stuck_tasks = result.scalars().all()
 
                 if stuck_tasks:
-                    logger.info(f"Found {len(stuck_tasks)} stuck tasks ({label}):")
+                    logger.warning(f"Found {len(stuck_tasks)} stuck tasks ({label}):")
                     for task in stuck_tasks:
                         logger.warning(
                             f"Resetting stuck task: {task.task_name} "
                             f"(last_run={task.last_run})"
                         )
+
+                    # Cancel in-process asyncio tasks BEFORE resetting DB state
+                    for task in stuck_tasks:
+                        handle = self._task_handles.pop(task.id, None)
+                        if handle and not handle.done():
+                            logger.warning(
+                                f"Cancelling hung asyncio task for {task.task_name}"
+                            )
+                            handle.cancel()
+
+                    # On startup: reset is_running, keep next_run as-is
+                    #   (past next_run → fires immediately on first check)
+                    # On stuck detection: also bump next_run to now+10min to
+                    #   avoid hammering a repeatedly-failing task
+                    retry_next_run = datetime.utcnow() + timedelta(minutes=10)
 
                     if startup:
                         stmt = update(ScheduleSettings).where(
@@ -225,11 +242,11 @@ class TaskScheduler:
                                 ScheduleSettings.last_run < cutoff_time,
                                 ScheduleSettings.last_run.is_(None),
                             )
-                        ).values(is_running=False)
+                        ).values(is_running=False, next_run=retry_next_run)
 
                     await session.execute(stmt)
                     # No explicit commit — execute_custom_write commits automatically
-                    logger.info(f"Reset {len(stuck_tasks)} stuck tasks")
+                    logger.warning(f"Reset {len(stuck_tasks)} stuck tasks")
                 else:
                     logger.info("No stuck tasks found")
 
@@ -276,7 +293,7 @@ class TaskScheduler:
                         # Wait longer for semaphore to avoid skipping important tasks
                         await asyncio.wait_for(self._task_semaphore.acquire(), timeout=5.0)
                     except asyncio.TimeoutError:
-                        logger.info(
+                        logger.warning(
                             "Scheduler capacity reached (%s max); delaying %s",
                             self._max_concurrent_tasks,
                             setting.task_name,
@@ -303,12 +320,14 @@ class TaskScheduler:
                         self._task_semaphore.release()
                         raise
                     
-                    # Run task in background
+                    # Run task in background, track handle for stuck-task cancellation
                     task_key = f"task_{setting.task_name}_{setting.id}"
                     try:
-                        self._tasks[task_key] = asyncio.create_task(
+                        t = asyncio.create_task(
                             self._run_task(setting.task_name, setting.task_config, setting.id)
                         )
+                        self._tasks[task_key] = t
+                        self._task_handles[setting.id] = t
                     except Exception:
                         self._task_semaphore.release()
                         raise
@@ -345,10 +364,20 @@ class TaskScheduler:
     async def _run_task(self, task_name: str, task_config: Dict[str, Any], setting_id: int):
         """Run a specific task."""
         start_time = datetime.utcnow()
+        timed_out = False
+        cancelled = False
         try:
             logger.info(f"Executing task: {task_name}")
 
-            timeout_seconds = self._task_timeout_seconds
+            # Per-task default timeouts (seconds). Can be overridden via task_config.
+            _default_timeouts = {
+                "telegram_digest": 600,    # 10 min — only Telegram API calls
+                "news_processing": 3600,   # 60 min — fetch + Playwright + AI
+                "news_digest": 3600,       # 60 min — full cycle
+                "backup": 1800,            # 30 min
+                "reprocess_failed": 1800,  # 30 min
+            }
+            timeout_seconds = _default_timeouts.get(task_name, self._task_timeout_seconds)
             if isinstance(task_config, dict):
                 try:
                     override = int(task_config.get("timeout_seconds", 0))
@@ -369,7 +398,6 @@ class TaskScheduler:
             elif task_name == "news_digest":
                 task_coro = self._run_news_digest_cycle(task_config)
             else:
-                logger.info(f"Unknown task type: {task_name}")
                 logger.warning(f"Unknown task type: {task_name}")
 
             if task_coro is not None:
@@ -377,20 +405,49 @@ class TaskScheduler:
                     await asyncio.wait_for(task_coro, timeout=timeout_seconds)
                 else:
                     await task_coro
-                
+
             duration = (datetime.utcnow() - start_time).total_seconds()
             logger.info(f"Task completed successfully: {task_name} (took {duration:.1f}s)")
-            
+
+        except asyncio.CancelledError:
+            duration = (datetime.utcnow() - start_time).total_seconds()
+            logger.warning(
+                f"Task {task_name} was cancelled after {duration:.1f}s "
+                f"(stuck-task recovery)"
+            )
+            cancelled = True
+            raise
+
+        except asyncio.TimeoutError:
+            duration = (datetime.utcnow() - start_time).total_seconds()
+            logger.error(
+                f"Task {task_name} timed out after {duration:.1f}s "
+                f"(limit={timeout_seconds}s); will retry in 10 minutes"
+            )
+            timed_out = True
+
         except Exception as e:
             duration = (datetime.utcnow() - start_time).total_seconds()
             logger.error(f"Error running task {task_name} after {duration:.1f}s: {e}", exc_info=True)
-            
+
         finally:
-            # Mark task as not running and calculate next run
-            try:
-                await self._update_task_schedule(setting_id)
-            finally:
+            self._task_handles.pop(setting_id, None)
+            if cancelled:
+                # Stuck checker already reset DB state (is_running + next_run).
+                # Just release the semaphore — do NOT await anything here because
+                # awaiting inside a CancelledError finally is unreliable.
                 self._task_semaphore.release()
+            else:
+                try:
+                    await self._update_task_schedule(
+                        setting_id, retry_immediately=timed_out
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Error updating schedule for {task_name}: {e}", exc_info=True
+                    )
+                finally:
+                    self._task_semaphore.release()
             
     async def _run_telegram_digest(self, config: Dict[str, Any]):
         """Run telegram digest task using unified orchestrator logic."""
@@ -446,8 +503,13 @@ class TaskScheduler:
             logger.error(f"Error in news digest cycle: {e}", exc_info=True)
             raise
 
-    async def _update_task_schedule(self, setting_id: int):
-        """Update task schedule after completion."""
+    async def _update_task_schedule(self, setting_id: int, retry_immediately: bool = False):
+        """Update task schedule after completion.
+
+        retry_immediately=True: schedule next_run 10 minutes from now
+        (used after timeout so the task retries quickly instead of waiting
+        until the next normal schedule slot).
+        """
         try:
             async def update_operation(db: AsyncSession):
                 result = await db.execute(
@@ -461,14 +523,21 @@ class TaskScheduler:
                 setting.is_running = False
 
                 if setting.enabled:
-                    next_run = await self._calculate_next_run(setting)
-                    if next_run is None:
-                        logger.error(
-                            f"_calculate_next_run returned None for {setting.task_name} "
-                            f"(type={setting.schedule_type}, tz={setting.timezone}); "
-                            f"task will not fire again until manually re-enabled"
+                    if retry_immediately:
+                        setting.next_run = datetime.utcnow() + timedelta(minutes=10)
+                        logger.warning(
+                            f"Task {setting.task_name} timed out; "
+                            f"retrying at {setting.next_run} UTC"
                         )
-                    setting.next_run = next_run
+                    else:
+                        next_run = await self._calculate_next_run(setting)
+                        if next_run is None:
+                            logger.error(
+                                f"_calculate_next_run returned None for {setting.task_name} "
+                                f"(type={setting.schedule_type}, tz={setting.timezone}); "
+                                f"task will not fire again until manually re-enabled"
+                            )
+                        setting.next_run = next_run
                 else:
                     setting.next_run = None
 
