@@ -847,7 +847,22 @@ class AIProcessor:
                             return _make(ai_result['summary'], ai_result.get('optimized_title'))
                     except Exception as e:
                         logger.warning(f"  ⚠️ Skipping Telegram AI extraction (external link failed): {e}")
-                return _make(article.content or article.title)
+
+                # No external link — summarize the Telegram message content directly
+                content = article.content or article.title or ''
+                if len(content.strip()) >= 30:
+                    try:
+                        ai_result = await self.ai_client.analyze_article_complete(
+                            title=article.title or '',
+                            content=content,
+                            url=article.url or '',
+                        )
+                        stats['api_calls_made'] += 1
+                        if ai_result.get('summary'):
+                            return _make(ai_result['summary'], ai_result.get('optimized_title'))
+                    except Exception as e:
+                        logger.warning(f"  ⚠️ Telegram content summarization failed: {e}")
+                return _make(content or article.title)
 
             elif source_type == 'custom':
                 ai_result = await self.ai_client.get_article_summary_with_metadata(article.url)

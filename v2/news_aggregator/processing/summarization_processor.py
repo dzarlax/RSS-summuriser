@@ -79,7 +79,20 @@ class SummarizationProcessor:
             except Exception as e:
                 logger.warning(f"  ⚠️ Skipping Telegram AI extraction (external link failed): {e}")
 
-        return {'summary': article.content or article.title, 'optimized_title': None}
+        # No external link — summarize the Telegram message content directly
+        content = article.content or article.title or ''
+        if len(content.strip()) >= 30:
+            try:
+                ai_result = await self.ai_client.analyze_article_complete(
+                    title=article.title or '',
+                    content=content,
+                    url=article.url or '',
+                )
+                if ai_result.get('summary'):
+                    return {'summary': ai_result['summary'], 'optimized_title': ai_result.get('optimized_title')}
+            except Exception as e:
+                logger.warning(f"  ⚠️ Telegram content summarization failed: {e}")
+        return {'summary': content or article.title, 'optimized_title': None}
     
     async def _process_custom_summary(self, article: Article, source_type: str, stats: Dict[str, Any]) -> Dict[str, Any]:
         """Process custom or unknown source summary."""
