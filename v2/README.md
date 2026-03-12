@@ -88,7 +88,7 @@ Everything else has sensible defaults. Full reference is in `docker-compose.exam
 
 **Telegram** — public channels via web preview. The parser strips UI chrome (forwarded headers, reactions, buttons) and tries to follow external links to get the full article text.
 
-**Custom (Page Monitor)** — for sites that don't have RSS. You provide CSS selectors to identify article links and titles on a page.
+**Custom (Page Monitor)** — for sites that don't have RSS. Point it at a URL and it figures out the page structure automatically: it tries a set of common selectors first, then uses AI to analyze the page if those fail. Learned selectors are saved and reused on the next fetch. You can also provide your own selectors as an optional override.
 
 ---
 
