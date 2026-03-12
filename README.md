@@ -27,33 +27,42 @@ flowchart TD
     subgraph sources["Sources"]
         RSS[RSS / Atom feeds]
         TGS[Telegram channels]
-        WEB[Custom pages\nPage Monitor]
+        WEB[Custom pages<br/>Page Monitor]
     end
 
     subgraph fetch["1 · Fetch"]
-        Fetcher[Source fetcher\nfeedparser · Playwright · HTTP]
+        Fetcher[Source fetcher<br/>feedparser · Playwright · HTTP]
+    end
+
+    subgraph extract["2 · Extract"]
+        Ext[Content extractor]
+        Ext1[Learned patterns]
+        Ext2[Enhanced selectors]
+        Ext3[Readability]
+        Ext4[Browser / Playwright]
+        Ext1 --> Ext2 --> Ext3 --> Ext4
     end
 
     subgraph db["Storage"]
         DB[(MariaDB)]
     end
 
-    subgraph process["2 · Process"]
-        Filter[Smart Filter\ndedup · quality check]
+    subgraph process["3 · Process"]
+        Filter[Smart Filter<br/>dedup · quality check]
         Proc[Article processor]
-        AI1[Google Gemini\nsummarize + categorize]
-        DLQ[Dead Letter Queue\nfailed → retry]
+        AI1[Google Gemini<br/>summarize + categorize]
+        DLQ[Dead Letter Queue<br/>failed → retry]
     end
 
-    subgraph digest["3 · Digest"]
-        DGen[Daily summary\ngenerator]
-        AI2[Google Gemini\nper-category summary]
+    subgraph digest["4 · Digest"]
+        DGen[Daily summary<br/>generator]
+        AI2[Google Gemini<br/>per-category summary]
     end
 
-    subgraph delivery["4 · Deliver"]
-        Telegraph[Telegraph\nfull article]
-        TGBot[Telegram Bot\ndigest message]
-        Channel[Your Telegram\nchannel]
+    subgraph delivery["5 · Deliver"]
+        Telegraph[Telegraph<br/>full article]
+        TGBot[Telegram Bot<br/>digest message]
+        Channel[Your Telegram<br/>channel]
     end
 
     subgraph admin["Admin panel  /admin"]
@@ -65,6 +74,9 @@ flowchart TD
     TGS --> Fetcher
     WEB --> Fetcher
     Fetcher --> DB
+    DB --> Ext
+    Ext --> Ext1
+    Ext --> DB
     DB --> Filter
     Filter -->|passes| Proc
     Filter -->|duplicate / junk| DLQ
@@ -138,6 +150,8 @@ Successful extractions are recorded per domain. The method that worked best gets
 ## Reliability
 
 **Smart Filter** — before any article reaches the AI, it goes through a content quality check: too-short or boilerplate-only content is rejected, and MD5-based duplicate detection (24-hour window) ensures the same article isn't processed twice even if multiple sources pick it up.
+
+**Ad detection** — as part of AI processing, each article is classified as news or advertisement (`is_advertisement`, `ad_type`, confidence score). Detected ads are excluded from the digest and filtered out in the public feed. The classifier distinguishes promotional content from legitimate product announcements published by news sources.
 
 **Dead Letter Queue** — articles that fail during AI processing are written to a persistent queue and retried automatically with exponential backoff (up to 3 attempts). Permanently failed articles are archived separately for inspection.
 
