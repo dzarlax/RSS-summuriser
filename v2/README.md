@@ -1,235 +1,105 @@
-# Evening News v2
+# Evening News
 
-Автономная система агрегации новостей с AI-суммаризацией, публикацией в Telegram и Telegraph, веб-интерфейсом и базой MariaDB.
+A self-hosted news digest service that collects articles from RSS feeds, Telegram channels, and custom sources — then uses AI to summarize, categorize, and deliver a daily digest to your Telegram channel.
 
-## Быстрый старт
+**Live demo:** [news.dzarlax.dev](https://news.dzarlax.dev)
 
-### Docker (production)
+---
+
+## What it does
+
+1. **Collects** news from your configured sources throughout the day — RSS feeds, public Telegram channels, and arbitrary web pages.
+2. **Summarizes** each article with AI (Google Gemini), extracting the key points in a consistent format.
+3. **Categorizes** articles automatically. The more you correct the AI via the admin panel, the better it gets over time.
+4. **Publishes** a daily digest to your Telegram channel as a formatted message, with a full-length Telegraph article attached for comfortable reading.
+
+Everything runs on a schedule you control, or you can trigger any step manually from the admin panel.
+
+---
+
+## Admin panel
+
+A web UI at `/admin` lets you manage everything without touching config files:
+
+- **Dashboard** — today's articles, processing status, quick stats
+- **Sources** — add/edit/remove RSS feeds, Telegram channels, and custom pages
+- **Schedule** — configure when fetching, processing, and digest sending happen
+- **Summaries** — browse AI-generated daily summaries by category
+- **Categories** — manage categories and teach the AI to categorize better
+- **Telegram** — configure delivery channels, send a test message
+- **Backup** — create and restore database backups
+- **Stats** — article counts, source activity, processing history
+
+---
+
+## Getting started
+
+### With Docker (recommended)
+
 ```bash
 cp docker-compose.example.yml docker-compose.yml
-# Отредактируйте docker-compose.yml — замените ключи и пароли
+# Edit docker-compose.yml — fill in your API keys and passwords
 docker-compose up -d
 ```
 
-### Локальная разработка (dev-контейнер)
+The app will be available at `http://localhost:8000`. The admin panel is at `/admin`.
+
+### For local development
+
 ```bash
-# docker-compose.dev.yml уже настроен — монтирует код без пересборки образа
 docker-compose -f docker-compose.dev.yml up -d
 ```
 
-## Архитектура
+This mounts your local code into the container so changes take effect without rebuilding.
 
-```
-news_aggregator/
-├── api/              # FastAPI роутеры (articles, categories, processing, scheduler,
-│                     #   telegram, backup, stats, system, sources, summaries, feed)
-├── core/             # HTTP-клиент, кэш, circuit breaker, dead-letter queue
-├── extraction/       # Многоуровневое извлечение контента (HTML, CSS, Playwright, AI)
-├── migrations/       # Автоматические миграции БД
-├── processing/       # AI-процессинг: суммаризация, категоризация, дайджест
-├── services/         # Сервисы: AI-клиент, Telegram, Telegraph, бэкапы, планировщик,
-│                     #   очередь БД, фильтрация, кэш категорий, мониторинг
-├── sources/          # RSS, Telegram, Custom (Page Monitor)
-├── telegram/         # Парсинг Telegram-каналов (message_parser, media_extractor)
-├── admin.py          # HTML-маршруты админки
-├── config.py         # Pydantic Settings (все env vars)
-├── orchestrator.py   # Главный оркестратор обработки новостей
-└── models.py         # SQLAlchemy модели
+---
 
-web/
-├── templates/admin/  # Jinja2 шаблоны: dashboard, sources, summaries, schedule,
-│                     #   stats, categories, backup, telegram
-└── static/           # CSS, JS
-```
+## Configuration
 
-**Стек:** FastAPI · SQLAlchemy async · aiomysql · MariaDB · Google Gemini · Jinja2 · Docker
+The only things you need to get started:
 
-## Конфигурация
-
-### Обязательные переменные
 ```bash
-# База данных
+# Database
 DATABASE_URL=mysql+aiomysql://newsuser:pass@mariadb:3306/newsdb
 
-# Google Gemini
+# Google Gemini (for summarization and categorization)
 GEMINI_API_KEY=your_gemini_api_key
-GEMINI_API_ENDPOINT=https://generativelanguage.googleapis.com/v1/models
 
-# Telegram
+# Telegram (where digests are published)
 TELEGRAM_TOKEN=your_bot_token
-TELEGRAM_CHAT_ID=your_main_channel_id       # Основной канал — дайджесты с новостями
-TELEGRAM_SERVICE_CHAT_ID=your_service_id    # Сервисный канал — ошибки и алерты
-                                             # (если пусто — используется TELEGRAM_CHAT_ID)
+TELEGRAM_CHAT_ID=your_channel_id
+
+# Telegraph (for full-length digest articles)
 TELEGRAPH_ACCESS_TOKEN=your_telegraph_token
 
-# Админка
+# Admin panel
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=your_secure_password
 JWT_SECRET=your_jwt_secret
 ```
 
-### Дополнительные переменные
-```bash
-# AI модели
-SUMMARIZATION_MODEL=gemini-1.5-flash-latest
-CATEGORIZATION_MODEL=gemini-1.5-flash-latest
-DIGEST_MODEL=gemini-1.5-pro-latest
+Everything else has sensible defaults. Full reference is in `docker-compose.example.yml`.
 
-# Категории
-NEWS_CATEGORIES=Business,Tech,Science,Serbia,Nature,Media,Marketing,Other
-DEFAULT_CATEGORY=Other
+---
 
-# Приложение
-LOG_LEVEL=INFO
-DEVELOPMENT=false
-RPS=3                        # Запросов в секунду к AI
-MAX_WORKERS=5
-CACHE_TTL=86400
-CACHE_DIR=/tmp/rss_cache
-ALLOW_CREATE_ALL=true        # false в prod после первого запуска
+## Sources
 
-# Playwright (remote browser)
-BROWSER_WS_ENDPOINT=ws://browser:3000/playwright  # URL браузерного контейнера
-                                                    # Если не задан — запускает локальный Chromium
+**RSS / Atom** — any standard feed URL.
 
-# CORS / Trusted hosts
-ALLOWED_ORIGINS=https://your-domain.com,http://localhost:8000
-TRUSTED_HOSTS=your-domain.com,localhost
+**Telegram** — public channels via web preview. The parser strips UI chrome (forwarded headers, reactions, buttons) and tries to follow external links to get the full article text.
 
-# Планировщик
-SCHEDULER_CHECK_INTERVAL_SECONDS=60
-SCHEDULER_RESET_EVERY_CHECKS=10
-SCHEDULER_STUCK_HOURS=4
-SCHEDULER_TASK_TIMEOUT_SECONDS=0   # 0 = без таймаута
+**Custom (Page Monitor)** — for sites that don't have RSS. You provide CSS selectors to identify article links and titles on a page.
 
-# Пул соединений БД
-DB_POOL_SIZE=5
-DB_MAX_OVERFLOW=10
-DB_POOL_TIMEOUT=30
+---
 
-# Ограничение обрабатываемых статей (dev/debug)
-NEWS_LIMIT_ENABLED=false
-NEWS_LIMIT_MAX_ARTICLES=50
-NEWS_LIMIT_PER_SOURCE=50
-NEWS_LIMIT_DAYS=1
+## Digest format
 
-# Дайджест
-DIGEST_TELEGRAM_LIMIT=3600           # Макс. символов для Telegram-сообщения
-DIGEST_MAX_ARTICLES_PER_CATEGORY=10
-DIGEST_PARALLEL_CATEGORIES=true
-```
+Each digest is sent to Telegram as a brief summary per category, with a link to a Telegraph page that contains the full digest — article titles, short summaries, images, and source links — organized by category with a table of contents.
 
-## API
+---
 
-### Публичный API
-| Метод | Путь | Описание |
-|-------|------|----------|
-| GET | `/api/public/feed` | Лента новостей (с фильтрацией по категории) |
-| GET | `/api/public/article/{id}` | Детали статьи с медиа и AI-категориями |
-| GET | `/api/public/search` | Полнотекстовый поиск (q, category, since_hours, sort) |
-| GET | `/api/public/categories/config` | Конфиг категорий для UI |
+## Known limitations
 
-### Админ API (`/api/v1/`)
-| Метод | Путь | Описание |
-|-------|------|----------|
-| GET/POST | `/sources` | Управление источниками |
-| POST | `/process/run` | Запустить обработку новостей |
-| GET/PUT | `/schedule/settings` | Управление расписанием задач |
-| GET | `/telegram/settings` | Текущие настройки Telegram (с источником: db/env/fallback) |
-| POST | `/telegram/settings` | Сохранить override каналов в БД |
-| POST | `/telegram/test` | Отправить тестовое сообщение в сервисный канал |
-| POST | `/telegram/send-digest` | Сгенерировать и отправить дайджест |
-| GET | `/categories` | Список категорий со статистикой |
-| POST | `/categories` | Создать категорию |
-| PUT | `/categories/{id}` | Обновить категорию |
-| GET | `/category-mappings/unmapped` | Неразмеченные AI-категории |
-| POST/PUT | `/category-mappings` | Управление маппингом AI-категорий |
-| GET | `/summaries` | Дневные сводки |
-| GET | `/stats/dashboard` | Статистика дашборда |
-| GET/POST | `/backup` | Управление резервными копиями |
-| GET/POST | `/migrations/status` | Статус и запуск миграций |
-| GET/POST | `/system/process-monitor` | Мониторинг и очистка зависших процессов |
-
-### Swagger UI: `http://localhost:8000/docs`
-
-## Источники
-
-### RSS (`rss`)
-Стандартные RSS/Atom-ленты. Парсит XML, извлекает title, link, description, дату публикации, изображения из enclosure/media:content.
-
-### Telegram (`telegram`)
-Каналы через публичный web-превью (`t.me/channel`). Парсит HTML-страницу канала через BeautifulSoup. Особенности:
-- Очистка UI-хрома Telegram (forwarded-from, footer, реакции, кнопки)
-- Фильтрация аватаров и служебных изображений
-- AI-детекция рекламы (`AdDetector`)
-- Попытка получить полный текст из внешней ссылки, если контент < 200 символов
-
-### Custom (`custom`)
-Page Monitor с CSS-селекторами — для агрегаторских страниц без RSS.
-
-## Обработка статей (pipeline)
-
-```
-1. fetch_from_all_sources()          — HTTP-загрузка по всем источникам
-2. save_fetched_articles()           — Сохранение в БД (execute_write)
-3. _process_unprocessed_articles()   — AI: суммаризация + категоризация
-4. save_results_operation()          — Сохранение результатов в одной транзакции
-5. _generate_daily_summaries()       — AI: сводки по категориям
-6. send_telegram_digest()            — Публикация дайджеста в Telegram + Telegraph
-```
-
-AI-вызовы выполняются вне блокировки очереди БД (read → AI → write).
-
-## Извлечение контента
-
-Многоуровневая стратегия для каждой статьи:
-1. **HTML + BeautifulSoup** — семантические теги, Schema.org, JSON-LD, Open Graph
-2. **CSS-селекторы** — из `ExtractionMemoryService` (обучается на успешных извлечениях)
-3. **Playwright** — для JS-rendered страниц; браузер в отдельном контейнере (`browser`)
-4. **AI-оптимизация** — генерация новых селекторов для нестандартных сайтов
-
-**Браузерный контейнер:** `mcr.microsoft.com/playwright:v1.58.2-jammy`. Приложение подключается по WebSocket (`BROWSER_WS_ENDPOINT`). Версия образа должна точно совпадать с pip-пакетом `playwright`.
-
-## Telegram + Telegraph
-
-**Два канала:**
-- `TELEGRAM_CHAT_ID` — основной канал, дайджесты с новостями
-- `TELEGRAM_SERVICE_CHAT_ID` — сервисный канал, ошибки и системные алерты (fallback на основной)
-
-Channel IDs можно переопределить через UI без перезапуска: `/admin/telegram` → сохраняется в таблицу `settings` БД, перекрывает `.env`.
-
-**Telegraph:** Каждый дайджест публикуется как Telegraph-страница. Структура: оглавление (blockquote) → секции по категориям (h3) → статьи с изображениями (figure/figcaption) или текстом, разделённые `<hr>`.
-
-## Дашборд / Планировщик
-
-Автоматические задачи (`/admin/schedule`):
-- **fetch** — загрузка новостей из источников
-- **process** — AI-обработка непроцессированных статей
-- **digest** — генерация и отправка дайджеста
-
-Каждая задача хранит `next_run`, `last_run`, `is_running`, `enabled`. При включении `next_run` сбрасывается на ближайшее допустимое время.
-
-## Резервные копии
-
-```bash
-./scripts/backup.sh             # Создать дамп БД
-./scripts/restore.sh <path>     # Восстановить из дампа
-```
-
-Также доступно через UI: `/admin/backup`.
-
-## CLI
-
-```bash
-python -m news_aggregator.cli process     # Запустить обработку новостей
-python -m news_aggregator.cli sources list
-python -m news_aggregator.cli sources add --name "Habr" --type rss --url "https://habr.com/rss/"
-python -m news_aggregator.cli stats
-python -m news_aggregator.cli config      # Проверка конфигурации
-```
-
-## Известные ограничения
-
-- Нет тестов (0% coverage)
-- Prometheus-метрики подключены частично
-- GitHub Actions не адаптированы под текущую архитектуру
+- No automated tests
+- Prometheus metrics are partially wired up but not complete
+- GitHub Actions workflows are not aligned with the current architecture

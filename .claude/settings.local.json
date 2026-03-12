@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(docker-compose:*)"
+      "Bash(docker-compose:*)",
+      "mcp__personal-memory__recall_facts",
+      "mcp__personal-memory__store_fact"
     ]
   }
 }
