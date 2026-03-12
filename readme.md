@@ -1,232 +1,105 @@
-# RSS Summarizer
+# Evening News
 
-An optimized application for collecting, summarizing, and distributing RSS feeds using AI summarization API with advanced performance monitoring and parallel processing.
+A self-hosted news digest service that collects articles from RSS feeds, Telegram channels, and custom sources — then uses AI to summarize, categorize, and deliver a daily digest to your Telegram channel.
 
-## ✨ Features
+**Live demo:** [news.dzarlax.dev](https://news.dzarlax.dev)
 
-### Core Functionality
-- **Parallel RSS Processing**: Multi-threaded RSS feed collection and processing
-- **AI-Powered Summarization**: Advanced article summarization using API
-- **LRU Caching System**: Intelligent caching with hit rate monitoring
-- **Connection Pooling**: HTTP connection reuse for optimal performance
-- **S3 Storage Integration**: Reliable storage in S3-compatible services
+---
 
-### Performance & Monitoring
-- **Real-time Performance Monitoring**: Memory usage, CPU, and processing times
-- **Advanced Error Handling**: Comprehensive retry strategies and graceful failures
-- **Telegram Notifications**: Detailed status reports with performance metrics
-- **Rate Limiting**: Adaptive API throttling with exponential backoff
-- **Batch Processing**: Optimized entry processing with controlled parallelism
+## What it does
 
-### News Distribution
-- **Daily News Digest**: Automated generation and distribution
-- **Telegraph Integration**: Beautiful article publishing with HTML sanitization
-- **Category Classification**: Intelligent article categorization
-- **Multi-environment Support**: Production and test environment configurations
+1. **Collects** news from your configured sources throughout the day — RSS feeds, public Telegram channels, and arbitrary web pages.
+2. **Summarizes** each article with AI (Google Gemini), extracting the key points in a consistent format.
+3. **Categorizes** articles automatically. The more you correct the AI via the admin panel, the better it gets over time.
+4. **Publishes** a daily digest to your Telegram channel as a formatted message, with a full-length Telegraph article attached for comfortable reading.
 
-## 🚀 Performance Optimizations
+Everything runs on a schedule you control, or you can trigger any step manually from the admin panel.
 
-- **2-3x Faster Processing**: Through parallel RSS feed handling
-- **Reduced Memory Usage**: LRU cache with automatic cleanup
-- **Network Efficiency**: Connection pooling and retry strategies
-- **Smart Filtering**: Pre-filtering to reduce unnecessary processing
-- **Resource Monitoring**: Real-time system resource tracking
+---
 
-## 📋 Requirements
+## Admin panel
 
-- Python 3.8+
-- AI summarization API access
-- S3-compatible storage (AWS S3, Yandex Object Storage, etc.)
-- Telegram bot (optional, for notifications)
-- Telegraph API access (for news digest publishing)
+A web UI at `/admin` lets you manage everything without touching config files:
 
-### Core Dependencies
-```
-pytz~=2023.3.post1
-boto3~=1.28.67
-feedparser~=6.0.10
-requests~=2.31.0
-beautifulsoup4~=4.12.2
-feedgenerator~=2.1.0
-PyRSS2Gen~=1.1.0
-python-dateutil~=2.8.2
-psutil~=5.9.5
-```
+- **Dashboard** — today's articles, processing status, quick stats
+- **Sources** — add/edit/remove RSS feeds, Telegram channels, and custom pages
+- **Schedule** — configure when fetching, processing, and digest sending happen
+- **Summaries** — browse AI-generated daily summaries by category
+- **Categories** — manage categories and teach the AI to categorize better
+- **Telegram** — configure delivery channels, send a test message
+- **Backup** — create and restore database backups
+- **Stats** — article counts, source activity, processing history
 
-## 🛠 Installation
+---
 
-### Local Development Setup
+## Getting started
 
-1. **Clone the repository**:
+### With Docker (recommended)
+
 ```bash
-git clone https://github.com/dzarlax/rss-summarizer.git
-cd rss-summarizer
+cp docker-compose.example.yml docker-compose.yml
+# Edit docker-compose.yml — fill in your API keys and passwords
+docker-compose up -d
 ```
 
-2. **Create virtual environment**:
+The app will be available at `http://localhost:8000`. The admin panel is at `/admin`.
+
+### For local development
+
 ```bash
-python -m venv venv_news
-source venv_news/bin/activate  # Linux/Mac
-# or
-venv_news\Scripts\activate.bat  # Windows
+docker-compose -f docker-compose.dev.yml up -d
 ```
 
-3. **Install dependencies**:
+This mounts your local code into the container so changes take effect without rebuilding.
+
+---
+
+## Configuration
+
+The only things you need to get started:
+
 ```bash
-pip install -r src/requirements.txt
-pip install -r src/requirements_news.txt
+# Database
+DATABASE_URL=mysql+aiomysql://newsuser:pass@mariadb:3306/newsdb
+
+# Google Gemini (for summarization and categorization)
+GEMINI_API_KEY=your_gemini_api_key
+
+# Telegram (where digests are published)
+TELEGRAM_TOKEN=your_bot_token
+TELEGRAM_CHAT_ID=your_channel_id
+
+# Telegraph (for full-length digest articles)
+TELEGRAPH_ACCESS_TOKEN=your_telegraph_token
+
+# Admin panel
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=your_secure_password
+JWT_SECRET=your_jwt_secret
 ```
 
-4. **Environment configuration**:
-```bash
-cp src/.env.example src/.env
-# Edit src/.env with your configuration values
-```
+Everything else has sensible defaults. Full reference is in `docker-compose.example.yml`.
 
-### Production Deployment
-The application automatically detects production environment (GitHub Actions) and uses system environment variables instead of `.env` files.
+---
 
-## ⚙️ Configuration
+## Sources
 
-### Environment Variables
+**RSS / Atom** — any standard feed URL.
 
-#### 🔧 API Settings
-- `endpoint_300`: Summarization API endpoint URL
-- `token_300`: API authorization token  
-- `RPS`: Maximum requests per second (default: 1)
-- `CONSTRUCTOR_KM_API`: News digest API endpoint
-- `CONSTRUCTOR_KM_API_KEY`: News digest API key
+**Telegram** — public channels via web preview. The parser strips UI chrome (forwarded headers, reactions, buttons) and tries to follow external links to get the full article text.
 
-#### 🗄️ S3 Storage Settings
-- `BUCKET_NAME`: S3 bucket name
-- `ENDPOINT_URL`: S3-compatible storage URL
-- `ACCESS_KEY`: Storage access key
-- `SECRET_KEY`: Storage secret key
-- `rss_300_file_name`: RSS feed file name
+**Custom (Page Monitor)** — for sites that don't have RSS. Point it at a URL and it figures out the page structure automatically: it tries a set of common selectors first, then uses AI to analyze the page if those fail. Learned selectors are saved and reused on the next fetch. You can also provide your own selectors as an optional override.
 
-#### 📡 Feed Settings  
-- `logo_url`: Default article logo URL
-- `RSS_LINKS`: URL containing list of RSS feeds
-- `feed_url`: Main RSS feed URL
+---
 
-#### 📱 Telegram Integration
-- `TELEGRAM_BOT_TOKEN`: Bot token for notifications
-- `TELEGRAM_CHAT_ID`: Chat ID for status updates
-- `TELEGRAM_CHAT_ID_NEWS`: Chat ID for news digest
-- `TELEGRAPH_ACCESS_TOKEN`: Telegraph publishing token
+## Digest format
 
-## 🚀 Usage
+Each digest is sent to Telegram as a brief summary per category, with a link to a Telegraph page that contains the full digest — article titles, short summaries, images, and source links — organized by category with a table of contents.
 
-### RSS Feed Processing
-```bash
-cd src
-python summarization.py
-```
+---
 
-**Output includes**:
-- ✅ Processing status with timing
-- 📊 Performance metrics and cache statistics  
-- 💾 Memory usage monitoring
-- 🔧 Error handling and recovery
+## Known limitations
 
-### Daily News Digest
-```bash
-cd src
-python evening_news_Constructor_KM.py [prod|test]
-```
-
-**Features**:
-- Automated article collection and categorization
-- Telegraph page creation with sanitized HTML
-- Telegram distribution with rich formatting
-- Error recovery and status reporting
-
-## 📁 Project Structure
-
-```
-src/
-├── summarization.py          # Main RSS processing (optimized)
-├── evening_news_Constructor_KM.py  # Daily news digest
-├── shared.py                 # Common utilities
-├── requirements.txt          # Optimized dependencies
-├── .env                      # Local environment variables
-└── .env.example             # Environment template
-```
-
-## 🎯 Advanced Features
-
-### Performance Monitoring
-- **Memory Tracking**: Real-time memory usage with peak detection
-- **Processing Checkpoints**: Detailed timing for each operation phase
-- **Cache Analytics**: Hit rates and cache efficiency metrics
-- **System Resources**: CPU and memory percentage monitoring
-
-### Error Handling & Recovery
-- **Multi-level Retries**: Exponential backoff for API failures
-- **Connection Resilience**: Automatic connection pool management
-- **Graceful Degradation**: Fallback to original content on summarization failure
-- **Comprehensive Logging**: Detailed error tracking and diagnostics
-
-### Caching Strategy
-- **LRU Cache**: Least Recently Used with configurable TTL
-- **Thread-Safe Operations**: Concurrent access support
-- **Hit Rate Monitoring**: Performance tracking and optimization
-- **Automatic Cleanup**: Memory management and cache size control
-
-## 📊 Monitoring & Diagnostics
-
-### Telegram Notifications
-Rich status reports including:
-- ✅ Processing completion status
-- 📊 Articles processed count
-- 💾 Cache hit rate and size
-- 🔧 Peak memory usage
-- ⏱️ Total processing time
-
-### Logging
-- **Structured Logging**: JSON-formatted performance reports
-- **Real-time Monitoring**: Live processing status updates
-- **Error Tracking**: Comprehensive error categorization
-- **Performance Metrics**: Response times and resource usage
-
-### API Monitoring
-- **Quota Tracking**: Daily API usage monitoring
-- **Response Times**: Average and peak response time tracking
-- **Error Categorization**: HTTP status code analysis
-- **Rate Limiting**: Adaptive throttling based on API responses
-
-## 🔧 Development
-
-### Local Testing
-```bash
-# Activate virtual environment
-source venv_news/bin/activate
-
-# Run with environment variables loaded
-cd src
-python summarization.py
-```
-
-### Production Deployment
-Environment variables are automatically loaded from the deployment environment (GitHub Actions, Docker, etc.). No `.env` file needed.
-
-## 📈 Performance Benchmarks
-
-- **Processing Speed**: 2-3x improvement through parallelization
-- **Memory Efficiency**: 30-40% reduction via LRU caching
-- **Network Optimization**: Connection reuse reduces latency
-- **Error Recovery**: 95%+ success rate with retry strategies
-- **Cache Hit Rate**: Typically 60-80% for repeated content
-
-## 🛡️ Error Handling
-
-The application includes comprehensive error handling:
-- **Network Failures**: Automatic retries with exponential backoff
-- **API Limits**: Rate limiting with intelligent throttling
-- **Memory Management**: Automatic cache cleanup and size limits
-- **Resource Cleanup**: Proper connection and resource disposal
-- **Graceful Failures**: Fallback strategies for all critical operations
-
-## 📝 Logging
-
-Logs are saved to `output.log` with structured JSON formatting for performance reports. All operations include detailed timing and resource usage information.
+- No automated tests
+- Prometheus metrics are partially wired up but not complete
+- GitHub Actions workflows are not aligned with the current architecture

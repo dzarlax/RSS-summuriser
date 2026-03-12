@@ -1,15 +1,70 @@
-output.log
-.venv
-.idea
-.env
-.aider.tags.cache.v3
-venv2
-venv3
+# macOS
 .DS_Store
-src/__pycache__
-venv_news
-__pycache__
-v2/docker-compose.dev.yml
-v2/PUBLIC_API_DOCS.md
-v2/scripts/backup.sh
-v2/scripts/restore.sh
+**/.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+logs/
+*.log
+
+# Data
+data/
+cache/
+
+# Docker
+.dockerignore
+
+# Database
+*.db
+*.sqlite
+
+# SSL certificates
+ssl/
+*.pem
+*.key
+*.crt
+
+# Backup files
+*.bak
+*.backup
+docker-compose.yml
+docker-compose.production.yml
+exports/
+backups/
+.claude/
+SOURCES_FROM_BACKUPS.md
+# media_cache/ - removed, media caching disabled
+scripts/backup.sh
+scripts/restore.sh

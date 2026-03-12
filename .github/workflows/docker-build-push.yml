@@ -3,11 +3,16 @@ name: Build and Push Docker Image
 on:
   push:
     paths:
-      - 'v2/**'
+      - 'news_aggregator/**'
+      - 'web/**'
+      - 'docker/**'
+      - 'requirements.txt'
       - '.github/workflows/docker-build-push.yml'
   pull_request:
     paths:
-      - 'v2/**'
+      - 'news_aggregator/**'
+      - 'web/**'
+      - 'docker/**'
   release:
     types: [published]
   workflow_dispatch:
@@ -60,8 +65,8 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: ./v2
-          file: ./v2/docker/Dockerfile
+          context: .
+          file: ./docker/Dockerfile
           platforms: linux/amd64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
@@ -86,4 +91,4 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
           repository: ${{ env.IMAGE_NAME }}
-          readme-filepath: ./v2/DOCKER_README.md
+          readme-filepath: ./DOCKER_README.md
