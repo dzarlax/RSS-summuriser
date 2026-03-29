@@ -30,8 +30,7 @@ def _with_admin_cookie(response, username: str):
 @router.get("/", response_class=HTMLResponse)
 async def admin_dashboard(request: Request, admin_user: str = Depends(get_current_admin_user)):
     """Admin dashboard."""
-    response = templates.TemplateResponse("admin/dashboard.html", {
-        "request": request,
+    response = templates.TemplateResponse(request, "admin/dashboard.html", {
         "title": "Evening News v2 - Admin",
         "admin_user": admin_user,
         "active_menu": "dashboard"
@@ -42,8 +41,7 @@ async def admin_dashboard(request: Request, admin_user: str = Depends(get_curren
 @router.get("/sources", response_class=HTMLResponse)
 async def admin_sources(request: Request, admin_user: str = Depends(get_current_admin_user)):
     """Manage sources."""
-    response = templates.TemplateResponse("admin/sources.html", {
-        "request": request,
+    response = templates.TemplateResponse(request, "admin/sources.html", {
         "title": "Управление Источниками",
         "admin_user": admin_user,
         "active_menu": "sources"
@@ -54,8 +52,7 @@ async def admin_sources(request: Request, admin_user: str = Depends(get_current_
 @router.get("/summaries", response_class=HTMLResponse)
 async def admin_summaries(request: Request, admin_user: str = Depends(get_current_admin_user)):
     """Daily summaries page."""
-    response = templates.TemplateResponse("admin/summaries.html", {
-        "request": request,
+    response = templates.TemplateResponse(request, "admin/summaries.html", {
         "title": "Дневные Сводки",
         "admin_user": admin_user,
         "active_menu": "summaries"
@@ -66,8 +63,7 @@ async def admin_summaries(request: Request, admin_user: str = Depends(get_curren
 @router.get("/schedule", response_class=HTMLResponse)
 async def admin_schedule(request: Request, admin_user: str = Depends(get_current_admin_user)):
     """Schedule settings page."""
-    response = templates.TemplateResponse("admin/schedule.html", {
-        "request": request,
+    response = templates.TemplateResponse(request, "admin/schedule.html", {
         "title": "Расписание Задач",
         "admin_user": admin_user,
         "active_menu": "schedule"
@@ -78,8 +74,7 @@ async def admin_schedule(request: Request, admin_user: str = Depends(get_current
 @router.get("/stats", response_class=HTMLResponse)
 async def admin_stats(request: Request, admin_user: str = Depends(get_current_admin_user)):
     """Statistics page."""
-    response = templates.TemplateResponse("admin/stats.html", {
-        "request": request,
+    response = templates.TemplateResponse(request, "admin/stats.html", {
         "title": "Статистика Системы",
         "admin_user": admin_user,
         "active_menu": "stats"
@@ -90,8 +85,7 @@ async def admin_stats(request: Request, admin_user: str = Depends(get_current_ad
 @router.get("/backup", response_class=HTMLResponse)
 async def admin_backup(request: Request, admin_user: str = Depends(get_current_admin_user)):
     """Backup and restore page."""
-    response = templates.TemplateResponse("admin/backup.html", {
-        "request": request,
+    response = templates.TemplateResponse(request, "admin/backup.html", {
         "title": "Резервные Копии",
         "admin_user": admin_user,
         "active_menu": "backup"
@@ -102,8 +96,7 @@ async def admin_backup(request: Request, admin_user: str = Depends(get_current_a
 @router.get("/categories", response_class=HTMLResponse)
 async def admin_categories(request: Request, admin_user: str = Depends(get_current_admin_user)):
     """Category mapping management page."""
-    response = templates.TemplateResponse("admin/categories.html", {
-        "request": request,
+    response = templates.TemplateResponse(request, "admin/categories.html", {
         "title": "Маппинг Категорий",
         "admin_user": admin_user,
         "active_menu": "categories"
@@ -114,8 +107,7 @@ async def admin_categories(request: Request, admin_user: str = Depends(get_curre
 @router.get("/telegram", response_class=HTMLResponse)
 async def admin_telegram(request: Request, admin_user: str = Depends(get_current_admin_user)):
     """Telegram settings page."""
-    response = templates.TemplateResponse("admin/telegram.html", {
-        "request": request,
+    response = templates.TemplateResponse(request, "admin/telegram.html", {
         "title": "Настройки Telegram",
         "admin_user": admin_user,
         "active_menu": "telegram"

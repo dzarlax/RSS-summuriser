@@ -85,8 +85,7 @@ async def news_redirect():
 @router.get("/feed", response_class=HTMLResponse)
 async def public_feed_alias(request: Request):
     """Alternative feed endpoint."""
-    return templates.TemplateResponse("public/feed.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "public/feed.html", {
         "title": "Новости"
     })
 
@@ -94,8 +93,7 @@ async def public_feed_alias(request: Request):
 @router.get("/cards", response_class=HTMLResponse)
 async def public_cards_view(request: Request):
     """Cards view for news feed."""
-    return templates.TemplateResponse("public/feed.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "public/feed.html", {
         "title": "Новости"
     })
 
@@ -103,8 +101,7 @@ async def public_cards_view(request: Request):
 @router.get("/list", response_class=HTMLResponse)
 async def public_list_view(request: Request):
     """List view for news feed (alias for compatibility)."""
-    return templates.TemplateResponse("public/list.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "public/list.html", {
         "title": "Лента новостей"
     })
 
@@ -112,8 +109,7 @@ async def public_list_view(request: Request):
 @router.get("/search", response_class=HTMLResponse)
 async def public_search_view(request: Request):
     """Public search page."""
-    return templates.TemplateResponse("public/search.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "public/search.html", {
         "title": "Поиск новостей"
     })
 

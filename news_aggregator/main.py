@@ -230,8 +230,7 @@ app.include_router(public_router)
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     """Main page - news list (default view)."""
-    return templates.TemplateResponse("public/list.html", {
-        "request": request,
+    return templates.TemplateResponse(request, "public/list.html", {
         "title": "Лента новостей"
     })
 

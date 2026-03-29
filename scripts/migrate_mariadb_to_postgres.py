@@ -99,6 +99,20 @@ def get_mysql_columns(mysql_cur, table: str) -> list:
     return [row[0] for row in mysql_cur.fetchall()]
 
 
+_PG_BOOLEAN_COLS: dict[str, set[str]] = {}
+
+
+def load_pg_boolean_columns(pg_cur):
+    """Detect all boolean columns from PostgreSQL information_schema."""
+    pg_cur.execute("""
+        SELECT table_name, column_name
+        FROM information_schema.columns
+        WHERE table_schema = current_schema() AND data_type = 'boolean'
+    """)
+    for table_name, col_name in pg_cur.fetchall():
+        _PG_BOOLEAN_COLS.setdefault(table_name, set()).add(col_name)
+
+
 def convert_value(value, col_name: str, table: str):
     """Convert a MySQL value for PostgreSQL compatibility."""
     if value is None:
@@ -116,10 +130,9 @@ def convert_value(value, col_name: str, table: str):
         elif isinstance(value, (dict, list)):
             return json.dumps(value)
 
-    # Handle boolean columns (MariaDB tinyint(1) → Python int)
-    if isinstance(value, int) and value in (0, 1):
-        # Could be boolean, but we let PostgreSQL handle the cast
-        pass
+    # Handle boolean columns (MariaDB tinyint(1) → Python bool)
+    if col_name in _PG_BOOLEAN_COLS.get(table, set()) and isinstance(value, int):
+        return bool(value)
 
     return value
 
@@ -221,6 +234,7 @@ def main():
         pg_conn.close()
         return
 
+    load_pg_boolean_columns(pg_cur)
     tables_to_migrate = TABLES_ORDERED.copy()
     if args.skip_extraction_attempts:
         tables_to_migrate = [t for t in tables_to_migrate if t != "extraction_attempts"]
