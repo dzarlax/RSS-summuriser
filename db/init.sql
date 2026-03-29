@@ -81,21 +81,6 @@ CREATE TABLE processing_stats (
     UNIQUE(date)
 );
 
--- Очередь задач (если не используем Celery)
-CREATE TABLE task_queue (
-    id SERIAL PRIMARY KEY,
-    task_type VARCHAR(100) NOT NULL, -- fetch_source, process_article, etc.
-    task_data JSONB NOT NULL,
-    status VARCHAR(20) DEFAULT 'pending', -- pending, running, completed, failed
-    priority INTEGER DEFAULT 0,
-    attempts INTEGER DEFAULT 0,
-    max_attempts INTEGER DEFAULT 3,
-    created_at TIMESTAMP DEFAULT NOW(),
-    started_at TIMESTAMP,
-    completed_at TIMESTAMP,
-    error_message TEXT
-);
-
 -- Настройки расписания автоматических задач
 CREATE TABLE schedule_settings (
     id SERIAL PRIMARY KEY,
@@ -130,8 +115,6 @@ CREATE INDEX idx_daily_summaries_date ON daily_summaries(date DESC);
 CREATE INDEX idx_daily_summaries_category ON daily_summaries(category);
 CREATE INDEX idx_sources_enabled ON sources(enabled);
 CREATE INDEX idx_sources_last_fetch ON sources(last_fetch);
--- Removed references to non-existent news_clusters and cluster_articles tables
-CREATE INDEX idx_task_queue_status ON task_queue(status, priority DESC);
 CREATE INDEX idx_schedule_settings_task_name ON schedule_settings(task_name);
 CREATE INDEX idx_schedule_settings_enabled ON schedule_settings(enabled);
 CREATE INDEX idx_schedule_settings_next_run ON schedule_settings(next_run);

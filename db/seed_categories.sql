@@ -12,10 +12,10 @@ VALUES
     ('Marketing', 'Маркетинг', '#F57C00', 'Marketing and advertising'),
     ('Media', 'Медиа', '#5E35B1', 'Media industry and journalism'),
     ('Other', 'Другое', '#757575', 'Other news and uncategorized')
-ON DUPLICATE KEY UPDATE
-    display_name = VALUES(display_name),
-    color = VALUES(color),
-    description = VALUES(description);
+ON CONFLICT (name) DO UPDATE SET
+    display_name = EXCLUDED.display_name,
+    color = EXCLUDED.color,
+    description = EXCLUDED.description;
 
 -- Verify categories
 SELECT id, name, display_name, color, description FROM categories ORDER BY name;

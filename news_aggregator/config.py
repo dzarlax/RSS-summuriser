@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     """Application settings."""
     
     # Database
-    database_url: str = Field(default="mysql+aiomysql://newsuser:newspass123@localhost:3306/newsdb")
+    database_url: str = Field(default="postgresql+asyncpg://newsuser:newspass123@localhost:5432/newsdb")
     
     # Gemini API configuration
     gemini_api_key: Optional[str] = Field(default=None, alias="GEMINI_API_KEY")

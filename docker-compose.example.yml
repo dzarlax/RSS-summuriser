@@ -11,7 +11,7 @@ services:
       - "8000:8000"
     environment:
       # Database
-      - DATABASE_URL=mysql+aiomysql://newsuser:${DB_PASSWORD:-newspass123}@mariadb:3306/newsdb
+      - DATABASE_URL=postgresql+asyncpg://newsuser:${DB_PASSWORD:-newspass123}@postgres:5432/newsdb
       
       # AI/API Configuration (обязательные для работы) - ЗАМЕНИТЕ НА ВАШИ ЗНАЧЕНИЯ
       # Google Gemini API
@@ -66,7 +66,7 @@ services:
       - DEFAULT_CATEGORY=Other
     
     depends_on:
-      mariadb:
+      postgres:
         condition: service_healthy
       browser:
         condition: service_healthy
@@ -89,23 +89,22 @@ services:
       retries: 3
       start_period: 40s
 
-  # MariaDB Database
-  mariadb:
-    image: mariadb:11
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
     container_name: news_aggregator_db
     environment:
-      MARIADB_DATABASE: newsdb
-      MARIADB_USER: newsuser
-      MARIADB_PASSWORD: newspass123
-      MARIADB_ROOT_PASSWORD: rootpass123
+      POSTGRES_DB: newsdb
+      POSTGRES_USER: newsuser
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-newspass123}
 
     volumes:
-      - mariadb_data:/var/lib/mysql
+      - postgres_data:/var/lib/postgresql/data
       - ./db/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
-      - ./backups/mariadb:/backup
+      - ./backups/postgres:/backup
 
     ports:
-      - "3306:3306"
+      - "5432:5432"
 
     networks:
       - news_network
@@ -113,7 +112,7 @@ services:
     restart: unless-stopped
 
     healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      test: ["CMD-SHELL", "pg_isready -U newsuser -d newsdb"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -136,7 +135,7 @@ services:
 
 # Named Volumes для персистентного хранения данных
 volumes:
-  mariadb_data:
+  postgres_data:
     driver: local
   app_cache:
     driver: local
@@ -169,7 +168,7 @@ networks:
 #    - Главная страница (новости): http://localhost:8000
 #    - Админ-панель: http://localhost:8000/admin (требует пароль)
 #    - API документация: http://localhost:8000/docs
-#    - База данных: localhost:3306 (newsuser/newspass123)
+#    - База данных: localhost:5432 (newsuser/newspass123)
 #
 # ВАЖНО: Перед запуском замените:
 # - GEMINI_API_KEY на ваш реальный ключ API Google Gemini

@@ -323,7 +323,7 @@ class CategoryService:
         # Now we can be precise - update only articles that originally had this AI category
         from sqlalchemy import text
 
-        # First count affected articles (MariaDB doesn't support RETURNING)
+        # First count affected articles
         # Only count articles that need updating (not already mapped to target category)
         count_result = await self.db.execute(text('''
             SELECT COUNT(*) FROM article_categories

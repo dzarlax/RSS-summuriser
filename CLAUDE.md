@@ -4,10 +4,10 @@
 
 - **Project path**: `/Users/dzarlax/Projects/Code/Personal/RSS-summuriser-1/v2`
 - **Production URL**: https://news.dzarlax.dev
-- **Database**: MariaDB (NOT PostgreSQL — despite old mentions in some files)
-- **DB connection**: `mysql+aiomysql://...` via SQLAlchemy async
+- **Database**: PostgreSQL 16 (migrated from MariaDB)
+- **DB connection**: `postgresql+asyncpg://...` via SQLAlchemy async
 - **AI**: Google Gemini (direct API, not via OpenAI-compatible wrapper)
-- **Dev container**: `v2-app-1`, MariaDB at `192.168.50.5:3306/newsdbdev`
+- **Dev container**: `v2-app-1`, PostgreSQL at `localhost:5432/newsdb`
 
 ## Model Field Names
 
@@ -128,7 +128,7 @@ AI model: gemini-3.1-flash-lite-preview (saves tokens)
 
 ## Common Pitfalls
 
-1. **Wrong DB**: It's MariaDB, not PostgreSQL. No `JSONB`, no `ON CONFLICT DO UPDATE` — use MariaDB syntax.
+1. **DB is PostgreSQL**: Use `JSONB`, `ON CONFLICT DO UPDATE`, `SERIAL`, partial indexes, etc.
 2. **Config field**: `telegram_service_chat_id` is in `Settings` (config.py) and in `get_legacy_config()`.
 3. **`_sidebar.html`** is not used/included anywhere — edit `admin_base.html` for nav changes.
 4. **AI inside write lock**: Don't put async AI calls inside `execute_write` — it blocks all DB operations.

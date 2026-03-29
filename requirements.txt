@@ -3,7 +3,7 @@ fastapi>=0.104.1
 uvicorn[standard]>=0.24.0
 
 # Database
-aiomysql>=0.2.0  # Async MySQL/MariaDB driver
+asyncpg>=0.29.0  # Async PostgreSQL driver
 sqlalchemy[asyncio]>=2.0.23
 
 # HTTP clients

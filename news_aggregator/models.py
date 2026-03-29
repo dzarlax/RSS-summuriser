@@ -202,22 +202,6 @@ class ProcessingStat(Base):
     processing_time_seconds = Column(Integer, default=0)
 
 
-class TaskQueue(Base):
-    """Task queue model."""
-    __tablename__ = "task_queue"
-
-    id = Column(Integer, primary_key=True, index=True)
-    task_type = Column(String(100), nullable=False)
-    task_data = Column(JSON, nullable=False)
-    status = Column(String(20), default="pending")
-    priority = Column(Integer, default=0)
-    attempts = Column(Integer, default=0)
-    max_attempts = Column(Integer, default=3)
-    created_at = Column(DateTime, default=func.now())
-    started_at = Column(DateTime)
-    completed_at = Column(DateTime)
-    error_message = Column(Text)
-
 
 class ScheduleSettings(Base):
     """Schedule settings for automated tasks."""

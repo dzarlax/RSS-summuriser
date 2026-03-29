@@ -9,11 +9,6 @@ from .config import settings
 
 # Create async engine with enhanced connection pool settings
 db_url = settings.database_url
-if db_url.startswith("mysql://") and "+aiomysql" not in db_url:
-    db_url = db_url.replace("mysql://", "mysql+aiomysql://")
-connect_args = {
-    "charset": "utf8mb4",
-}
 
 engine = create_async_engine(
     db_url,
@@ -25,7 +20,6 @@ engine = create_async_engine(
     pool_pre_ping=settings.db_pool_pre_ping,
     pool_recycle=settings.db_pool_recycle,
     pool_reset_on_return='rollback',
-    connect_args=connect_args
 )
 
 # Create async session factory with enhanced settings

@@ -62,11 +62,11 @@ VALUES
     ('publishing', 'Media', 0.7, 'Publishing industry news', 'admin', true),
     ('медиа', 'Media', 0.7, 'Медиа новости', 'admin', true),
     ('журналистика', 'Media', 0.7, 'Новости журналистики', 'admin', true)
-ON DUPLICATE KEY UPDATE
-    fixed_category = VALUES(fixed_category),
-    confidence_threshold = VALUES(confidence_threshold),
-    description = VALUES(description),
-    is_active = VALUES(is_active),
+ON CONFLICT (ai_category) DO UPDATE SET
+    fixed_category = EXCLUDED.fixed_category,
+    confidence_threshold = EXCLUDED.confidence_threshold,
+    description = EXCLUDED.description,
+    is_active = EXCLUDED.is_active,
     updated_at = CURRENT_TIMESTAMP;
 
 -- Verify mappings

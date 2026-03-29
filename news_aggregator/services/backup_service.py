@@ -39,36 +39,35 @@ class BackupService:
 
         # Extract components
         host = parsed.hostname or "localhost"
-        port = str(parsed.port or 3306)
+        port = str(parsed.port or 5432)
         username = parsed.username or "root"
         password = parsed.password or ""
         database = parsed.path.lstrip('/') or "newsdb"
 
         return host, port, username, password, database
 
-    async def _run_mysqldump(self, backup_file: Path) -> bool:
-        """Run mysqldump via Docker container to create database backup."""
+    async def _run_pg_dump(self, backup_file: Path) -> bool:
+        """Run pg_dump via Docker container to create database backup."""
         try:
             host, port, username, password, database = self._parse_database_url()
 
             logger.info(f"Creating database backup: {database} @ {host}:{port}")
 
-            # Build mysqldump command
+            # Build pg_dump command
             cmd = [
-                "docker", "exec", self.container_name,
-                "mysqldump",
+                "docker", "exec",
+                "-e", f"PGPASSWORD={password}",
+                self.container_name,
+                "pg_dump",
                 "-h", host,
-                "-P", port,
-                "-u", username,
-                f"-p{password}",
-                "--single-transaction",
-                "--routines",
-                "--triggers",
-                "--events",
+                "-p", port,
+                "-U", username,
+                "--no-owner",
+                "--no-acl",
                 database
             ]
 
-            # Run mysqldump and redirect output to file
+            # Run pg_dump and redirect output to file
             process = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
@@ -79,7 +78,7 @@ class BackupService:
 
             if process.returncode != 0:
                 error_msg = stderr.decode() if stderr else "Unknown error"
-                logger.error(f"mysqldump failed: {error_msg}")
+                logger.error(f"pg_dump failed: {error_msg}")
                 return False
 
             # Write dump to file
@@ -89,7 +88,7 @@ class BackupService:
             return True
 
         except Exception as e:
-            logger.error(f"Error running mysqldump: {e}")
+            logger.error(f"Error running pg_dump: {e}")
             return False
 
     async def create_backup(self) -> Path:
@@ -113,7 +112,7 @@ class BackupService:
             # 1. Database Backup
             logger.info("Creating database backup...")
             db_dump_file = backup_dir / "database.sql"
-            if not await self._run_mysqldump(db_dump_file):
+            if not await self._run_pg_dump(db_dump_file):
                 raise RuntimeError("Database backup failed")
 
             # 2. Configuration Backup
@@ -150,11 +149,11 @@ class BackupService:
             metadata = {
                 "backup_date": datetime.utcnow().isoformat(),
                 "database": database,
-                "database_type": "MariaDB",
+                "database_type": "PostgreSQL",
                 "version": "v2.0",
                 "host": "internal_hostname",
                 "contents": [
-                    "database.sql - Full MariaDB dump",
+                    "database.sql - Full PostgreSQL dump",
                     ".env - Environment configuration",
                     "docker-compose.yml - Docker configuration",
                     "data/ - Application data files",
