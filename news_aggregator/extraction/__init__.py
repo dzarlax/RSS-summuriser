@@ -12,35 +12,52 @@ from .extraction_utils import ExtractionUtils
 from .extraction_logger import ExtractionLogger, get_extraction_logger
 
 
+# Shared ExtractionStrategies singleton — reuses one Playwright connection
+_shared_strategies: "ExtractionStrategies | None" = None
+
+
+def _get_shared_strategies() -> ExtractionStrategies:
+    """Get or create the shared ExtractionStrategies instance."""
+    global _shared_strategies
+    if _shared_strategies is None:
+        utils = ExtractionUtils()
+        html_proc = HTMLProcessor(utils)
+        date_ext = DateExtractor(utils)
+        meta_ext = MetadataExtractor(utils)
+        _shared_strategies = ExtractionStrategies(utils, html_proc, date_ext, meta_ext)
+    return _shared_strategies
+
+
 class ContentExtractor:
     """
     Main content extractor that delegates to specialized components.
-    
+
     This is a facade that provides the same interface as the original
     monolithic ContentExtractor but uses modular components internally.
+
+    ExtractionStrategies (and its Playwright connection) is shared across
+    all instances to avoid spawning a new Node.js process per extraction.
     """
-    
+
     def __init__(self):
-        # Initialize all specialized components
-        self.utils = ExtractionUtils()
-        self.html_processor = HTMLProcessor(self.utils)
-        self.date_extractor = DateExtractor(self.utils)
-        self.metadata_extractor = MetadataExtractor(self.utils)
-        self.extraction_strategies = ExtractionStrategies(
-            self.utils, self.html_processor, self.date_extractor, self.metadata_extractor
-        )
+        strategies = _get_shared_strategies()
+        self.utils = strategies.utils
+        self.html_processor = strategies.html_processor
+        self.date_extractor = strategies.date_extractor
+        self.metadata_extractor = strategies.metadata_extractor
+        self.extraction_strategies = strategies
         self.core_extractor = CoreExtractor(
             self.utils, self.html_processor, self.extraction_strategies
         )
         _ACTIVE_EXTRACTORS.add(self)
-    
+
     async def __aenter__(self):
         """Async context manager entry."""
-        return await self.core_extractor.__aenter__()
-    
+        return self
+
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit."""
-        return await self.core_extractor.__aexit__(exc_type, exc_val, exc_tb)
+        """Async context manager exit — does NOT close shared browser."""
+        pass
     
     async def close_browser(self):
         """Close browser if open."""

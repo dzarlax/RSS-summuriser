@@ -599,9 +599,19 @@ class ExtractionStrategies:
             logger.warning(f"    ⚠️ Failed to record failure: {e}")
     async def _ensure_browser(self):
         """Ensure browser is available — connects to remote WS endpoint if configured,
-        otherwise launches a local Chromium instance (dev fallback)."""
+        otherwise launches a local Chromium instance (dev fallback).
+
+        For remote browsers, both the Playwright context and the browser connection
+        are reused across calls to avoid spawning a new Node.js process each time.
+        """
         if self.browser:
-            return
+            try:
+                # Verify connection is still alive
+                self.browser.contexts  # noqa: B018 — triggers error if disconnected
+                return
+            except Exception:
+                logger.warning("      ⚠️ Browser connection lost, reconnecting...")
+                self.browser = None
 
         from ..config import settings
         ws_endpoint = settings.browser_ws_endpoint
