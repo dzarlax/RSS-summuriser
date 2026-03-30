@@ -175,34 +175,13 @@ class PageMonitorSource(BaseSource):
     async def __aenter__(self):
         """Initialize browser if needed."""
         if self.config.use_browser and not self.browser:
-            from ..config import settings
-            self._playwright = await async_playwright().start()
-            ws_endpoint = settings.browser_ws_endpoint
-            if ws_endpoint:
-                self.browser = await self._playwright.chromium.connect(ws_endpoint=ws_endpoint)
-            else:
-                self.browser = await self._playwright.chromium.launch(
-                    headless=True,
-                    args=[
-                        '--no-sandbox',
-                        '--disable-dev-shm-usage',
-                        '--disable-blink-features=AutomationControlled',
-                        '--disable-web-security',
-                        '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
-                    ]
-                )
+            from ..core.browser_pool import get_browser
+            self.browser = await get_browser()
         return self
     
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Close browser. For remote, only disconnect — don't kill the server."""
-        from ..config import settings
-        is_remote = bool(settings.browser_ws_endpoint)
-        if self.browser:
-            await self.browser.close()
-            self.browser = None
-        if self._playwright and not is_remote:
-            await self._playwright.stop()
-            self._playwright = None
+        """No-op — browser lifecycle is managed by the shared pool."""
+        self.browser = None
     
     async def fetch_articles(self) -> List[Article]:
         """Fetch new articles by monitoring page changes."""

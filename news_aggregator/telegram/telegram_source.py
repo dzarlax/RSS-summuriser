@@ -184,14 +184,9 @@ class TelegramSource(BaseSource):
         
         try:
             if not self.browser:
-                from ..config import settings
-                self._playwright = await async_playwright().start()
-                ws_endpoint = settings.browser_ws_endpoint
-                if ws_endpoint:
-                    self.browser = await self._playwright.chromium.connect(ws_endpoint=ws_endpoint)
-                    logger.info(f"  🔗 Connected to remote browser at {ws_endpoint}")
-                else:
-                    self.browser = await self._playwright.chromium.launch(headless=True)
+                from ..core.browser_pool import get_browser
+                self.browser = await get_browser()
+                logger.info(f"  🔗 Using shared browser pool")
             
             context = await self.browser.new_context()
             page = await context.new_page()
@@ -245,13 +240,8 @@ class TelegramSource(BaseSource):
             raise SourceError("All browser methods failed")
             
         except Exception as e:
-            from ..config import settings
-            if self.browser and not settings.browser_ws_endpoint:
-                await self.browser.close()
-                self.browser = None
-            if self._playwright and not settings.browser_ws_endpoint:
-                await self._playwright.stop()
-                self._playwright = None
+            # Don't close shared browser — just clear local reference
+            self.browser = None
             raise SourceError(f"Browser access failed: {e}")
     
     async def _parse_html(self, html: str, base_url: str) -> List[Article]:
@@ -319,19 +309,5 @@ class TelegramSource(BaseSource):
     
     async def close(self):
         """Clean up resources. For remote browser, only disconnect — don't kill the server."""
-        from ..config import settings
-        is_remote = bool(settings.browser_ws_endpoint)
-        if self.browser:
-            try:
-                await self.browser.close()
-            except Exception as e:
-                logger.info(f"Error closing browser: {e}")
-            finally:
-                self.browser = None
-        if self._playwright and not is_remote:
-            try:
-                await self._playwright.stop()
-            except Exception as e:
-                logger.info(f"Error stopping Playwright: {e}")
-            finally:
-                self._playwright = None
+        # Browser lifecycle is managed by the shared pool
+        self.browser = None

@@ -598,102 +598,10 @@ class ExtractionStrategies:
         except Exception as e:
             logger.warning(f"    ⚠️ Failed to record failure: {e}")
     async def _ensure_browser(self):
-        """Ensure browser is available — connects to remote WS endpoint if configured,
-        otherwise launches a local Chromium instance (dev fallback).
-
-        For remote browsers, both the Playwright context and the browser connection
-        are reused across calls to avoid spawning a new Node.js process each time.
-        """
-        if self.browser:
-            try:
-                # Verify connection is still alive
-                self.browser.contexts  # noqa: B018 — triggers error if disconnected
-                return
-            except Exception:
-                logger.warning("      ⚠️ Browser connection lost, reconnecting...")
-                self.browser = None
-
-        from ..config import settings
-        ws_endpoint = settings.browser_ws_endpoint
-
-        if not self._playwright_context:
-            logger.info(f"      🚀 Starting Playwright context...")
-            self._playwright_context = await async_playwright().start()
-
-        if ws_endpoint:
-            # --- Remote browser via WebSocket (production) ---
-            try:
-                logger.info(f"      🔗 Connecting to remote browser at {ws_endpoint}...")
-                self.browser = await self._playwright_context.chromium.connect(
-                    ws_endpoint=ws_endpoint
-                )
-                logger.info(f"      ✅ Connected to remote browser")
-            except Exception as e:
-                logger.error(f"      ❌ Failed to connect to remote browser: {e}")
-                raise
-        else:
-            # --- Local browser (dev / fallback when no WS endpoint set) ---
-            launch_attempts = 3
-            last_error = None
-            for launch_attempt in range(1, launch_attempts + 1):
-                try:
-                    logger.info(f"      🚀 Launching local Chromium (attempt {launch_attempt}/{launch_attempts})...")
-                    self.browser = await self._playwright_context.chromium.launch(
-                        headless=True,
-                        args=["--no-sandbox", "--disable-setuid-sandbox"],
-                    )
-                    logger.info(f"      ✅ Local browser launched")
-                    return
-                except Exception as e:
-                    last_error = e
-                    logger.warning(f"      ⚠️ Browser launch attempt {launch_attempt} failed: {e}")
-                    if self.browser:
-                        try:
-                            await self.browser.close()
-                        except Exception:
-                            pass
-                        self.browser = None
-                    if launch_attempt < launch_attempts:
-                        await asyncio.sleep(1)
-                    else:
-                        logger.error(f"      ❌ All local browser launch attempts failed")
-                        if self._playwright_context:
-                            try:
-                                await self._playwright_context.stop()
-                            except Exception:
-                                pass
-                            self._playwright_context = None
-                        raise last_error
+        """Ensure browser is available via the shared browser pool."""
+        from ..core.browser_pool import get_browser
+        self.browser = await get_browser()
 
     async def close_browser(self):
-        """Close browser and stop Playwright context.
-
-        For remote browsers (ws_endpoint set): only disconnect, don't close the server.
-        For local browsers: close the process and stop playwright context.
-        """
-        from ..config import settings
-        is_remote = bool(settings.browser_ws_endpoint)
-
-        if self.browser:
-            try:
-                if is_remote:
-                    # Remote: just disconnect, leave the browser server running
-                    await self.browser.close()
-                    logger.debug("      🔌 Disconnected from remote browser")
-                else:
-                    await self.browser.close()
-                    logger.info("      ✅ Local browser closed")
-            except Exception as e:
-                logger.warning(f"      ⚠️ Error closing browser: {e}")
-            self.browser = None
-
-        if self._playwright_context and not is_remote:
-            try:
-                await self._playwright_context.stop()
-                logger.info("      ✅ Playwright context stopped")
-            except Exception as e:
-                logger.warning(f"      ⚠️ Error stopping Playwright: {e}")
-            self._playwright_context = None
-        elif self._playwright_context and is_remote:
-            # Keep playwright context alive for remote — reused across calls
-            pass
+        """No-op — browser lifecycle is managed by the shared pool."""
+        pass
