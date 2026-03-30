@@ -391,11 +391,27 @@ class NewsOrchestrator:
                             summary = summary_result.get('summary') if isinstance(summary_result, dict) else summary_result
                             optimized_title = summary_result.get('optimized_title') if isinstance(summary_result, dict) else None
                             if summary:
-                                article_data['summary'] = summary
-                                async with _lock:
-                                    summarized_count += 1
+                                # Don't save summary if it describes a blocked/error page
+                                _bad_summary_markers = [
+                                    'недоступен', 'защиты от ботов', 'just a moment',
+                                    'access denied', 'cloudflare', 'enable javascript',
+                                    'checking your browser', 'temporarily unavailable',
+                                ]
+                                if not any(m in summary.lower() for m in _bad_summary_markers):
+                                    article_data['summary'] = summary
+                                    async with _lock:
+                                        summarized_count += 1
+                                else:
+                                    logger.warning(f"  ⚠️ Skipped error-page summary for {article_url}")
                             if optimized_title and optimized_title != article_data.get('title'):
-                                article_data['title'] = optimized_title
+                                # Don't overwrite good RSS title with error page titles
+                                _bad_title_markers = [
+                                    'ошибка', 'just a moment', 'access denied', 'forbidden',
+                                    'cloudflare', 'captcha', 'robot', 'bot detection',
+                                    'please wait', 'checking your browser', 'temporarily unavailable',
+                                ]
+                                if not any(m in optimized_title.lower() for m in _bad_title_markers):
+                                    article_data['title'] = optimized_title
 
                         if not article_data['category_processed']:
                             async with _lock:
