@@ -275,7 +275,38 @@ class ExtractionStrategies:
         extraction_memory = await get_extraction_memory()
         learned_pattern = await extraction_memory.get_successful_pattern(domain)
 
-        if learned_pattern and shared_soup:
+        # If learned pattern requires browser, skip HTTP strategies and go straight to browser
+        if learned_pattern and learned_pattern.get("method") == "browser_rendering":
+            logger.info(f"    📚 Learned pattern for {domain} requires browser — jumping to Strategy 4")
+            selector = learned_pattern.get("selector")
+            try:
+                content, sel, browser_html = await self._extract_with_browser_and_html(url)
+                if content and self.utils.is_good_content(content, is_full_article=True):
+                    # Try learned selector on browser-rendered HTML
+                    if selector and browser_html:
+                        b_soup = BeautifulSoup(browser_html, "html.parser")
+                        elements = b_soup.select(selector)
+                        if elements:
+                            sel_content = self.html_processor.clean_text(
+                                elements[0].get_text(separator=" ", strip=True)
+                            )
+                            if sel_content and len(sel_content) > len(content or ''):
+                                content = sel_content
+                                sel = selector
+                    if await self._is_high_quality_content(content, url=url):
+                        result["content"] = content
+                        result["selector_used"] = sel
+                        result["method_used"] = "learned_pattern_browser_rendering"
+                        if browser_html:
+                            _fill_metadata(result, BeautifulSoup(browser_html, "html.parser"))
+                        await self.record_extraction_success(
+                            domain, "browser_rendering", sel, len(content)
+                        )
+                        return result
+            except Exception as e:
+                logger.error(f"    ❌ Learned browser pattern failed: {e}")
+
+        elif learned_pattern and shared_soup:
             logger.info(f"    📚 Trying learned pattern for {domain}")
             selector = learned_pattern.get("selector")
             try:
