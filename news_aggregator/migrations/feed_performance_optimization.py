@@ -46,13 +46,6 @@ class FeedPerformanceOptimization(BaseMigration):
             """))
             migration_result['indexes_created'] += 1
 
-            # Composite index for category filtering + ordering
-            await db.execute(text("""
-                CREATE INDEX IF NOT EXISTS idx_articles_category_fetched_at
-                ON articles(category, fetched_at DESC)
-            """))
-            migration_result['indexes_created'] += 1
-
             # Index for advertisement filtering
             await db.execute(text("""
                 CREATE INDEX IF NOT EXISTS idx_articles_is_ad_fetched_at
