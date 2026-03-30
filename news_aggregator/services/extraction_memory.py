@@ -2,6 +2,7 @@ import logging
 """Extraction memory service with database persistence."""
 
 import asyncio
+from collections import deque
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -11,6 +12,11 @@ from sqlalchemy import text
 from ..database import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
+
+# Limits to prevent unbounded memory growth
+MAX_ATTEMPTS_IN_MEMORY = 500
+MAX_PATTERNS_PER_DOMAIN = 50
+MAX_DOMAINS_STATS = 500
 
 
 @dataclass
@@ -58,7 +64,7 @@ class ExtractionMemoryService:
     def __init__(self):
         # In-memory cache for fast lookups
         self._patterns: Dict[str, List[ExtractionMemoryEntry]] = {}
-        self._attempts: List[ExtractionAttempt] = []
+        self._attempts: deque = deque(maxlen=MAX_ATTEMPTS_IN_MEMORY)
         self._domain_stats: Dict[str, Dict] = {}
         self._initialized = False
         self._init_lock = asyncio.Lock()
@@ -212,6 +218,13 @@ class ExtractionMemoryService:
             # Update in-memory stats
             domain = attempt.domain
             if domain not in self._domain_stats:
+                # Evict least-active domain if over limit
+                if len(self._domain_stats) >= MAX_DOMAINS_STATS:
+                    least_active = min(
+                        self._domain_stats,
+                        key=lambda d: self._domain_stats[d]['total_attempts'],
+                    )
+                    del self._domain_stats[least_active]
                 self._domain_stats[domain] = {
                     'total_attempts': 0,
                     'successful_attempts': 0,
@@ -318,8 +331,25 @@ class ExtractionMemoryService:
 
             # Save to database
             asyncio.create_task(self._save_pattern_to_db(pattern))
-        
+
+        # Evict dead patterns if over limit
+        self._evict_patterns(domain)
+
         logger.info(f"  🎯 Updated pattern: {selector[:40]}... for {domain}")
+
+    def _evict_patterns(self, domain: str):
+        """Remove low-quality patterns to keep memory bounded."""
+        patterns = self._patterns.get(domain, [])
+        if len(patterns) <= MAX_PATTERNS_PER_DOMAIN:
+            return
+
+        # Sort: keep high success_rate and recent patterns, evict old failures
+        patterns.sort(
+            key=lambda p: (p.success_rate, p.success_count, -(p.consecutive_failures)),
+            reverse=True,
+        )
+        self._patterns[domain] = patterns[:MAX_PATTERNS_PER_DOMAIN]
+
     async def _add_failed_pattern(
         self, domain: str, selector: str, strategy: str
     ) -> None:

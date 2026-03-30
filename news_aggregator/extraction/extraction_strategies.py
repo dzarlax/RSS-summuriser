@@ -277,8 +277,8 @@ class ExtractionStrategies:
 
         if learned_pattern and shared_soup:
             logger.info(f"    📚 Trying learned pattern for {domain}")
+            selector = learned_pattern.get("selector")
             try:
-                selector = learned_pattern.get("selector")
                 elements = shared_soup.select(selector) if selector else []
                 if elements:
                     content = self.html_processor.clean_text(
@@ -295,9 +295,21 @@ class ExtractionStrategies:
                             learned_pattern.get("method", "unknown")
                         )
                         _fill_metadata(result, shared_soup)
+                        await self.record_extraction_success(
+                            domain, result["method_used"], selector, len(content)
+                        )
                         return result
+                # Learned pattern didn't produce good content — degrade it
+                logger.warning(f"    ⬇️ Learned pattern produced no/bad content for {domain}")
+                await extraction_memory.degrade_pattern(
+                    domain, selector, learned_pattern.get("method", "unknown")
+                )
             except Exception as e:
                 logger.error(f"    ❌ Learned pattern failed: {e}")
+                if selector:
+                    await extraction_memory.degrade_pattern(
+                        domain, selector, learned_pattern.get("method", "unknown")
+                    )
 
         # Strategy 2: Enhanced HTML selectors (cheaper than readability — try first)
         if shared_soup:
@@ -315,6 +327,9 @@ class ExtractionStrategies:
                     result["selector_used"] = selector
                     result["method_used"] = "enhanced_selectors"
                     _fill_metadata(result, shared_soup)
+                    await self.record_extraction_success(
+                        domain, "enhanced_selectors", selector, len(content)
+                    )
                     return result
             except Exception as e:
                 logger.error(f"    ❌ Enhanced selectors failed: {e}")
@@ -339,6 +354,9 @@ class ExtractionStrategies:
                         result["method_used"] = "readability"
                         if shared_soup:
                             _fill_metadata(result, shared_soup)
+                        await self.record_extraction_success(
+                            domain, "readability", "readability", len(content)
+                        )
                         return result
             except Exception as e:
                 logger.error(f"    ❌ Readability extraction failed: {e}")
@@ -354,6 +372,9 @@ class ExtractionStrategies:
                 result["content"] = content
                 result["selector_used"] = selector
                 result["method_used"] = "browser_rendering"
+                await self.record_extraction_success(
+                    domain, "browser_rendering", selector, len(content)
+                )
 
                 # Use HTML from the same browser session — no second request
                 if browser_html:
@@ -396,9 +417,15 @@ class ExtractionStrategies:
                     result["selector_used"] = selector
                     result["method_used"] = "fallback_extraction"
                     _fill_metadata(result, soup)
+                    await self.record_extraction_success(
+                        domain, "fallback_extraction", selector, len(content)
+                    )
                     return result
         except Exception as e:
             logger.error(f"    ❌ Fallback extraction failed: {e}")
+
+        # All strategies failed — record failure for the domain
+        await self.record_extraction_failure(domain, "all_strategies", "No strategy produced content")
         return result
 
     async def _extract_with_browser_and_html(

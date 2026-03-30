@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import time
+from collections import deque
 from typing import Dict, Optional, Any
 from contextlib import asynccontextmanager
 
@@ -19,23 +20,24 @@ class RateLimiter:
     def __init__(self, max_calls: int, time_window: float = 1.0):
         self.max_calls = max_calls
         self.time_window = time_window
-        self.calls = []
+        self.calls: deque = deque()
         self.lock = asyncio.Lock()
-    
+
     async def acquire(self):
         """Acquire permission to make a call."""
         async with self.lock:
             now = time.time()
             # Remove old calls outside the time window
-            self.calls = [call_time for call_time in self.calls if now - call_time < self.time_window]
-            
+            while self.calls and now - self.calls[0] >= self.time_window:
+                self.calls.popleft()
+
             if len(self.calls) >= self.max_calls:
                 # Wait until we can make another call
                 sleep_time = self.time_window - (now - self.calls[0])
                 if sleep_time > 0:
                     await asyncio.sleep(sleep_time)
                     return await self.acquire()
-            
+
             self.calls.append(now)
 
 

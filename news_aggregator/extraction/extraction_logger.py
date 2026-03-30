@@ -81,6 +81,12 @@ class ExtractionLogger:
 
     def start_extraction(self, url: str, domain: str) -> ExtractionMetrics:
         """Start tracking an extraction operation."""
+        # Evict stale metrics (older than 10 minutes) to prevent leaks
+        now = time.time()
+        stale = [u for u, m in self._current_metrics.items() if now - m.start_time > 600]
+        for u in stale:
+            self._current_metrics.pop(u, None)
+
         metrics = ExtractionMetrics(domain=domain, url=url)
         self._current_metrics[url] = metrics
         logger.info(f"Starting extraction", extra={
