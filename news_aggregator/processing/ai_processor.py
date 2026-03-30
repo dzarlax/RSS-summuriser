@@ -818,12 +818,30 @@ class AIProcessor:
 
         try:
             if source_type == 'rss':
+                rss_content = article.content or ''
+                # Try extracting from page first (may have richer content)
                 ai_result = await self.ai_client.get_article_summary_with_metadata(article.url)
                 stats['api_calls_made'] += 1
                 self._update_article_publication_date(article, ai_result.get('publication_date'), 'RSS')
+
+                summary = ai_result.get('summary')
+                optimized_title = ai_result.get('optimized_title')
+
+                # If page extraction failed but RSS has content, use it as fallback
+                if not summary and len(rss_content.strip()) >= 100:
+                    logger.info(f"  📄 Page extraction failed, falling back to RSS content ({len(rss_content)} chars)")
+                    fallback_result = await self.ai_client.analyze_article_complete(
+                        title=article.title or '',
+                        content=rss_content,
+                        url=article.url,
+                    )
+                    stats['api_calls_made'] += 1
+                    summary = (fallback_result or {}).get('summary')
+                    optimized_title = (fallback_result or {}).get('optimized_title')
+
                 return _make(
-                    ai_result.get('summary') or article.content or article.title,
-                    ai_result.get('optimized_title'),
+                    summary or rss_content[:500] or article.title,
+                    optimized_title,
                 )
 
             elif source_type == 'telegram':
