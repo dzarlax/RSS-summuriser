@@ -47,7 +47,7 @@ db-shell: ## Open MariaDB shell (external database)
 
 build: ## Build Docker image
 	@echo "🏗️ Building Docker image..."
-	docker build -f docker/Dockerfile -t dzarlax/rss-summarizer:latest \
+	docker build -f docker/Dockerfile -t ghcr.io/dzarlax/rss-summarizer:latest \
 		--build-arg BUILDTIME="$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')" \
 		--build-arg VERSION="$(shell git describe --tags --always 2>/dev/null || echo 'dev')" \
 		--build-arg REVISION="$(shell git rev-parse --short HEAD 2>/dev/null || echo 'unknown')" \
@@ -56,7 +56,7 @@ build: ## Build Docker image
 
 push: build ## Build and push Docker image to registry
 	@echo "🚀 Pushing Docker image to registry..."
-	docker push dzarlax/rss-summarizer:latest
+	docker push ghcr.io/dzarlax/rss-summarizer:latest
 	@echo "✅ Docker image pushed successfully!"
 
 prod: ## Start production environment
