@@ -613,9 +613,10 @@ class NewsOrchestrator:
 
                 await db.execute(
                     text(
-                        "INSERT IGNORE INTO article_categories "
+                        "INSERT INTO article_categories "
                         "(article_id, category_id, confidence, ai_category, created_at) "
-                        "VALUES (:article_id, :category_id, :confidence, :ai_category, now())"
+                        "VALUES (:article_id, :category_id, :confidence, :ai_category, now()) "
+                        "ON CONFLICT (article_id, category_id) DO NOTHING"
                     ),
                     {
                         'article_id': article_id,
