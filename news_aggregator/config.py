@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     admin_password: Optional[str] = Field(default=None, alias="ADMIN_PASSWORD")
     jwt_secret: Optional[str] = Field(default=None, alias="JWT_SECRET")
     trust_forward_auth: bool = Field(default=False, alias="TRUST_FORWARD_AUTH")
+    ga_measurement_id: Optional[str] = Field(default=None, alias="GA_MEASUREMENT_ID")
     
     # Processing
     max_workers: int = Field(default=5, alias="MAX_WORKERS")

@@ -6,6 +6,16 @@
     <title>{% block title %}Evening News v2{% endblock %}</title>
     <link href="/static/css/main.css" rel="stylesheet">
     <script src="/static/js/main.js"></script>
+    {% if config.ga_measurement_id %}
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id={{ config.ga_measurement_id }}"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', '{{ config.ga_measurement_id }}');
+    </script>
+    {% endif %}
     {% block extra_css %}{% endblock %}
 </head>
 <body>

@@ -195,6 +195,7 @@ app.mount("/static", StaticFiles(directory="web/static"), name="static")
 
 # Шаблоны
 templates = Jinja2Templates(directory="web/templates")
+templates.env.globals["config"] = settings
 
 # API routes - New modular architecture
 from .api import router as api_router
