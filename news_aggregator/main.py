@@ -262,6 +262,23 @@ async def auth_status():
     return get_admin_auth_status()
 
 
+@app.get("/api/public/admin-check")
+async def admin_check(request: Request):
+    """Check if current user has admin access (via Authentik or JWT cookie)."""
+    from .config import settings
+    from .security import verify_jwt_token
+    # Authentik ForwardAuth
+    if settings.trust_forward_auth and request.headers.get("X-authentik-username"):
+        return {"admin": True, "user": request.headers.get("X-authentik-username")}
+    # JWT cookie
+    cookie_token = request.cookies.get("admin_token")
+    if cookie_token:
+        payload = verify_jwt_token(cookie_token)
+        if payload and payload.get("level") == "admin":
+            return {"admin": True, "user": payload.get("sub", "admin")}
+    return {"admin": False}
+
+
 if __name__ == "__main__":
     import sys
     

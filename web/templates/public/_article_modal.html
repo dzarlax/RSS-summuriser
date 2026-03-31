@@ -1215,7 +1215,7 @@ function showAdminButton() {
 function updateAdminAccessIndicator() {
     const adminBtn = document.getElementById('adminAccessBtn');
     if (!adminBtn) return;
-    
+
     if (window.adminAccessVerified === true) {
         adminBtn.classList.add('admin-verified');
         adminBtn.innerHTML = '🔓';
@@ -1225,7 +1225,6 @@ function updateAdminAccessIndicator() {
         adminBtn.classList.remove('admin-verified');
         adminBtn.innerHTML = '🔐';
         adminBtn.title = 'Вход в админ-режим';
-        // Hide admin button
         const refreshBtn = document.getElementById('modalRefreshBtn');
         if (refreshBtn) {
             refreshBtn.style.display = 'none';
@@ -1235,83 +1234,44 @@ function updateAdminAccessIndicator() {
 
 window.toggleAdminAccess = async function() {
     if (window.adminAccessVerified === true) {
-        // Already verified - just show message
-        alert('Админ-режим уже активен');
+        window.location.href = '/admin/';
         return;
     }
-    
-    const adminBtn = document.getElementById('adminAccessBtn');
-    const originalContent = adminBtn.innerHTML;
-    
-    try {
-        adminBtn.innerHTML = '⏳';
-        adminBtn.disabled = true;
-        
-        await checkAdminAccess();
-        
-        if (window.adminAccessVerified === true) {
-            updateAdminAccessIndicator();
-            // Small celebration
-            setTimeout(() => {
-                alert('✅ Админ-режим активирован!');
-            }, 100);
-        } else {
-            alert('❌ Доступ запрещён. Войдите в админку: /admin/');
-        }
-        
-    } catch (error) {
-        console.error('Admin access toggle failed:', error);
-        alert('❌ Ошибка проверки доступа');
-    } finally {
-        adminBtn.disabled = false;
-        if (window.adminAccessVerified !== true) {
-            adminBtn.innerHTML = originalContent;
-        }
-    }
+    // Not logged in — redirect to admin (Authentik will handle login)
+    window.location.href = '/admin/';
 };
 
 async function checkAdminAccess() {
-    // Only check if not already verified
     if (window.adminAccessVerified === true) {
         showAdminButton();
         return;
     }
-    
+
     try {
-        console.log('Checking admin access...');
-        
-        // Try to access admin endpoint to check if user has admin rights
-        const response = await fetch('/admin/', {
-            method: 'GET',
-            credentials: 'include',  // Include cookies for auth
+        const response = await fetch('/api/public/admin-check', {
+            credentials: 'include',
             cache: 'no-cache'
         });
-        
+
         if (response.ok) {
-            console.log('Admin access confirmed');
-            // User has admin access - cache result and show button
-            window.adminAccessVerified = true;
-            showAdminButton();
-        } else {
-            console.log('No admin access - response:', response.status);
-            window.adminAccessVerified = false;
+            const data = await response.json();
+            if (data.admin) {
+                window.adminAccessVerified = true;
+                showAdminButton();
+                updateAdminAccessIndicator();
+            }
         }
     } catch (error) {
-        // Admin access check failed - keep button hidden
-        console.log('No admin access detected:', error.message);
-        window.adminAccessVerified = false;
+        console.log('Admin check failed:', error.message);
     }
 }
+
+// Auto-check admin access on page load
+checkAdminAccess();
 
 window.refreshArticle = async function() {
     if (!currentArticleId) {
         alert('Ошибка: ID статьи не найден');
-        return;
-    }
-    
-    // Check admin access before proceeding
-    if (window.adminAccessVerified !== true) {
-        alert('❌ Для обновления статей сначала активируйте админ-режим (нажмите 🔐)');
         return;
     }
     
