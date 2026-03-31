@@ -34,24 +34,21 @@ def create_api_router() -> APIRouter:
     router.include_router(summaries_router, prefix="/summaries", tags=["summaries"], dependencies=[Depends(require_admin)])
     
     # Add category-mappings alias endpoints for frontend compatibility
-    @router.get("/category-mappings", tags=["category-mappings"])
+    @router.get("/category-mappings", tags=["category-mappings"], dependencies=[Depends(require_admin)])
     async def get_category_mappings_alias(active_only: bool = True, db=Depends(get_db)):
         from .categories_router import get_category_mappings
         return await get_category_mappings(active_only=active_only, db=db)
-    
-    @router.get("/category-mappings/fixed-categories", tags=["category-mappings"])  
+
+    @router.get("/category-mappings/fixed-categories", tags=["category-mappings"], dependencies=[Depends(require_admin)])
     async def get_fixed_categories_alias(db=Depends(get_db)):
-        from .categories_router import get_fixed_categories
         from ..models import Category
         from sqlalchemy import select
-        
-        # Get categories with display names for frontend
+
         result = await db.execute(
             select(Category.name, Category.display_name).order_by(Category.name)
         )
         categories = result.all()
-        
-        # Format for frontend compatibility
+
         formatted_categories = [
             {
                 "key": cat.name,
@@ -59,39 +56,38 @@ def create_api_router() -> APIRouter:
             }
             for cat in categories
         ]
-        
+
         return {"categories": formatted_categories}
-    
-    @router.get("/category-mappings/unmapped", tags=["category-mappings"])
+
+    @router.get("/category-mappings/unmapped", tags=["category-mappings"], dependencies=[Depends(require_admin)])
     async def get_unmapped_categories_alias(limit: int = 100, db=Depends(get_db)):
         from .categories_router import get_unmapped_ai_categories
         return await get_unmapped_ai_categories(limit=limit, db=db)
-    
-    @router.post("/category-mappings", tags=["category-mappings"])
+
+    @router.post("/category-mappings", tags=["category-mappings"], dependencies=[Depends(require_admin)])
     async def create_category_mapping_alias(payload: dict, db=Depends(get_db)):
         from .categories_router import create_category_mapping, CategoryMappingRequest
-        # Convert dict to CategoryMappingRequest
         mapping_request = CategoryMappingRequest(**payload)
         return await create_category_mapping(payload=mapping_request, db=db)
 
-    @router.put("/category-mappings/{mapping_id}", tags=["category-mappings"])
+    @router.put("/category-mappings/{mapping_id}", tags=["category-mappings"], dependencies=[Depends(require_admin)])
     async def update_category_mapping_alias(mapping_id: int, payload: dict, db=Depends(get_db)):
         from .categories_router import update_category_mapping, CategoryMappingRequest
         mapping_request = CategoryMappingRequest(**payload)
         return await update_category_mapping(mapping_id=mapping_id, payload=mapping_request, db=db)
 
-    @router.delete("/category-mappings/{mapping_id}", tags=["category-mappings"])
+    @router.delete("/category-mappings/{mapping_id}", tags=["category-mappings"], dependencies=[Depends(require_admin)])
     async def delete_category_mapping_alias(mapping_id: int, db=Depends(get_db)):
         from .categories_router import delete_category_mapping
         return await delete_category_mapping(mapping_id=mapping_id, db=db)
 
-    @router.post("/category-mappings/{mapping_id}/toggle", tags=["category-mappings"])
+    @router.post("/category-mappings/{mapping_id}/toggle", tags=["category-mappings"], dependencies=[Depends(require_admin)])
     async def toggle_category_mapping_alias(mapping_id: int, db=Depends(get_db)):
         from .categories_router import toggle_category_mapping
         return await toggle_category_mapping(mapping_id=mapping_id, db=db)
 
     # Add backups alias endpoint for frontend compatibility
-    @router.get("/backups", tags=["backup"])
+    @router.get("/backups", tags=["backup"], dependencies=[Depends(require_admin)])
     async def list_backups_alias():
         from .backup_router import list_backups
         return await list_backups()

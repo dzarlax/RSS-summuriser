@@ -160,7 +160,12 @@ def _try_basic_auth_from_header(request: Request) -> Optional[Dict[str, Any]]:
 
 
 async def get_current_user(request: Request) -> Dict[str, Any]:
-    """Get current user from JWT token or Basic auth (for admin UI fetches)."""
+    """Get current user from Authentik ForwardAuth, JWT token, or Basic auth."""
+    # Authentik ForwardAuth: trust X-authentik-username when reverse proxy handles auth
+    if settings.trust_forward_auth:
+        authentik_user = request.headers.get("X-authentik-username")
+        if authentik_user:
+            return {"sub": authentik_user, "level": SecurityLevel.ADMIN}
     # Try JWT from Authorization header
     authorization: str = request.headers.get("Authorization")
     if authorization:
