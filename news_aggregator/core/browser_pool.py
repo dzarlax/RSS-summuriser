@@ -61,36 +61,44 @@ async def get_browser() -> uc.Browser:
 
             logger.info(f"  Connecting to remote Chrome via CDP at {host}:{port}...")
             
+            # Resolve hostname to IP address to bypass Chrome's Host header restrictions.
+            # Chrome DevTools rejects requests to /json/version if the Host header is a non-localhost hostname.
+            import socket
+            try:
+                ip_addr = socket.gethostbyname(host)
+                logger.info(f"  Resolved hostname '{host}' to IP '{ip_addr}'")
+                actual_host = ip_addr
+            except Exception as e:
+                logger.warning(f"  Failed to resolve hostname '{host}': {e}")
+                actual_host = host
+            
             # Pre-flight check: can we even reach the port?
             try:
                 # Direct TCP check to distinguish between network and nodriver issues
-                conn = asyncio.open_connection(host, port)
+                conn = asyncio.open_connection(actual_host, port)
                 reader, writer = await asyncio.wait_for(conn, timeout=3.0)
                 writer.close()
                 await writer.wait_closed()
-                logger.info(f"  ✅ Network check: {host}:{port} is reachable")
+                logger.info(f"  ✅ Network check: {actual_host}:{port} is reachable")
             except Exception as e:
-                error_msg = f"Network check failed for {host}:{port}: {e}"
+                error_msg = f"Network check failed for {actual_host}:{port} ({host}): {e}"
                 logger.error(f"  ❌ {error_msg}")
                 if os.path.exists('/.dockerenv'):
                     raise RuntimeError(error_msg)
 
-            import sys
             try:
-                # Use Browser.create() from nodriver.core.browser instead of uc.start()
-                # Pass a dummy browser_executable_path to bypass the bug in nodriver's Config
-                # which aggressively checks for a local Chrome binary even for remote connections.
-                _browser = await Browser.create(
-                    host=host,
+                # Pass the resolved IP address to nodriver so it can successfully
+                # request /json/version without being blocked by Chrome's Host header policy.
+                _browser = await uc.start(
+                    host=actual_host,
                     port=port,
-                    browser_executable_path=sys.executable
                 )
                 logger.info("  Connected to remote Chrome via CDP")
             except Exception as e:
-                logger.error(f"  Failed to connect to remote Chrome at {host}:{port}: {e}")
+                logger.error(f"  Failed to connect to remote Chrome at {actual_host}:{port}: {e}")
                 # In Docker, we shouldn't try to launch a local browser if remote fails
                 if os.path.exists('/.dockerenv'):
-                    raise RuntimeError(f"Could not connect to remote browser at {host}:{port}: {e}")
+                    raise RuntimeError(f"Could not connect to remote browser at {actual_host}:{port}: {e}")
                 
                 logger.info("  Falling back to local browser launch (not in Docker)...")
                 _browser = await uc.start(
