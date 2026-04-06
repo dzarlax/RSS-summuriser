@@ -6,10 +6,11 @@ import os
 from typing import Optional
 
 import nodriver as uc
+from nodriver.core.browser import Browser
 
 logger = logging.getLogger(__name__)
 
-_browser: Optional[uc.Browser] = None
+_browser: Optional[Browser] = None
 _lock = asyncio.Lock()
 
 
@@ -75,9 +76,9 @@ async def get_browser() -> uc.Browser:
                     raise RuntimeError(error_msg)
 
             try:
-                # Use start() with ONLY host and port. 
-                # Providing headless=True or other args can trigger local binary search.
-                _browser = await uc.start(
+                # Use Browser.create() from nodriver.core.browser instead of uc.start()
+                # to bypass the local binary search bug in uc.start().
+                _browser = await Browser.create(
                     host=host,
                     port=port,
                 )
