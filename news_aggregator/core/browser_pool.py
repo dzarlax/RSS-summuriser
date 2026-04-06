@@ -60,8 +60,9 @@ async def get_browser() -> uc.Browser:
 
             logger.info(f"  Connecting to remote Chrome via CDP at {host}:{port}...")
             try:
-                _browser = await uc.start(
-                    headless=True,
+                # Use uc.connect() instead of uc.start() for remote instances
+                # to avoid searching for a local browser binary.
+                _browser = await uc.connect(
                     host=host,
                     port=port,
                 )
@@ -70,7 +71,7 @@ async def get_browser() -> uc.Browser:
                 logger.error(f"  Failed to connect to remote Chrome at {host}:{port}: {e}")
                 # In Docker, we shouldn't try to launch a local browser if remote fails
                 if os.path.exists('/.dockerenv'):
-                    raise RuntimeError(f"Could not connect to remote browser and local launch is not supported in Docker: {e}")
+                    raise RuntimeError(f"Could not connect to remote browser at {host}:{port}: {e}")
                 
                 logger.info("  Falling back to local browser launch (not in Docker)...")
                 _browser = await uc.start(
