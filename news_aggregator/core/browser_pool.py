@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 from typing import Optional
 
 import nodriver as uc
@@ -41,21 +42,47 @@ async def get_browser() -> uc.Browser:
 
         from ..config import settings
         cdp_endpoint = settings.browser_ws_endpoint
+        
+        # Log the actual endpoint being used to help with debugging
+        logger.info(f"  Browser connection config: endpoint='{cdp_endpoint}'")
 
         if cdp_endpoint:
             # Parse host:port from endpoint like "ws://chrome:9222" or "chrome:9222"
-            endpoint = cdp_endpoint.replace("ws://", "").replace("http://", "")
+            endpoint = cdp_endpoint.replace("ws://", "").replace("http://", "").rstrip("/")
             host, _, port_str = endpoint.partition(":")
-            port = int(port_str.split("/")[0]) if port_str else 9222
+            
+            try:
+                # Handle cases like "host:9222/" or just "host"
+                port = int(port_str.split("/")[0]) if port_str and port_str.split("/")[0] else 9222
+            except ValueError:
+                logger.warning(f"  Invalid port in endpoint '{cdp_endpoint}', falling back to 9222")
+                port = 9222
 
-            logger.info(f"  Connecting to Chrome via CDP at {host}:{port}...")
-            _browser = await uc.start(
-                headless=True,
-                host=host,
-                port=port,
-            )
-            logger.info("  Connected to Chrome via CDP")
+            logger.info(f"  Connecting to remote Chrome via CDP at {host}:{port}...")
+            try:
+                _browser = await uc.start(
+                    headless=True,
+                    host=host,
+                    port=port,
+                )
+                logger.info("  Connected to remote Chrome via CDP")
+            except Exception as e:
+                logger.error(f"  Failed to connect to remote Chrome at {host}:{port}: {e}")
+                # In Docker, we shouldn't try to launch a local browser if remote fails
+                if os.path.exists('/.dockerenv'):
+                    raise RuntimeError(f"Could not connect to remote browser and local launch is not supported in Docker: {e}")
+                
+                logger.info("  Falling back to local browser launch (not in Docker)...")
+                _browser = await uc.start(
+                    headless=True,
+                    browser_args=["--no-sandbox", "--disable-setuid-sandbox"],
+                )
         else:
+            # In Docker environment, BROWSER_WS_ENDPOINT must be set
+            if os.path.exists('/.dockerenv'):
+                logger.error("  ❌ BROWSER_WS_ENDPOINT is not set, but running in Docker!")
+                raise RuntimeError("BROWSER_WS_ENDPOINT must be set when running in Docker.")
+                
             logger.info("  Launching shared local Chromium...")
             _browser = await uc.start(
                 headless=True,
