@@ -344,13 +344,14 @@ class SourceManager:
 
                     # In-memory batch dedup
                     if self._is_batch_duplicate(urls, normalized_title, seen_urls, seen_titles):
+                        logger.warning(f"  [DEDUP] Batch duplicate skipped: {normalized_title[:60]}")
                         continue
 
                     # DB URL dedup
                     existing = await self._check_db_duplicate(db, urls)
                     if existing is not None:
                         if existing.summary and existing.processed:
-                            logger.debug(f"  ⏭ Skipping duplicate: {existing.url[:80]}")
+                            logger.warning(f"  [DEDUP] DB URL duplicate skipped: {existing.url[:80]} (title: {normalized_title[:60]})")
                             continue
 
                         # Update existing unprocessed article
@@ -367,6 +368,7 @@ class SourceManager:
 
                     # DB title dedup (same source, 7-day window)
                     if await self._check_title_duplicate(db, source.id, normalized_title):
+                        logger.warning(f"  [DEDUP] Title duplicate skipped: {normalized_title[:60]}")
                         continue
 
                     # Create new article

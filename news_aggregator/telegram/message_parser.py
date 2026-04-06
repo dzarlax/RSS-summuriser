@@ -60,7 +60,11 @@ class MessageParser:
             self._cleanup_message_div(message_div)
 
             content = self._extract_message_content(message_div, base_url)
-            if len(content) < 10:
+            
+            has_media = bool(image_url or media_info.get('video_url') or media_info.get('document_url') or media_files)
+            
+            # Allow short/empty content ONLY if the post contains media
+            if len(content) < 10 and not has_media:
                 return None
 
             # Try to extract full content from external link if Telegram content is short

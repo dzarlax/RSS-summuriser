@@ -268,14 +268,17 @@ class TelegramSource(BaseSource):
                 # Use modular message parser with soup for Open Graph extraction
                 article = await self.message_parser.parse_message_element(message_div, base_url, soup)
                 if article:
+                    logger.warning(f"  ✅ [DEBUG EXTRACTED]: {article.title[:50]}... | URL: {article.url}")
                     articles.append(article)
                     if len(articles) % 5 == 0:  # Progress indicator
                         logger.info(f"  ✅ Parsed {len(articles)} articles...")
+                else:
+                    logger.warning(f"  ❌ [DEBUG SKIPPED]: Message {i+1} returned None from parser")
             except Exception as e:
                 logger.warning(f"  ⚠️ Error parsing message {i+1}: {e}")
                 continue
         
-        logger.info(f"  🎯 Successfully parsed {len(articles)}/{len(messages)} messages")
+        logger.warning(f"  🎯 Successfully parsed {len(articles)}/{len(messages)} messages total.")
         return articles
     
     def _normalize_external_url(self, url: str) -> Optional[str]:
