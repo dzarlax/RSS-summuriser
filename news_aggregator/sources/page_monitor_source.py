@@ -288,7 +288,7 @@ class PageMonitorSource(BaseSource):
         finally:
             if tab:
                 try:
-                    await tab.close()
+                    await asyncio.wait_for(tab.close(), timeout=5)
                 except Exception:
                     pass
     
@@ -894,7 +894,7 @@ class PageMonitorSource(BaseSource):
                     return False
                 finally:
                     try:
-                        await tab.close()
+                        await asyncio.wait_for(tab.close(), timeout=5)
                     except Exception:
                         pass
             else:

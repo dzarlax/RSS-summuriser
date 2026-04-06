@@ -228,9 +228,9 @@ class TelegramSource(BaseSource):
                 finally:
                     if tab:
                         try:
-                            await tab.close()
+                            await asyncio.wait_for(tab.close(), timeout=5)
                         except Exception:
-                            pass
+                            logger.warning("  ⚠️ tab.close() timed out or failed, ignoring")
                         tab = None
 
             raise SourceError("All browser methods failed")
