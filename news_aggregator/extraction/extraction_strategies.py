@@ -49,9 +49,8 @@ class ExtractionStrategies:
         self.date_extractor = date_extractor
         self.metadata_extractor = metadata_extractor
 
-        # Browser management
-        self.browser: Optional[uc.Browser] = None
-        self._browser_semaphore = asyncio.Semaphore(BROWSER_CONCURRENCY)
+        # Browser management is now handled centrally via browser_pool.browser_tab()
+        # which provides global serialization and ensures proper tab lifecycle.
 
     def _normalize_learned_pattern_method(self, original_method: Optional[str]) -> str:
         """Collapse repeated learned-pattern prefixes into a single, stable name."""
@@ -467,12 +466,11 @@ class ExtractionStrategies:
         Returns:
             Tuple of (content, selector, page_html)
         """
-        async with self._browser_semaphore:
-            tab = None
-            try:
-                await self._ensure_browser()
-                tab = await self.browser.get("about:blank", new_tab=True)
+        from ..core.browser_pool import browser_tab
 
+        # Use browser_tab context manager for serialized, safe access
+        async with browser_tab("about:blank") as tab:
+            try:
                 # Set user agent
                 await tab.send(cdp.network.set_user_agent_override(
                     user_agent="Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -529,12 +527,6 @@ class ExtractionStrategies:
 
             except Exception as e:
                 raise ContentExtractionError(f"Browser extraction failed: {e}")
-            finally:
-                if tab:
-                    try:
-                        await asyncio.wait_for(tab.close(), timeout=5)
-                    except Exception:
-                        pass
 
     @staticmethod
     def _decode_response_bytes(data: bytes, charset: Optional[str]) -> str:
@@ -633,10 +625,7 @@ class ExtractionStrategies:
 
         except Exception as e:
             logger.warning(f"    ⚠️ Failed to record failure: {e}")
-    async def _ensure_browser(self):
-        """Ensure browser is available via the shared browser pool."""
-        from ..core.browser_pool import get_browser
-        self.browser = await get_browser()
+
 
     async def close_browser(self):
         """No-op — browser lifecycle is managed by the shared pool."""

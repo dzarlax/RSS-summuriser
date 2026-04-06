@@ -182,17 +182,11 @@ class TelegramSource(BaseSource):
         if not BROWSER_AVAILABLE:
             raise SourceError("nodriver not available for browser access")
 
-        tab = None
-        try:
-            if not self.browser:
-                from ..core.browser_pool import get_browser
-                self.browser = await get_browser()
-                logger.info(f"  Using shared browser pool")
+        from ..core.browser_pool import browser_tab
 
-            for url in self.access_urls:
-                try:
-                    tab = await self.browser.get(url, new_tab=True)
-
+        for url in self.access_urls:
+            try:
+                async with browser_tab(url) as tab:
                     # Wait for content to load, ignoring CDP node resolution errors
                     try:
                         await tab.wait_for(selector='.tgme_widget_message', timeout=8)
@@ -202,12 +196,9 @@ class TelegramSource(BaseSource):
                     # Enhanced scrolling strategy to load fresh messages
                     try:
                         logger.info("  Enhanced scrolling to load latest messages...")
-                        # Telegram's newest messages are at the bottom.
-                        # Do NOT scroll to the top, as Telegram might unload bottom messages to save RAM.
                         for _ in range(3):
                             await tab.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                             await asyncio.sleep(2)
-
                         logger.info("  Enhanced scrolling completed")
                     except Exception as scroll_error:
                         logger.warning(f"  Scrolling failed: {scroll_error}")
@@ -222,23 +213,11 @@ class TelegramSource(BaseSource):
                     if articles:
                         return  # Success with this URL
 
-                except Exception as e:
-                    logger.error(f"  Browser error for {url}: {e}")
-                    continue
-                finally:
-                    if tab:
-                        try:
-                            await asyncio.wait_for(tab.close(), timeout=5)
-                        except Exception:
-                            logger.warning("  ⚠️ tab.close() timed out or failed, ignoring")
-                        tab = None
+            except Exception as e:
+                logger.error(f"  Browser error for {url}: {e}")
+                continue
 
-            raise SourceError("All browser methods failed")
-
-        except Exception as e:
-            # Don't close shared browser — just clear local reference
-            self.browser = None
-            raise SourceError(f"Browser access failed: {e}")
+        raise SourceError("All browser methods failed")
     
     async def _parse_html(self, html: str, base_url: str) -> List[Article]:
         """Parse HTML content and extract articles using modular components."""
@@ -268,7 +247,7 @@ class TelegramSource(BaseSource):
                 # Use modular message parser with soup for Open Graph extraction
                 article = await self.message_parser.parse_message_element(message_div, base_url, soup)
                 if article:
-                    logger.warning(f"  ✅ [DEBUG EXTRACTED]: {article.title[:50]}... | URL: {article.url}")
+
                     articles.append(article)
                     if len(articles) % 5 == 0:  # Progress indicator
                         logger.info(f"  ✅ Parsed {len(articles)} articles...")

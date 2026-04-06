@@ -13,6 +13,12 @@ logger = logging.getLogger(__name__)
 _browser: Optional[Browser] = None
 _lock = asyncio.Lock()
 
+# Serializes ALL browser tab usage across the entire app.
+# Remote Chrome has limited RAM (512 MB) and a single WebSocket connection.
+# Opening multiple tabs concurrently overwhelms both, causing CDP commands
+# (including tab.close()) to hang indefinitely.
+_tab_semaphore = asyncio.Semaphore(1)
+
 
 async def get_browser() -> uc.Browser:
     """Get or create a shared browser connection via CDP.
@@ -135,3 +141,34 @@ async def close_browser():
         except Exception:
             pass
         _browser = None
+
+
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def browser_tab(url: str):
+    """Open a browser tab with exclusive access to Chrome.
+
+    Usage::
+
+        async with browser_tab("https://example.com") as tab:
+            html = await tab.get_content()
+
+    This guarantees:
+    - Only one tab is open at a time (via _tab_semaphore)
+    - The tab is always closed, even on error
+    - tab.close() has a timeout so it never hangs
+    """
+    browser = await get_browser()
+    tab = None
+    await _tab_semaphore.acquire()
+    try:
+        tab = await browser.get(url, new_tab=True)
+        yield tab
+    finally:
+        if tab:
+            try:
+                await asyncio.wait_for(tab.close(), timeout=5)
+            except Exception:
+                logger.warning(f"  ⚠️ tab.close() timed out for {url[:60]}")
+        _tab_semaphore.release()

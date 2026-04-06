@@ -240,13 +240,9 @@ class PageMonitorSource(BaseSource):
     
     async def _take_browser_snapshot(self) -> Optional[PageSnapshot]:
         """Take snapshot using browser rendering."""
-        if not self.browser:
-            await self.__aenter__()
+        from ..core.browser_pool import browser_tab
 
-        tab = None
-        try:
-            tab = await self.browser.get("about:blank", new_tab=True)
-
+        async with browser_tab("about:blank") as tab:
             # Set realistic headers
             await tab.send(cdp.network.set_extra_http_headers(
                 headers=cdp.network.Headers({
@@ -284,13 +280,6 @@ class PageMonitorSource(BaseSource):
                 timestamp=datetime.utcnow(),
                 selectors_used=list(self.learned_selectors.keys()) or self.config.article_selectors[:5]
             )
-
-        finally:
-            if tab:
-                try:
-                    await asyncio.wait_for(tab.close(), timeout=5)
-                except Exception:
-                    pass
     
     async def _take_http_snapshot(self) -> Optional[PageSnapshot]:
         """Take snapshot using HTTP requests."""
@@ -882,21 +871,10 @@ class PageMonitorSource(BaseSource):
             logger.info(f"🔗 Testing connection to {self.config.url}")
             if self.config.use_browser:
                 # Test with browser
-                if not self.browser:
-                    await self.__aenter__()
-                
-                tab = await self.browser.get(self.config.url, new_tab=True)
-                try:
+                from ..core.browser_pool import browser_tab
+                async with browser_tab(self.config.url) as tab:
                     logger.info("Browser connection successful")
                     return True
-                except Exception as e:
-                    logger.error(f"Browser connection failed: {e}")
-                    return False
-                finally:
-                    try:
-                        await asyncio.wait_for(tab.close(), timeout=5)
-                    except Exception:
-                        pass
             else:
                 # Test with HTTP
                 headers = {

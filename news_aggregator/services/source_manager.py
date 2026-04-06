@@ -340,15 +340,14 @@ class SourceManager:
         """
         results = {}
 
-        logger.warning(f"[SAVE DEBUG] raw_articles keys: {list(raw_articles.keys())}")
-        logger.warning(f"[SAVE DEBUG] source_map keys: {list(source_map.keys())}")
+        # Debug logs removed after verification
 
         for source_name, articles in raw_articles.items():
             try:
-                logger.warning(f"[SAVE DEBUG] Processing source '{source_name}' with {len(articles)} articles")
+
                 source = source_map.get(source_name)
                 if not source:
-                    logger.warning(f"[SAVE DEBUG] Source '{source_name}' NOT FOUND in source_map! Skipping all {len(articles)} articles!")
+                    logger.info(f"Source '{source_name}' not found in source_map — skipping")
                     results[source_name] = []
                     continue
 
@@ -363,14 +362,14 @@ class SourceManager:
 
                     # In-memory batch dedup
                     if self._is_batch_duplicate(urls, normalized_title, seen_urls, seen_titles):
-                        logger.warning(f"  [DEDUP] Batch duplicate skipped: {normalized_title[:60]}")
+
                         continue
 
                     # DB URL dedup
                     existing = await self._check_db_duplicate(db, urls)
                     if existing is not None:
                         if existing.summary and existing.processed:
-                            logger.warning(f"  [DEDUP] DB URL duplicate skipped: {existing.url[:80]} (title: {normalized_title[:60]})")
+
                             continue
 
                         # Update existing unprocessed article
@@ -387,7 +386,7 @@ class SourceManager:
 
                     # DB title dedup (same source, 7-day window)
                     if await self._check_title_duplicate(db, source.id, normalized_title):
-                        logger.warning(f"  [DEDUP] Title duplicate skipped: {normalized_title[:60]}")
+
                         continue
 
                     # Create new article
