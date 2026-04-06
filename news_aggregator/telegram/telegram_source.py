@@ -202,17 +202,11 @@ class TelegramSource(BaseSource):
                     # Enhanced scrolling strategy to load fresh messages
                     try:
                         logger.info("  Enhanced scrolling to load latest messages...")
-                        await tab.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                        await asyncio.sleep(3)
-
-                        await tab.evaluate("window.scrollTo(0, 0)")
-                        await asyncio.sleep(2)
-
-                        for i in range(3):
-                            await tab.evaluate("window.scrollBy(0, -1000)")
-                            await asyncio.sleep(1)
-                            await tab.evaluate("window.scrollTo(0, 0)")
-                            await asyncio.sleep(1)
+                        # Telegram's newest messages are at the bottom.
+                        # Do NOT scroll to the top, as Telegram might unload bottom messages to save RAM.
+                        for _ in range(3):
+                            await tab.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                            await asyncio.sleep(2)
 
                         logger.info("  Enhanced scrolling completed")
                     except Exception as scroll_error:
