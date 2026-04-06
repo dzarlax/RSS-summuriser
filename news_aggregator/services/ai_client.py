@@ -95,11 +95,28 @@ class AIClient:
             if not content:
                 logger.error(f"  ❌ Could not extract content from {article_url}")
                 return {
-                    'summary': None, 
+                    'summary': None,
                     'publication_date': metadata_result.get('publication_date'),
                     'full_article_url': metadata_result.get('full_article_url')
                 }
-            
+
+            # Detect bot-protection pages before wasting an AI call
+            _bot_content_markers = [
+                'включить javascript и файлы cookie',
+                'проверки безопасности', 'является ли пользователь ботом',
+                'just a moment', 'checking if the site connection is secure',
+                'enable javascript and cookies', 'attention required',
+                'checking your browser before accessing',
+            ]
+            content_lower = content.lower()
+            if len(content.strip()) < 500 and any(m in content_lower for m in _bot_content_markers):
+                logger.warning(f"  ⚠️ Extracted content looks like bot-protection page, skipping AI: {article_url}")
+                return {
+                    'summary': None,
+                    'publication_date': metadata_result.get('publication_date'),
+                    'full_article_url': metadata_result.get('full_article_url')
+                }
+
             # Use unified analysis to get summary (more reliable than separate summarization)
             # Extract title from content if available, otherwise use URL as fallback
             title = "Article"  # Default title if not available

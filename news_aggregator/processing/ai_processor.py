@@ -827,6 +827,19 @@ class AIProcessor:
                 summary = ai_result.get('summary')
                 optimized_title = ai_result.get('optimized_title')
 
+                # Detect bot-protection / error page summaries
+                _bot_markers = [
+                    'недоступен', 'защиты от ботов', 'проверки безопасности',
+                    'является ли пользователь ботом', 'включить javascript',
+                    'just a moment', 'access denied', 'cloudflare',
+                    'enable javascript', 'checking your browser',
+                    'temporarily unavailable', 'bot detection',
+                ]
+                if summary and any(m in summary.lower() for m in _bot_markers):
+                    logger.warning(f"  ⚠️ Extracted summary looks like bot-protection page, discarding: {article.url}")
+                    summary = None
+                    optimized_title = None
+
                 # If page extraction failed but RSS has content, use it as fallback
                 if not summary and len(rss_content.strip()) >= 100:
                     logger.info(f"  📄 Page extraction failed, falling back to RSS content ({len(rss_content)} chars)")
