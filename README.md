@@ -44,7 +44,7 @@ flowchart TD
     end
 
     subgraph db["Storage"]
-        DB[(MariaDB)]
+        DB[(PostgreSQL)]
     end
 
     subgraph process["3 · Process"]
