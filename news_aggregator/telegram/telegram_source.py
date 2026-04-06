@@ -193,8 +193,11 @@ class TelegramSource(BaseSource):
                 try:
                     tab = await self.browser.get(url, new_tab=True)
 
-                    # Wait for content to load
-                    await tab.wait_for(selector='.tgme_widget_message', timeout=10)
+                    # Wait for content to load, ignoring CDP node resolution errors
+                    try:
+                        await tab.wait_for(selector='.tgme_widget_message', timeout=8)
+                    except Exception as wait_err:
+                        logger.warning(f"  wait_for warning (ignoring): {wait_err}")
 
                     # Enhanced scrolling strategy to load fresh messages
                     try:

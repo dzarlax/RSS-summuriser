@@ -14,17 +14,28 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+async def _run_processing_cycle():
+    """Background helper to run and clean up the orchestrator cycle."""
+    try:
+        orchestrator = NewsOrchestrator()
+        await orchestrator.start()
+        await orchestrator.run_full_cycle()
+    except Exception as e:
+        logger.error(f"Background processing failed: {e}")
+    finally:
+        try:
+            await orchestrator.stop()
+        except Exception:
+            pass
+
 @router.post("/run")
 async def trigger_processing(background_tasks: BackgroundTasks):
     """Trigger news processing cycle in background."""
     try:
         logger.info("📰 Starting news processing cycle...")
-        # Create orchestrator and run processing
-        orchestrator = NewsOrchestrator()
-        await orchestrator.start()
-        
-        # Run processing in background
-        task = asyncio.create_task(orchestrator.run_full_cycle())
+        # Run processing safely in FastAPI BackgroundTasks 
+        # (This prevents 'Task was destroyed' caused by Python Garbage Collection)
+        background_tasks.add_task(_run_processing_cycle)
         
         return {
             "success": True,
