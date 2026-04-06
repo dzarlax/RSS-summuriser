@@ -59,10 +59,25 @@ async def get_browser() -> uc.Browser:
                 port = 9222
 
             logger.info(f"  Connecting to remote Chrome via CDP at {host}:{port}...")
+            
+            # Pre-flight check: can we even reach the port?
             try:
-                # Use uc.connect() instead of uc.start() for remote instances
-                # to avoid searching for a local browser binary.
-                _browser = await uc.connect(
+                # Direct TCP check to distinguish between network and nodriver issues
+                conn = asyncio.open_connection(host, port)
+                reader, writer = await asyncio.wait_for(conn, timeout=3.0)
+                writer.close()
+                await writer.wait_closed()
+                logger.info(f"  ✅ Network check: {host}:{port} is reachable")
+            except Exception as e:
+                error_msg = f"Network check failed for {host}:{port}: {e}"
+                logger.error(f"  ❌ {error_msg}")
+                if os.path.exists('/.dockerenv'):
+                    raise RuntimeError(error_msg)
+
+            try:
+                # Use start() with ONLY host and port. 
+                # Providing headless=True or other args can trigger local binary search.
+                _browser = await uc.start(
                     host=host,
                     port=port,
                 )
