@@ -193,10 +193,12 @@ class SourceManager:
         return await fetch_all(query)
 
     async def fetch_from_all_sources_no_db(self, sources: List[Source],
-                                           max_concurrent: int = 5) -> Dict[str, List[Article]]:
+                                           max_concurrent: int = 5,
+                                           per_source_timeout: int = 120) -> Dict[str, List[Article]]:
         """
         Fetch articles from sources via HTTP - NO DATABASE ACCESS.
         This is purely I/O bound HTTP fetching, no semaphore locks.
+        Each source has a timeout to prevent a single stuck source from blocking everything.
         """
         results = {}
 
@@ -213,24 +215,37 @@ class SourceManager:
                     async for article in source_instance.fetch_articles():
                         articles.append(article)
 
+                    logger.info(f"  ✅ Fetched {len(articles)} articles from {source.name}")
                     return source.name, articles
                 except Exception as e:
-                    logger.info(f"Error fetching from {source.name}: {e}")
+                    logger.warning(f"Error fetching from {source.name}: {e}")
                     return source.name, []
 
+        async def fetch_with_timeout(source: Source):
+            """Wrap fetch in a per-source timeout."""
+            try:
+                return await asyncio.wait_for(
+                    fetch_source_raw(source),
+                    timeout=per_source_timeout
+                )
+            except asyncio.TimeoutError:
+                logger.error(f"  ⏰ Source '{source.name}' timed out after {per_source_timeout}s — skipping")
+                return source.name, []
+
         # Execute fetches concurrently (HTTP only, no DB lock)
-        tasks = [fetch_source_raw(source) for source in sources]
+        tasks = [fetch_with_timeout(source) for source in sources]
         fetch_results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Process results
         for result in fetch_results:
             if isinstance(result, Exception):
-                logger.info(f"Fetch task failed: {result}")
+                logger.error(f"Fetch task failed with exception: {result}")
                 continue
 
             source_name, articles = result
             results[source_name] = articles
 
+        logger.warning(f"[FETCH COMPLETE] All sources done. Total: {sum(len(a) for a in results.values())} articles from {len(results)} sources")
         return results
 
     @staticmethod
