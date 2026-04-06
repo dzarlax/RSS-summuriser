@@ -87,11 +87,15 @@ async def get_browser() -> uc.Browser:
                     raise RuntimeError(error_msg)
 
             try:
+                import sys
+                from nodriver.core.browser import Browser
                 # Pass the resolved IP address to nodriver so it can successfully
                 # request /json/version without being blocked by Chrome's Host header policy.
-                _browser = await uc.start(
+                # ALSO pass browser_executable_path=sys.executable to bypass the hardcoded local binary check in Config.
+                _browser = await Browser.create(
                     host=actual_host,
                     port=port,
+                    browser_executable_path=sys.executable
                 )
                 logger.info("  Connected to remote Chrome via CDP")
             except Exception as e:
