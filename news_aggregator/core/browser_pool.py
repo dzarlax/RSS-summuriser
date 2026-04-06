@@ -75,12 +75,15 @@ async def get_browser() -> uc.Browser:
                 if os.path.exists('/.dockerenv'):
                     raise RuntimeError(error_msg)
 
+            import sys
             try:
                 # Use Browser.create() from nodriver.core.browser instead of uc.start()
-                # to bypass the local binary search bug in uc.start().
+                # Pass a dummy browser_executable_path to bypass the bug in nodriver's Config
+                # which aggressively checks for a local Chrome binary even for remote connections.
                 _browser = await Browser.create(
                     host=host,
                     port=port,
+                    browser_executable_path=sys.executable
                 )
                 logger.info("  Connected to remote Chrome via CDP")
             except Exception as e:
