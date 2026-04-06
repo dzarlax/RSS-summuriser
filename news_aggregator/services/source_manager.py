@@ -325,11 +325,15 @@ class SourceManager:
         """
         results = {}
 
+        logger.warning(f"[SAVE DEBUG] raw_articles keys: {list(raw_articles.keys())}")
+        logger.warning(f"[SAVE DEBUG] source_map keys: {list(source_map.keys())}")
+
         for source_name, articles in raw_articles.items():
             try:
+                logger.warning(f"[SAVE DEBUG] Processing source '{source_name}' with {len(articles)} articles")
                 source = source_map.get(source_name)
                 if not source:
-                    logger.info(f"Source {source_name} not found in mapping, skipping save")
+                    logger.warning(f"[SAVE DEBUG] Source '{source_name}' NOT FOUND in source_map! Skipping all {len(articles)} articles!")
                     results[source_name] = []
                     continue
 
