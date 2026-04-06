@@ -55,8 +55,8 @@ services:
       - ALLOWED_ORIGINS=https://your-domain.com,http://localhost:8000
       - TRUSTED_HOSTS=your-domain.com,localhost,127.0.0.1
 
-      # Playwright remote browser (see browser service below)
-      - BROWSER_WS_ENDPOINT=ws://browser:3000/playwright
+      # Chrome browser via CDP (see browser service below)
+      - BROWSER_WS_ENDPOINT=ws://browser:9222
 
       # Database init (allow create_all for fresh installs; set false in prod)
       - ALLOW_CREATE_ALL=true
@@ -119,10 +119,16 @@ services:
       start_period: 30s
 
 
-  # Playwright browser server — приложение подключается к нему по WebSocket
+  # Chrome browser — приложение подключается по CDP (Chrome DevTools Protocol)
   browser:
-    image: mcr.microsoft.com/playwright:v1.58.2-jammy
-    command: ["npx", "playwright", "run-server", "--port", "3000", "--host", "0.0.0.0", "--path", "/playwright"]
+    image: gcr.io/zenika-hub/alpine-chrome:123
+    command:
+      - --no-sandbox
+      - --disable-gpu
+      - --disable-dev-shm-usage
+      - --remote-debugging-address=0.0.0.0
+      - --remote-debugging-port=9222
+      - --hide-scrollbars
     networks:
       - news_network
     restart: unless-stopped

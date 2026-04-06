@@ -31,7 +31,7 @@ flowchart TD
     end
 
     subgraph fetch["1 · Fetch"]
-        Fetcher[Source fetcher<br/>feedparser · Playwright · HTTP]
+        Fetcher[Source fetcher<br/>feedparser · nodriver · HTTP]
     end
 
     subgraph extract["2 · Extract"]
@@ -39,7 +39,7 @@ flowchart TD
         Ext1[Learned patterns]
         Ext2[Enhanced selectors]
         Ext3[Readability]
-        Ext4[Browser / Playwright]
+        Ext4[Browser / nodriver CDP]
         Ext1 --> Ext2 --> Ext3 --> Ext4
     end
 
@@ -129,7 +129,7 @@ In addition to the admin panel, the app exposes a public web interface (no login
 
 **Telegram** — public channels via web preview. The parser strips UI chrome (forwarded headers, reactions, buttons) and follows external links to fetch full article text.
 
-**Custom (Page Monitor)** — for sites without RSS. Point it at a URL and it finds new articles using a cascade of CSS selectors. If the built-in selectors don't match the page, Playwright renders the page and AI analyzes its structure to generate working selectors. Learned selectors are saved and reused on the next fetch. You can also provide your own selectors as a fixed override.
+**Custom (Page Monitor)** — for sites without RSS. Point it at a URL and it finds new articles using a cascade of CSS selectors. If the built-in selectors don't match the page, the browser renders the page and AI analyzes its structure to generate working selectors. Learned selectors are saved and reused on the next fetch. You can also provide your own selectors as a fixed override.
 
 ---
 
@@ -140,7 +140,7 @@ When a source yields a link rather than full text, the app extracts article cont
 1. **Learned patterns** — CSS selectors that worked before on the same domain, stored in the database with usage counts. Fastest path; gets better the more articles you process.
 2. **Enhanced selectors** — a set of common structural CSS selectors (`article`, `[class*=content]`, `[class*=article-body]`, etc.) tried heuristically.
 3. **Readability** — Mozilla's Readability algorithm, which strips navigation and boilerplate and extracts the main content block.
-4. **Browser rendering** — Playwright headless Chromium for JS-heavy pages that don't render without JavaScript. Runs in a separate Docker container.
+4. **Browser rendering** — Alpine Chrome via CDP (nodriver) for JS-heavy pages that don't render without JavaScript. Runs in a separate Docker container.
 5. **Fallback** — generic text extraction from the raw HTML as a last resort.
 
 Successful extractions are recorded per domain. The method that worked best gets promoted and tried first on the next request to the same domain. Domains with repeated failures get exponential backoff — delays double up to 6 hours before retrying.

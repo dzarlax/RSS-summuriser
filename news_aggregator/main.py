@@ -99,7 +99,7 @@ async def lifespan(app: FastAPI):
         traceback.print_exc()
         # Don't prevent app startup on scheduler errors
     
-    # Start process monitor for hanging Playwright processes
+    # Start process monitor for browser health checks
     from .services.process_monitor import start_process_monitor
     try:
         logger.info("🔍 Starting process monitor...")

@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     ai_output_cost_per_1m: Optional[float] = Field(default=None, alias="AI_OUTPUT_COST_PER_1M")
     ai_cached_input_cost_per_1m: Optional[float] = Field(default=None, alias="AI_CACHED_INPUT_COST_PER_1M")
     
-    # Browser (Playwright remote)
+    # Browser (Chrome CDP endpoint, e.g. ws://chrome:9222)
     browser_ws_endpoint: Optional[str] = Field(default=None, alias="BROWSER_WS_ENDPOINT")
 
     # Telegram

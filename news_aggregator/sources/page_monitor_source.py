@@ -11,13 +11,13 @@ from dataclasses import dataclass
 from urllib.parse import urljoin, urlparse
 
 try:
-    from playwright.async_api import async_playwright, Browser, Page
-    PLAYWRIGHT_AVAILABLE = True
+    import nodriver as uc
+    from nodriver import cdp
+    BROWSER_AVAILABLE = True
 except ImportError:
-    PLAYWRIGHT_AVAILABLE = False
-    async_playwright = None
-    Browser = None
-    Page = None
+    BROWSER_AVAILABLE = False
+    uc = None
+    cdp = None
 
 from bs4 import BeautifulSoup
 
@@ -136,8 +136,7 @@ class PageMonitorSource(BaseSource):
         super().__init__(info)
         
         self.config = config
-        self.browser: Optional[Browser] = None
-        self._playwright = None
+        self.browser: Optional[uc.Browser] = None if uc else None
         self.last_snapshot: Optional[PageSnapshot] = None
         self.failure_count = 0
         self.ai_analysis_count = 0
@@ -243,38 +242,40 @@ class PageMonitorSource(BaseSource):
         """Take snapshot using browser rendering."""
         if not self.browser:
             await self.__aenter__()
-        
-        page = None
+
+        tab = None
         try:
-            page = await self.browser.new_page()
-            
+            tab = await self.browser.get("about:blank", new_tab=True)
+
             # Set realistic headers
-            await page.set_extra_http_headers({
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'DNT': '1',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1'
-            })
-            
+            await tab.send(cdp.network.set_extra_http_headers(
+                headers=cdp.network.Headers({
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'DNT': '1',
+                    'Connection': 'keep-alive',
+                    'Upgrade-Insecure-Requests': '1'
+                })
+            ))
+
             # Navigate to page
-            logger.info(f"  🌐 Loading page: {self.config.url}")
-            await page.goto(self.config.url, wait_until='networkidle', timeout=self.config.wait_timeout_ms)
-            
+            logger.info(f"  Loading page: {self.config.url}")
+            await tab.get(self.config.url, new_tab=False)
+
             if self.config.wait_for_js:
-                await page.wait_for_timeout(2000)  # Let JS finish
-            
+                await asyncio.sleep(2)  # Let JS finish
+
             # Get page content
-            html = await page.content()
-            
+            html = await tab.get_content()
+
             # Extract articles using various selectors
-            articles = await self._extract_articles_from_html(html, page)
-            
+            articles = await self._extract_articles_from_html(html, tab)
+
             # Create content hash
             content_hash = hashlib.md5(html.encode()).hexdigest()
             article_hashes = {self._hash_article(article) for article in articles}
-            
+
             return PageSnapshot(
                 url=self.config.url,
                 content_hash=content_hash,
@@ -283,10 +284,13 @@ class PageMonitorSource(BaseSource):
                 timestamp=datetime.utcnow(),
                 selectors_used=list(self.learned_selectors.keys()) or self.config.article_selectors[:5]
             )
-            
+
         finally:
-            if page:
-                await page.close()
+            if tab:
+                try:
+                    await tab.close()
+                except Exception:
+                    pass
     
     async def _take_http_snapshot(self) -> Optional[PageSnapshot]:
         """Take snapshot using HTTP requests."""
@@ -318,7 +322,7 @@ class PageMonitorSource(BaseSource):
             selectors_used=self.config.article_selectors[:5]
         )
     
-    async def _extract_articles_from_html(self, html: str, page: Optional[Page] = None) -> List[Dict[str, Any]]:
+    async def _extract_articles_from_html(self, html: str, page: Optional[Any] = None) -> List[Dict[str, Any]]:
         """Extract articles from HTML using intelligent selectors."""
         soup = BeautifulSoup(html, 'html.parser')
         articles = []
@@ -373,7 +377,7 @@ class PageMonitorSource(BaseSource):
         logger.info(f"  📋 Extracted {len(articles)} potential articles")
         return articles[:self.config.max_articles_per_check]
     
-    async def _extract_with_selector(self, soup: BeautifulSoup, selector: str, page: Optional[Page] = None) -> List[Dict[str, Any]]:
+    async def _extract_with_selector(self, soup: BeautifulSoup, selector: str, page: Optional[Any] = None) -> List[Dict[str, Any]]:
         """Extract articles using a specific selector."""
         articles = []
         
@@ -881,16 +885,18 @@ class PageMonitorSource(BaseSource):
                 if not self.browser:
                     await self.__aenter__()
                 
-                page = await self.browser.new_page()
+                tab = await self.browser.get(self.config.url, new_tab=True)
                 try:
-                    await page.goto(self.config.url, wait_until='networkidle', timeout=30000)
-                    logger.info("✅ Browser connection successful")
+                    logger.info("Browser connection successful")
                     return True
                 except Exception as e:
-                    logger.error(f"❌ Browser connection failed: {e}")
+                    logger.error(f"Browser connection failed: {e}")
                     return False
                 finally:
-                    await page.close()
+                    try:
+                        await tab.close()
+                    except Exception:
+                        pass
             else:
                 # Test with HTTP
                 headers = {

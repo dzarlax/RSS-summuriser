@@ -12,7 +12,7 @@ from .extraction_utils import ExtractionUtils
 from .extraction_logger import ExtractionLogger, get_extraction_logger
 
 
-# Shared ExtractionStrategies singleton — reuses one Playwright connection
+# Shared ExtractionStrategies singleton — reuses one browser connection
 _shared_strategies: "ExtractionStrategies | None" = None
 
 
@@ -35,8 +35,8 @@ class ContentExtractor:
     This is a facade that provides the same interface as the original
     monolithic ContentExtractor but uses modular components internally.
 
-    ExtractionStrategies (and its Playwright connection) is shared across
-    all instances to avoid spawning a new Node.js process per extraction.
+    ExtractionStrategies (and its browser connection) is shared across
+    all instances to avoid creating a new CDP session per extraction.
     """
 
     def __init__(self):

@@ -18,10 +18,11 @@ from .media_extractor import MediaExtractor
 logger = logging.getLogger(__name__)
 
 try:
-    from playwright.async_api import async_playwright, Browser, Page
-    PLAYWRIGHT_AVAILABLE = True
+    import nodriver as uc
+    BROWSER_AVAILABLE = True
 except ImportError:
-    PLAYWRIGHT_AVAILABLE = False
+    BROWSER_AVAILABLE = False
+    uc = None
 
 
 class TelegramSource(BaseSource):
@@ -58,8 +59,7 @@ class TelegramSource(BaseSource):
     def __init__(self, source_info):
         super().__init__(source_info)
         self.channel_username = self._extract_channel_username()
-        self.browser: Optional[Browser] = None
-        self._playwright = None
+        self.browser: Optional[uc.Browser] = None if uc else None
         
         # Initialize modular components
         self.message_parser = MessageParser(self.name, self.channel_username)
@@ -112,7 +112,7 @@ class TelegramSource(BaseSource):
         last_error = None
         
         # Try browser first for better media extraction (JS widgets)
-        if PLAYWRIGHT_AVAILABLE:
+        if BROWSER_AVAILABLE:
             try:
                 logger.info("  🎭 Trying browser access for comprehensive media extraction...")
                 async for article in self._fetch_with_browser():
@@ -179,66 +179,65 @@ class TelegramSource(BaseSource):
     
     async def _fetch_with_browser(self) -> AsyncGenerator[Article, None]:
         """Fetch articles using browser automation."""
-        if not PLAYWRIGHT_AVAILABLE:
-            raise SourceError("Playwright not available for browser access")
-        
+        if not BROWSER_AVAILABLE:
+            raise SourceError("nodriver not available for browser access")
+
+        tab = None
         try:
             if not self.browser:
                 from ..core.browser_pool import get_browser
                 self.browser = await get_browser()
-                logger.info(f"  🔗 Using shared browser pool")
-            
-            context = await self.browser.new_context()
-            page = await context.new_page()
-            
+                logger.info(f"  Using shared browser pool")
+
             for url in self.access_urls:
                 try:
-                    await page.goto(url, timeout=30000)
-                    
+                    tab = await self.browser.get(url, new_tab=True)
+
                     # Wait for content to load
-                    await page.wait_for_selector('.tgme_widget_message', timeout=10000)
-                    
+                    await tab.wait_for(selector='.tgme_widget_message', timeout=10)
+
                     # Enhanced scrolling strategy to load fresh messages
                     try:
-                        logger.info("  🔄 Enhanced scrolling to load latest messages...")
-                        # First scroll to bottom to trigger loading more recent messages
-                        await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                        logger.info("  Enhanced scrolling to load latest messages...")
+                        await tab.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                         await asyncio.sleep(3)
-                        
-                        # Scroll to top (most recent messages)
-                        await page.evaluate("window.scrollTo(0, 0)")
+
+                        await tab.evaluate("window.scrollTo(0, 0)")
                         await asyncio.sleep(2)
-                        
-                        # Multiple cycles of scrolling to ensure we get latest content
+
                         for i in range(3):
-                            await page.evaluate("window.scrollBy(0, -1000)")  # Scroll up
+                            await tab.evaluate("window.scrollBy(0, -1000)")
                             await asyncio.sleep(1)
-                            await page.evaluate("window.scrollTo(0, 0)")      # Back to top
+                            await tab.evaluate("window.scrollTo(0, 0)")
                             await asyncio.sleep(1)
-                        
-                        logger.info("  ✅ Enhanced scrolling completed")
+
+                        logger.info("  Enhanced scrolling completed")
                     except Exception as scroll_error:
-                        logger.warning(f"  ⚠️ Scrolling failed: {scroll_error}")
-                        pass
-                    
+                        logger.warning(f"  Scrolling failed: {scroll_error}")
+
                     # Get HTML content
-                    html = await page.content()
+                    html = await tab.get_content()
                     articles = await self._parse_html(html, url)
-                    
+
                     for article in articles:
                         yield article
-                    
+
                     if articles:
-                        await context.close()
                         return  # Success with this URL
-                        
+
                 except Exception as e:
-                    logger.error(f"  ❌ Browser error for {url}: {e}")
+                    logger.error(f"  Browser error for {url}: {e}")
                     continue
-            
-            await context.close()
+                finally:
+                    if tab:
+                        try:
+                            await tab.close()
+                        except Exception:
+                            pass
+                        tab = None
+
             raise SourceError("All browser methods failed")
-            
+
         except Exception as e:
             # Don't close shared browser — just clear local reference
             self.browser = None

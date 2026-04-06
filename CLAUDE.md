@@ -55,18 +55,18 @@ Use `func.date(Article.fetched_at) == date` (NOT `Article.fetched_at >= date`).
 - `custom` — Page Monitor with CSS selectors (`sources/page_monitor_source.py` + `sources/page_monitor_adapter.py`)
 - No generic/reddit/twitter sources (deleted)
 
-## Playwright / Browser
+## Browser (nodriver + Alpine Chrome)
 
-Browser runs in a **separate Docker container** (`mcr.microsoft.com/playwright:v1.58.2-jammy`).
-App connects via WebSocket — controlled by `BROWSER_WS_ENDPOINT` env var.
+Browser runs in a **separate Docker container** (`gcr.io/zenika-hub/alpine-chrome:123`).
+App connects via Chrome DevTools Protocol (CDP) — controlled by `BROWSER_WS_ENDPOINT` env var (e.g. `ws://news_browser:9222`).
 
-- Set: `chromium.connect(ws_endpoint=...)` — production / dev-container mode
-- Unset: `chromium.launch(headless=True)` — local dev fallback (needs Chromium installed)
+- Set: `nodriver.start(host=..., port=...)` — production / dev-container mode
+- Unset: `nodriver.start(headless=True)` — local dev fallback (launches local Chrome)
 
-Three files use the browser: `extraction/extraction_strategies.py`, `telegram/telegram_source.py`, `sources/page_monitor_source.py` — all follow the same remote/local pattern.
+Three files use the browser: `extraction/extraction_strategies.py`, `telegram/telegram_source.py`, `sources/page_monitor_source.py`. Connection pool managed in `core/browser_pool.py`.
 
-Browser image version **must match** the pip `playwright` package version exactly.
-Current: `playwright==1.58.2` → `mcr.microsoft.com/playwright:v1.58.2-jammy`.
+Python library: `nodriver>=0.38` (direct CDP, no Node.js dependency).
+Docker image: `gcr.io/zenika-hub/alpine-chrome:123` (~300MB, same as Karakeep).
 
 ## Category Mapping Enrichment
 

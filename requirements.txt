@@ -65,5 +65,9 @@ psutil>=5.9.6                 # System and process monitoring
 
 # Content extraction improvements
 readability-lxml>=0.8.1       # Mozilla readability algorithm
-playwright>=1.40.0            # JavaScript rendering for SPA sites
+nodriver>=0.38                # Chrome CDP browser automation (replaces Playwright)
 chardet>=5.2.0                # Character encoding detection
+
+# Testing
+pytest>=8.0.0
+pytest-asyncio>=0.23.0

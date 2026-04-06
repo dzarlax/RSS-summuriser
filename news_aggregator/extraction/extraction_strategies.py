@@ -11,7 +11,8 @@ import aiohttp
 import chardet
 from bs4 import BeautifulSoup
 from readability.readability import Document
-from playwright.async_api import async_playwright, Browser, Page
+import nodriver as uc
+from nodriver import cdp
 
 from ..core.http_client import get_http_client
 from ..core.exceptions import ContentExtractionError
@@ -20,9 +21,9 @@ from ..services.domain_stability_tracker import get_stability_tracker
 from ..services.ai_extraction_optimizer import get_ai_extraction_optimizer
 from ..services.extraction_constants import (
     BROWSER_CONCURRENCY,
-    PLAYWRIGHT_TIMEOUT_FIRST_MS,
-    PLAYWRIGHT_TIMEOUT_RETRY_MS,
-    PLAYWRIGHT_TOTAL_BUDGET_MS,
+    BROWSER_TIMEOUT_FIRST_MS,
+    BROWSER_TIMEOUT_RETRY_MS,
+    BROWSER_TOTAL_BUDGET_MS,
 )
 
 from .extraction_utils import ExtractionUtils
@@ -49,8 +50,7 @@ class ExtractionStrategies:
         self.metadata_extractor = metadata_extractor
 
         # Browser management
-        self.browser: Optional[Browser] = None
-        self._playwright_context = None
+        self.browser: Optional[uc.Browser] = None
         self._browser_semaphore = asyncio.Semaphore(BROWSER_CONCURRENCY)
 
     def _normalize_learned_pattern_method(self, original_method: Optional[str]) -> str:
@@ -468,47 +468,52 @@ class ExtractionStrategies:
             Tuple of (content, selector, page_html)
         """
         async with self._browser_semaphore:
-            context = None
+            tab = None
             try:
                 await self._ensure_browser()
-                context = await self.browser.new_context(
+                tab = await self.browser.get("about:blank", new_tab=True)
+
+                # Set user agent
+                await tab.send(cdp.network.set_user_agent_override(
                     user_agent="Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                )
-                page = await context.new_page()
+                ))
 
-                async def route_handler(route):
-                    if route.request.resource_type in ["image", "media", "font"]:
-                        await route.abort()
-                    else:
-                        await route.continue_()
-
-                await page.route("**/*", route_handler)
+                # Block images, media, fonts to speed up loading
+                await tab.send(cdp.network.set_blocked_ur_ls(
+                    urls=["*.png", "*.jpg", "*.jpeg", "*.gif", "*.webp", "*.svg",
+                          "*.mp4", "*.mp3", "*.webm", "*.ogg", "*.wav",
+                          "*.woff", "*.woff2", "*.ttf", "*.eot"]
+                ))
 
                 budget_start = time.time()
                 from urllib.parse import urlparse as _urlparse
                 domain = _urlparse(url).netloc
                 stability_tracker = await get_stability_tracker()
                 adaptive_timeout = stability_tracker.get_method_timeout(
-                    domain, "browser_rendering", PLAYWRIGHT_TIMEOUT_FIRST_MS
+                    domain, "browser_rendering", BROWSER_TIMEOUT_FIRST_MS
                 )
-                adaptive_total_budget = min(adaptive_timeout * 3, PLAYWRIGHT_TOTAL_BUDGET_MS)
+                adaptive_total_budget = min(adaptive_timeout * 3, BROWSER_TOTAL_BUDGET_MS)
 
-                def remaining_ms() -> int:
-                    return max(0, int(adaptive_total_budget - (time.time() - budget_start) * 1000))
+                def remaining_s() -> float:
+                    return max(0.0, adaptive_total_budget / 1000 - (time.time() - budget_start))
 
-                await page.goto(url, timeout=min(adaptive_timeout, remaining_ms()), wait_until="domcontentloaded")
+                await tab.get(url, new_tab=False)
 
+                # Wait for content to appear (poll JS condition)
                 try:
-                    await page.wait_for_load_state("networkidle", timeout=min(5000, remaining_ms()))
-                    await page.wait_for_function(
-                        "() => document.body.innerText.length > 500",
-                        timeout=min(10000, remaining_ms()),
-                    )
+                    deadline = time.time() + min(10, remaining_s())
+                    while time.time() < deadline:
+                        result = await tab.evaluate(
+                            "document.body ? document.body.innerText.length : 0"
+                        )
+                        if result and int(result) > 500:
+                            break
+                        await asyncio.sleep(0.5)
                 except Exception:
                     pass  # Continue even if content detection times out
 
                 # Capture rendered HTML once for both content and metadata
-                page_html = await page.content()
+                page_html = await tab.get_content()
 
                 # Extract content from rendered HTML using existing logic
                 content = None
@@ -525,9 +530,9 @@ class ExtractionStrategies:
             except Exception as e:
                 raise ContentExtractionError(f"Browser extraction failed: {e}")
             finally:
-                if context:
+                if tab:
                     try:
-                        await context.close()
+                        await tab.close()
                     except Exception:
                         pass
 

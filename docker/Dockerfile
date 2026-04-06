@@ -1,4 +1,4 @@
-# Lightweight Python base — Playwright browser runs in a separate container
+# Lightweight Python base — browser (Alpine Chrome) runs in a separate container
 FROM python:3.12-slim
 
 # Build arguments for metadata
@@ -30,8 +30,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 
 # Install Python dependencies
-# Note: playwright package is installed for the client API only — no browser binaries here.
-# The browser runs in a separate container (see docker-compose browser service).
+# Note: nodriver connects to a remote Chrome via CDP — no browser binaries here.
+# The browser runs in a separate container (Alpine Chrome, see docker-compose).
 RUN pip install --no-cache-dir --prefer-binary -r requirements.txt
 
 # Create directories with proper permissions
