@@ -3,304 +3,62 @@
 {% block title %}{{ title }}{% endblock %}
 
 {% block content %}
-<style>
-.modal {
-    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-    background: rgba(0,0,0,0.5); display: flex;
-    align-items: center; justify-content: center; z-index: 1000;
-}
-.modal-content {
-    background: var(--surface, #fff); border-radius: 8px; padding: 0;
-    width: 90%; max-width: 500px; max-height: 90vh; overflow-y: auto;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-}
-.modal-header {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 1rem; border-bottom: 1px solid var(--border, #e0e0e0);
-}
-.modal-content form { padding: 1rem; }
-.modal-actions {
-    border-top: 1px solid var(--border, #e0e0e0);
-    padding: 1rem; margin: 0 !important;
-}
+<h1>Категории</h1>
 
-.tab-bar { display: flex; gap: .5rem; margin-bottom: 1.5rem; border-bottom: 2px solid var(--border); padding-bottom: .5rem; }
-.tab-bar .tab-btn { background: none; border: none; padding: .5rem 1rem; cursor: pointer; color: var(--text-muted); font-size: 1rem; border-radius: 6px 6px 0 0; border-bottom: 2px solid transparent; margin-bottom: -2px; }
-.tab-bar .tab-btn.active { color: var(--primary-color); border-bottom-color: var(--primary-color); font-weight: 600; }
+<!-- Alert container -->
+<div id="alert-container"></div>
 
-.unmapped-row { display: grid; grid-template-columns: 1fr auto auto auto; gap: .75rem; align-items: center; padding: .75rem 1rem; border-bottom: 1px solid var(--border); }
-.unmapped-row:last-child { border-bottom: none; }
-.unmapped-row:hover { background: var(--surface-hover); }
-.unmapped-row .ai-cat { font-weight: 600; color: var(--text-color); }
-.unmapped-row .usage-badge { font-size: .75rem; padding: .2rem .5rem; background: var(--surface-hover); border-radius: 12px; color: var(--text-muted); white-space: nowrap; }
-
-.section-badge { display: inline-flex; align-items: center; justify-content: center; background: var(--primary-color); color: white; border-radius: 12px; font-size: .75rem; font-weight: 700; padding: .15rem .5rem; min-width: 1.5rem; }
-.section-badge.zero { background: var(--success-color, #28a745); }
-
-.inline-select { padding: .35rem .75rem; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text-color); font-size: .875rem; cursor: pointer; max-width: 160px; }
-.inline-select:focus { outline: none; border-color: var(--primary-color); }
-
-.apply-btn { padding: .35rem .75rem; background: var(--success-color, #28a745); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: .875rem; white-space: nowrap; font-weight: 500; }
-.apply-btn:hover { filter: brightness(1.1); }
-.apply-btn:disabled { opacity: .5; cursor: not-allowed; }
-
-.bulk-bar { display: flex; align-items: center; justify-content: space-between; padding: .75rem 1rem; background: var(--surface-hover); border-radius: 8px; margin-bottom: .75rem; }
-.bulk-bar .bulk-info { color: var(--text-muted); font-size: .875rem; }
-
-.mapping-table-row td { vertical-align: middle; }
-.status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
-.status-dot.active { background: var(--success-color, #28a745); }
-.status-dot.inactive { background: var(--text-muted); }
-
-.cat-color-dot { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: middle; margin-right: 6px; }
-
-.ai-analysis-result { border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: .75rem; background: var(--surface); }
-.ai-analysis-result .top-badge { font-size: .7rem; background: var(--primary-color); color: white; border-radius: 3px; padding: .1rem .3rem; }
-
-/* Grouped mappings */
-.mapping-group { border: 1px solid var(--border, #e2e8f0); border-radius: 8px; margin-bottom: .5rem; overflow: hidden; }
-.group-header {
-    display: flex; align-items: center; gap: .75rem;
-    padding: .6rem 1rem; cursor: pointer;
-    background: var(--surface-hover, #f8fafc);
-    user-select: none;
-    transition: background .12s;
-}
-.group-header:hover { background: #f1f5f9; }
-.group-arrow { font-size: .75rem; color: var(--text-muted); transition: transform .2s; flex-shrink: 0; }
-.mapping-group.collapsed .group-arrow { transform: rotate(-90deg); }
-.group-cat-dot { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
-.group-name { font-weight: 600; font-size: .9rem; color: var(--text-color, #1e293b); flex: 1; }
-.group-count { font-size: .75rem; background: #e2e8f0; color: #64748b; border-radius: 10px; padding: .1rem .5rem; white-space: nowrap; }
-.group-active-count { font-size: .75rem; color: var(--text-muted); }
-.group-body { display: block; }
-.mapping-group.collapsed .group-body { display: none; }
-.group-body .table { border-radius: 0; border: none; }
-.group-body .table thead tr th { background: #fafafa; font-size: .8rem; }
-.group-body .table td { font-size: .875rem; }
-</style>
-        <h1>Категории и маппинги</h1>
-
-        <!-- Tabs -->
-        <div class="tab-bar">
-            <button class="tab-btn active" id="tab-btn-mappings" onclick="switchTab('mappings')">Маппинги AI категорий</button>
-            <button class="tab-btn" id="tab-btn-categories" onclick="switchTab('categories')">Основные категории</button>
-        </div>
-
-        <!-- Alert container -->
-        <div id="alert-container"></div>
-
-        <!-- ============================================================ -->
-        <!-- TAB: Маппинги                                                -->
-        <!-- ============================================================ -->
-        <div id="tab-mappings">
-
-            <!-- Stats -->
-            <div class="stats-grid" style="margin-bottom:1.5rem;">
-                <div class="stat-card">
-                    <div class="stat-icon">🏷️</div>
-                    <div class="stat-content">
-                        <h3>Маппингов</h3>
-                        <div class="stat-number" id="stat-total">-</div>
-                        <div class="stat-label">всего настроено</div>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon">✅</div>
-                    <div class="stat-content">
-                        <h3>Активных</h3>
-                        <div class="stat-number" id="stat-active">-</div>
-                        <div class="stat-label">применяются сейчас</div>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon">❓</div>
-                    <div class="stat-content">
-                        <h3>Несопоставленных</h3>
-                        <div class="stat-number" id="stat-unmapped">-</div>
-                        <div class="stat-label">нужен маппинг</div>
-                    </div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-icon">🔄</div>
-                    <div class="stat-content">
-                        <h3>Использований</h3>
-                        <div class="stat-number" id="stat-usage">-</div>
-                        <div class="stat-label">всего раз</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Unmapped categories section -->
-            <div class="dashboard-section" id="unmapped-section" style="margin-bottom:1.5rem;">
-                <div class="section-header">
-                    <h2>
-                        ❓ Несопоставленные AI категории
-                        <span class="section-badge" id="unmapped-badge">…</span>
-                    </h2>
-                    <button class="btn btn-secondary" id="ai-analyze-btn" onclick="startAIAnalysis()" style="display:flex;align-items:center;gap:.4rem;">
-                        🤖 AI Предложения
-                    </button>
-                </div>
-
-                <div id="unmapped-empty" style="display:none; padding:1.5rem; text-align:center; color:var(--text-muted);">
-                    ✅ Все AI категории сопоставлены
-                </div>
-
-                <div id="unmapped-loading" style="padding:1.5rem; text-align:center; color:var(--text-muted);">
-                    <div class="spinner" style="margin:0 auto .5rem;"></div>Загрузка…
-                </div>
-
-                <div id="unmapped-list" style="display:none;">
-                    <div class="bulk-bar">
-                        <span class="bulk-info">Выберите категорию для каждой строки и нажмите Применить, или <strong>Применить все</strong></span>
-                        <button class="btn btn-primary" id="apply-all-btn" onclick="applyAllUnmapped()">
-                            Применить все (<span id="apply-all-count">0</span>)
-                        </button>
-                    </div>
-                    <div id="unmapped-rows"></div>
-                </div>
-            </div>
-
-            <!-- All mappings section -->
-            <div class="dashboard-section">
-                <div class="section-header">
-                    <h2>📋 Настроенные маппинги</h2>
-                    <div style="display:flex; gap:.5rem; align-items:center; flex-wrap:wrap;">
-                        <input type="text" id="mapping-search" class="form-input" placeholder="Поиск…" style="width:180px;" oninput="renderMappings()">
-                        <label style="display:flex;align-items:center;gap:.3rem;font-size:.875rem;color:var(--text-muted);white-space:nowrap;">
-                            <input type="checkbox" id="mapping-active-only" checked onchange="renderMappings()"> Только активные
-                        </label>
-                        <button class="btn btn-sm btn-ghost" onclick="collapseAllGroups()" title="Свернуть все">⊖ Свернуть</button>
-                        <button class="btn btn-sm btn-ghost" onclick="expandAllGroups()" title="Развернуть все">⊕ Развернуть</button>
-                        <button class="btn btn-primary" onclick="openCreateModal()">+ Добавить</button>
-                    </div>
-                </div>
-
-                <div id="mappings-grouped"></div>
-            </div>
-        </div>
-
-        <!-- ============================================================ -->
-        <!-- TAB: Основные категории                                      -->
-        <!-- ============================================================ -->
-        <div id="tab-categories" style="display:none;">
-            <div class="cards-grid" style="grid-template-columns:1fr 2fr; gap:1.5rem;">
-
-                <div class="card" style="padding:1rem; align-self:start;">
-                    <h3 style="margin-top:0;">Добавить категорию</h3>
-                    <form id="category-form">
-                        <div class="form-group">
-                            <label class="form-label">Системное имя (EN)</label>
-                            <input type="text" id="cat-name" name="name" required placeholder="Business" class="form-input">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Отображаемое имя</label>
-                            <input type="text" id="cat-display" name="display_name" required placeholder="Бизнес" class="form-input">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Цвет</label>
-                            <input type="color" id="cat-color" name="color" value="#6c757d" class="form-input" style="height:40px;padding:0;">
-                        </div>
-                        <div class="form-group">
-                            <label class="form-label">Описание <small style="color:var(--text-muted);">(опционально)</small></label>
-                            <textarea id="cat-desc" name="description" class="form-input" style="height:60px;resize:vertical;"></textarea>
-                        </div>
-                        <button type="submit" class="btn btn-primary" style="width:100%;">Добавить</button>
-                    </form>
-                </div>
-
-                <div class="card" style="padding:1rem;">
-                    <h3 style="margin-top:0;">Список категорий</h3>
-                    <div class="table-container">
-                        <table class="table">
-                            <thead>
-                                <tr>
-                                    <th>Имя</th>
-                                    <th>Отображаемое</th>
-                                    <th>Цвет</th>
-                                    <th>Статей</th>
-                                    <th>Действия</th>
-                                </tr>
-                            </thead>
-                            <tbody id="categories-tbody">
-                                <tr><td colspan="5" style="text-align:center;padding:1rem;color:var(--text-muted);">Загрузка…</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-    </div>
+<!-- Categories grid -->
+<div class="cat-grid" id="categories-grid">
+    <div style="color:var(--text-muted);padding:2rem;text-align:center;">Загрузка...</div>
 </div>
 
-<!-- ============================================================ -->
-<!-- MODAL: Create / Edit Mapping                                 -->
-<!-- ============================================================ -->
-<div id="mapping-modal" class="modal" style="display:none;">
-    <div class="modal-content">
-        <div class="modal-header">
-            <h3 id="modal-title" style="margin:0;">Добавить маппинг</h3>
-            <button class="btn btn-ghost" onclick="closeModal()" style="padding:.5rem;">✕</button>
-        </div>
-        <form id="mapping-form">
-            <div class="form-group">
-                <label class="form-label">AI категория</label>
-                <input type="text" id="modal-ai-category" name="ai_category" required
-                       placeholder="Например: Technology, Health, Events"
-                       class="form-input">
-            </div>
-            <div class="form-group">
-                <label class="form-label">Целевая категория</label>
-                <select id="modal-fixed-category" name="fixed_category" required class="form-select">
-                    <option value="">Выберите…</option>
-                </select>
-            </div>
-            <div class="form-group">
-                <label class="form-label">Описание <small style="color:var(--text-muted);">(опционально)</small></label>
-                <textarea id="modal-description" name="description"
-                          placeholder="Почему используется этот маппинг…"
-                          class="form-input" style="height:60px;resize:vertical;"></textarea>
-            </div>
-            <div class="modal-actions" style="display:flex;gap:.5rem;justify-content:flex-end;">
-                <button type="button" class="btn btn-secondary" onclick="closeModal()">Отмена</button>
-                <button type="submit" class="btn btn-primary">Сохранить</button>
-            </div>
-        </form>
-    </div>
+<!-- Add category -->
+<div class="cat-add-section">
+    <h3>Добавить категорию</h3>
+    <form id="add-category-form" class="cat-add-form">
+        <input type="text" id="new-cat-name" placeholder="Системное имя (EN)" class="cat-input" required>
+        <input type="text" id="new-cat-display" placeholder="Отображаемое имя" class="cat-input" required>
+        <input type="color" id="new-cat-color" value="#6c757d" class="cat-color-input">
+        <button type="submit" class="btn btn-primary">Добавить</button>
+    </form>
 </div>
 
-<!-- ============================================================ -->
-<!-- MODAL: Edit Category                                         -->
-<!-- ============================================================ -->
-<div id="edit-category-modal" class="modal" style="display:none;">
-    <div class="modal-content">
-        <div class="modal-header">
+<!-- Unmapped section (usually empty) -->
+<div id="unmapped-section" style="display:none;">
+    <h3>Несопоставленные AI-категории <span class="cat-badge" id="unmapped-count">0</span></h3>
+    <p style="font-size:.8rem;color:var(--text-muted);margin-bottom:.75rem;">
+        AI вернул категории не из фиксированного списка. Выберите куда их отнести.
+    </p>
+    <div id="unmapped-list"></div>
+</div>
+
+<!-- Edit modal -->
+<div id="edit-modal" class="cat-modal" style="display:none;">
+    <div class="cat-modal-content">
+        <div class="cat-modal-header">
             <h3 style="margin:0;">Редактировать категорию</h3>
-            <button class="btn btn-ghost" onclick="closeEditModal()" style="padding:.5rem;">✕</button>
+            <button class="btn btn-ghost" onclick="closeEditModal()" style="padding:.5rem;">&#10005;</button>
         </div>
-        <form id="edit-category-form">
-            <input type="hidden" id="edit-cat-id">
-            <div class="form-group">
-                <label class="form-label">Системное имя</label>
-                <input type="text" id="edit-cat-name" class="form-input" readonly
-                       style="background:var(--surface-hover);color:var(--text-muted);">
-                <small style="color:var(--text-muted);">Нельзя изменить</small>
+        <form id="edit-form" style="padding:1rem;">
+            <input type="hidden" id="edit-id">
+            <div class="cat-form-group">
+                <label>Системное имя</label>
+                <input type="text" id="edit-name" class="cat-input" readonly style="opacity:.6;">
             </div>
-            <div class="form-group">
-                <label class="form-label">Отображаемое имя</label>
-                <input type="text" id="edit-cat-display" required class="form-input">
+            <div class="cat-form-group">
+                <label>Отображаемое имя</label>
+                <input type="text" id="edit-display" class="cat-input" required>
             </div>
-            <div class="form-group">
-                <label class="form-label">Цвет</label>
-                <input type="color" id="edit-cat-color" class="form-input" style="height:40px;padding:0;">
+            <div class="cat-form-group">
+                <label>Цвет</label>
+                <input type="color" id="edit-color" class="cat-color-input">
             </div>
-            <div class="form-group">
-                <label class="form-label">Описание</label>
-                <textarea id="edit-cat-desc" class="form-input" style="height:60px;resize:vertical;"></textarea>
+            <div class="cat-form-group">
+                <label>Описание</label>
+                <textarea id="edit-desc" class="cat-input" style="height:60px;resize:vertical;"></textarea>
             </div>
-            <div class="modal-actions" style="display:flex;gap:.5rem;justify-content:flex-end;">
+            <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem;">
                 <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Отмена</button>
                 <button type="submit" class="btn btn-primary">Сохранить</button>
             </div>
@@ -308,770 +66,232 @@
     </div>
 </div>
 
-<!-- ============================================================ -->
-<!-- MODAL: AI Analysis                                           -->
-<!-- ============================================================ -->
-<div id="ai-modal" class="modal" style="display:none;">
-    <div class="modal-content" style="max-width:720px;max-height:80vh;">
-        <div class="modal-header">
-            <h3 style="margin:0;">🤖 AI предложения по маппингу</h3>
-            <button class="btn btn-ghost" onclick="closeAIModal()" style="padding:.5rem;">✕</button>
-        </div>
-        <div style="padding:1rem;max-height:58vh;overflow-y:auto;">
-            <div id="ai-loading" style="text-align:center;padding:2rem;">
-                <div class="spinner" style="margin:0 auto .5rem;"></div>
-                <p>AI анализирует категории…</p>
-                <p style="color:var(--text-muted);font-size:.875rem;">Может занять несколько секунд</p>
-            </div>
-            <div id="ai-results" style="display:none;">
-                <div id="ai-summary" style="padding:.75rem 1rem;background:var(--surface-hover);border-radius:8px;margin-bottom:1rem;font-size:.875rem;color:var(--text-muted);"></div>
-                <div id="ai-suggestions-list"></div>
-            </div>
-            <div id="ai-error" style="display:none;text-align:center;padding:2rem;color:var(--error-color);">
-                <p id="ai-error-msg"></p>
-                <button class="btn btn-secondary" onclick="startAIAnalysis()">Повторить</button>
-            </div>
-        </div>
-        <div class="modal-actions" style="display:flex;gap:.5rem;justify-content:space-between;align-items:center;">
-            <button id="ai-apply-btn" class="btn btn-primary" onclick="applyAISuggestions()" style="display:none;">
-                Применить выбранные (<span id="ai-selected-count">0</span>)
-            </button>
-            <div style="margin-left:auto;display:flex;gap:.5rem;">
-                <button class="btn btn-secondary" onclick="closeAIModal()">Закрыть</button>
-            </div>
-        </div>
-    </div>
-</div>
+<style>
+.cat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px;
+    margin-bottom: 2rem;
+}
+.cat-card {
+    background: var(--surface, #fff);
+    border: 1px solid var(--border, #e1e5e9);
+    border-radius: 8px;
+    padding: 16px;
+    position: relative;
+    overflow: hidden;
+    cursor: pointer;
+    transition: box-shadow .15s;
+}
+.cat-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.1); }
+.cat-card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 4px;
+    background: var(--cat-color, #757575);
+}
+.cat-card-name { font-weight: 600; font-size: .95rem; margin-bottom: 2px; }
+.cat-card-display { font-size: .8rem; color: var(--text-muted); margin-bottom: 8px; }
+.cat-card-count { font-size: 1.5rem; font-weight: 700; color: var(--text-color); }
+.cat-card-count-label { font-size: .7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; }
+
+.cat-add-section {
+    background: var(--surface-hover, #f8f9fa);
+    border: 1px dashed var(--border, #e1e5e9);
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 2rem;
+}
+.cat-add-section h3 { margin: 0 0 12px; font-size: .95rem; }
+.cat-add-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.cat-input {
+    padding: 8px 12px; border: 1px solid var(--border, #ddd); border-radius: 5px;
+    font-size: .875rem; background: var(--surface, #fff); color: var(--text-color);
+}
+.cat-color-input { width: 40px; height: 36px; padding: 2px; border: 1px solid var(--border); border-radius: 5px; cursor: pointer; }
+.cat-form-group { margin-bottom: 12px; }
+.cat-form-group label { display: block; font-size: .8rem; font-weight: 500; margin-bottom: 4px; color: var(--text-color); }
+.cat-form-group .cat-input { width: 100%; }
+
+.cat-badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--primary-color); color: white; border-radius: 12px;
+    font-size: .75rem; font-weight: 700; padding: .15rem .5rem; min-width: 1.5rem;
+}
+
+.cat-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+.cat-modal-content { background: var(--surface, #fff); border-radius: 8px; width: 90%; max-width: 440px; max-height: 90vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,.15); }
+.cat-modal-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem; border-bottom: 1px solid var(--border, #e0e0e0); }
+
+/* Unmapped row */
+.unmapped-row {
+    display: flex; align-items: center; gap: .75rem;
+    padding: .6rem .75rem; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 6px;
+    background: var(--surface);
+}
+.unmapped-name { font-weight: 600; font-size: .875rem; flex: 1; }
+.unmapped-usage { font-size: .75rem; color: var(--text-muted); white-space: nowrap; }
+.unmapped-select { padding: .35rem .5rem; border: 1px solid var(--border); border-radius: 5px; font-size: .8rem; background: var(--surface); color: var(--text-color); }
+.unmapped-apply { padding: .35rem .6rem; background: var(--success-color, #28a745); color: white; border: none; border-radius: 5px; cursor: pointer; font-size: .8rem; }
+</style>
 
 <script>
-// ============================================================
-// State
-// ============================================================
-let mappings = [];
-let fixedCategories = [];
-let unmappedCategories = [];
-let editingMappingId = null;
+let categories = [];
+let fixedCategoryNames = [];
 
-// ai modal selections: Map<ai_category, fixed_category>
-let aiSelections = new Map();
-
-// ============================================================
-// Init
-// ============================================================
-document.addEventListener('DOMContentLoaded', () => {
-    const saved = localStorage.getItem('cat_tab') || 'mappings';
-    switchTab(saved, false);
-    loadAll();
-});
+document.addEventListener('DOMContentLoaded', loadAll);
 
 async function loadAll() {
-    await Promise.all([
-        loadFixedCategories(),
-        loadMappings(),
-        loadUnmapped(),
-        loadCategoriesList(),
-    ]);
+    await Promise.all([loadCategories(), loadUnmapped()]);
 }
 
 // ============================================================
-// Tabs
+// Categories
 // ============================================================
-function switchTab(tab, save = true) {
-    document.getElementById('tab-mappings').style.display = tab === 'mappings' ? 'block' : 'none';
-    document.getElementById('tab-categories').style.display = tab === 'categories' ? 'block' : 'none';
-    document.getElementById('tab-btn-mappings').classList.toggle('active', tab === 'mappings');
-    document.getElementById('tab-btn-categories').classList.toggle('active', tab === 'categories');
-    if (save) localStorage.setItem('cat_tab', tab);
-}
-
-// ============================================================
-// Alert
-// ============================================================
-function showAlert(message, type = 'success') {
-    const bgMap = { success: '#d1fae5', error: '#fee2e2', warning: '#fef3c7', info: '#dbeafe' };
-    const fgMap = { success: '#065f46', error: '#dc2626', warning: '#92400e', info: '#1e40af' };
-    const iconMap = { success: '✅', error: '❌', warning: '⚠️', info: 'ℹ️' };
-    const el = document.createElement('div');
-    el.style.cssText = `background:${bgMap[type]||bgMap.info};color:${fgMap[type]||fgMap.info};border:1px solid;padding:.75rem 1rem;border-radius:6px;font-size:.875rem;margin-bottom:.75rem;display:flex;align-items:center;gap:.5rem;`;
-    el.innerHTML = `<span>${iconMap[type]||'ℹ️'}</span><span>${message}</span><button onclick="this.parentElement.remove()" style="margin-left:auto;background:none;border:none;color:inherit;cursor:pointer;font-size:1.1rem;">×</button>`;
-    document.getElementById('alert-container').prepend(el);
-    setTimeout(() => el.remove(), 6000);
-}
-
-// ============================================================
-// Fixed categories (for selects)
-// ============================================================
-async function loadFixedCategories() {
-    try {
-        const r = await fetch('/api/v1/category-mappings/fixed-categories');
-        const d = await r.json();
-        fixedCategories = d.categories || [];
-        populateCategorySelects();
-    } catch (e) {
-        console.error('loadFixedCategories:', e);
-    }
-}
-
-function populateCategorySelects() {
-    const opts = fixedCategories.map(c => `<option value="${c.key}">${c.display_name} (${c.key})</option>`).join('');
-    document.getElementById('modal-fixed-category').innerHTML = '<option value="">Выберите…</option>' + opts;
-}
-
-function buildInlineSelect(aiCategory, suggested) {
-    const opts = fixedCategories.map(c =>
-        `<option value="${c.key}" ${c.key === suggested ? 'selected' : ''}>${c.display_name}</option>`
-    ).join('');
-    return `<select class="inline-select" id="sel-${CSS.escape(aiCategory)}" onchange="onInlineSelectChange('${aiCategory.replace(/'/g,"\\'")}', this.value)">${opts}</select>`;
-}
-
-function onInlineSelectChange(aiCategory, value) {
-    // Update in unmappedCategories list for apply-all
-    const item = unmappedCategories.find(u => u.ai_category === aiCategory);
-    if (item) item._selectedCategory = value;
-    updateApplyAllCount();
-}
-
-// ============================================================
-// Unmapped categories
-// ============================================================
-async function loadUnmapped() {
-    document.getElementById('unmapped-loading').style.display = 'block';
-    document.getElementById('unmapped-list').style.display = 'none';
-    document.getElementById('unmapped-empty').style.display = 'none';
-    try {
-        const r = await fetch('/api/v1/category-mappings/unmapped?limit=200');
-        const d = await r.json();
-        unmappedCategories = (d.unmapped_categories || []).map(u => ({
-            ...u,
-            _selectedCategory: u.suggested_fixed_category || 'Other'
-        }));
-        renderUnmapped();
-    } catch (e) {
-        console.error('loadUnmapped:', e);
-    } finally {
-        document.getElementById('unmapped-loading').style.display = 'none';
-    }
-}
-
-function renderUnmapped() {
-    const badge = document.getElementById('unmapped-badge');
-    badge.textContent = unmappedCategories.length;
-    badge.className = 'section-badge' + (unmappedCategories.length === 0 ? ' zero' : '');
-
-    document.getElementById('stat-unmapped').textContent = unmappedCategories.length;
-
-    if (unmappedCategories.length === 0) {
-        document.getElementById('unmapped-empty').style.display = 'block';
-        document.getElementById('unmapped-list').style.display = 'none';
-        return;
-    }
-
-    document.getElementById('unmapped-empty').style.display = 'none';
-    document.getElementById('unmapped-list').style.display = 'block';
-
-    document.getElementById('unmapped-rows').innerHTML = unmappedCategories.map(u => `
-        <div class="unmapped-row" id="urow-${CSS.escape(u.ai_category)}">
-            <div>
-                <div class="ai-cat">${escHtml(u.ai_category)}</div>
-            </div>
-            <div>
-                <span class="usage-badge">${u.usage_count} статей</span>
-            </div>
-            <div>
-                ${buildInlineSelect(u.ai_category, u._selectedCategory)}
-            </div>
-            <div>
-                <button class="apply-btn" onclick="applyOneUnmapped('${u.ai_category.replace(/'/g,"\\'")}')">✓ Применить</button>
-            </div>
-        </div>
-    `).join('');
-
-    updateApplyAllCount();
-}
-
-function updateApplyAllCount() {
-    document.getElementById('apply-all-count').textContent = unmappedCategories.length;
-}
-
-async function applyOneUnmapped(aiCategory) {
-    const item = unmappedCategories.find(u => u.ai_category === aiCategory);
-    if (!item) return;
-
-    const selEl = document.getElementById('sel-' + CSS.escape(aiCategory));
-    const targetCategory = selEl ? selEl.value : item._selectedCategory;
-    if (!targetCategory) { showAlert('Выберите категорию', 'warning'); return; }
-
-    const row = document.getElementById('urow-' + CSS.escape(aiCategory));
-    const btn = row ? row.querySelector('.apply-btn') : null;
-    if (btn) { btn.disabled = true; btn.textContent = '…'; }
-
-    try {
-        const ok = await saveMappingDirect(aiCategory, targetCategory);
-        if (ok) {
-            unmappedCategories = unmappedCategories.filter(u => u.ai_category !== aiCategory);
-            if (row) row.remove();
-            renderUnmappedCount();
-            await loadMappings();
-            showAlert(`Маппинг «${aiCategory}» → «${targetCategory}» применён`);
-        }
-    } catch (e) {
-        showAlert(e.message, 'error');
-        if (btn) { btn.disabled = false; btn.textContent = '✓ Применить'; }
-    }
-}
-
-async function applyAllUnmapped() {
-    if (unmappedCategories.length === 0) return;
-
-    const btn = document.getElementById('apply-all-btn');
-    btn.disabled = true;
-    btn.innerHTML = '…';
-
-    let ok = 0, fail = 0;
-    for (const item of [...unmappedCategories]) {
-        const selEl = document.getElementById('sel-' + CSS.escape(item.ai_category));
-        const target = selEl ? selEl.value : item._selectedCategory;
-        if (!target) { fail++; continue; }
-        try {
-            const success = await saveMappingDirect(item.ai_category, target);
-            if (success) {
-                ok++;
-                unmappedCategories = unmappedCategories.filter(u => u.ai_category !== item.ai_category);
-                const row = document.getElementById('urow-' + CSS.escape(item.ai_category));
-                if (row) row.remove();
-            } else { fail++; }
-        } catch { fail++; }
-    }
-
-    renderUnmappedCount();
-    await loadMappings();
-
-    btn.disabled = false;
-    btn.innerHTML = `Применить все (<span id="apply-all-count">${unmappedCategories.length}</span>)`;
-
-    if (ok > 0) showAlert(`Применено ${ok} маппингов`);
-    if (fail > 0) showAlert(`Не удалось применить: ${fail}`, 'error');
-}
-
-function renderUnmappedCount() {
-    const badge = document.getElementById('unmapped-badge');
-    badge.textContent = unmappedCategories.length;
-    badge.className = 'section-badge' + (unmappedCategories.length === 0 ? ' zero' : '');
-    document.getElementById('stat-unmapped').textContent = unmappedCategories.length;
-
-    if (unmappedCategories.length === 0) {
-        document.getElementById('unmapped-empty').style.display = 'block';
-        document.getElementById('unmapped-list').style.display = 'none';
-    }
-    updateApplyAllCount();
-}
-
-async function saveMappingDirect(aiCategory, fixedCategory, description) {
-    const r = await fetch('/api/v1/category-mappings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            ai_category: aiCategory,
-            fixed_category: fixedCategory,
-            confidence_threshold: 0.7,
-            description: description || null
-        })
-    });
-    if (!r.ok) {
-        const err = await r.json().catch(() => ({}));
-        throw new Error(err.detail || 'Ошибка создания маппинга');
-    }
-    return true;
-}
-
-// ============================================================
-// Mappings table
-// ============================================================
-async function loadMappings() {
-    try {
-        const r = await fetch('/api/v1/category-mappings?active_only=false');
-        mappings = await r.json();
-        renderMappings();
-        updateStats();
-    } catch (e) {
-        console.error('loadMappings:', e);
-        showAlert('Ошибка загрузки маппингов', 'error');
-    }
-}
-
-// Persist which groups are expanded (default: all collapsed)
-const _groupExpanded = new Set(JSON.parse(localStorage.getItem('cat_groups_expanded') || '[]'));
-
-function _saveGroupState() {
-    localStorage.setItem('cat_groups_expanded', JSON.stringify([..._groupExpanded]));
-}
-
-function toggleGroup(cat) {
-    const el = document.getElementById('grp-' + cat);
-    if (!el) return;
-    el.classList.toggle('collapsed');
-    if (el.classList.contains('collapsed')) _groupExpanded.delete(cat);
-    else _groupExpanded.add(cat);
-    _saveGroupState();
-}
-
-function collapseAllGroups() {
-    document.querySelectorAll('.mapping-group').forEach(el => {
-        el.classList.add('collapsed');
-        _groupExpanded.delete(el.dataset.cat);
-    });
-    _saveGroupState();
-}
-
-function expandAllGroups() {
-    document.querySelectorAll('.mapping-group').forEach(el => {
-        el.classList.remove('collapsed');
-        _groupExpanded.add(el.dataset.cat);
-    });
-    _saveGroupState();
-}
-
-function renderMappings() {
-    const container = document.getElementById('mappings-grouped');
-    const q = (document.getElementById('mapping-search')?.value || '').toLowerCase();
-    const activeOnly = document.getElementById('mapping-active-only')?.checked;
-
-    const filtered = mappings.filter(m =>
-        (!q || m.ai_category.toLowerCase().includes(q)) &&
-        (!activeOnly || m.is_active)
-    );
-
-    if (filtered.length === 0) {
-        container.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--text-muted);">${q || activeOnly ? 'Ничего не найдено' : 'Маппингов нет'}</div>`;
-        return;
-    }
-
-    // Group by fixed_category
-    const groups = {};
-    filtered.forEach(m => {
-        if (!groups[m.fixed_category]) groups[m.fixed_category] = [];
-        groups[m.fixed_category].push(m);
-    });
-
-    // Sort groups by name
-    const sortedCats = Object.keys(groups).sort();
-
-    container.innerHTML = sortedCats.map(cat => {
-        const rows = groups[cat];
-        const activeCount = rows.filter(m => m.is_active).length;
-        const isCollapsed = !q && !_groupExpanded.has(cat); // collapsed by default, expand on search
-        const badgeClass = getCategoryBadgeClass(cat);
-
-        const tableRows = rows.map(m => `
-            <tr class="mapping-table-row" style="${!m.is_active ? 'opacity:.55;' : ''}">
-                <td><strong>${escHtml(m.ai_category)}</strong></td>
-                <td><span style="color:var(--text-muted);font-size:.875rem;">${m.usage_count || 0}</span></td>
-                <td style="color:var(--text-muted);font-size:.875rem;">${formatDate(m.last_used)}</td>
-                <td>
-                    <span class="status-dot ${m.is_active ? 'active' : 'inactive'}"></span>
-                    <span style="font-size:.875rem;">${m.is_active ? 'Активен' : 'Неактивен'}</span>
-                </td>
-                <td>
-                    <div class="table-actions">
-                        <button class="btn btn-small" onclick="editMapping(${m.id})" title="Редактировать" style="background:var(--primary-color);color:white;">✏️</button>
-                        <button class="btn btn-small" onclick="toggleMapping(${m.id})" title="${m.is_active ? 'Деактивировать' : 'Активировать'}" style="background:var(--secondary-color);color:white;">${m.is_active ? '⏸' : '▶'}</button>
-                        <button class="btn btn-small" onclick="deleteMapping(${m.id})" title="Удалить" style="background:var(--danger-color);color:white;">🗑</button>
-                    </div>
-                </td>
-            </tr>
-        `).join('');
-
-        return `
-        <div class="mapping-group ${isCollapsed ? 'collapsed' : ''}" id="grp-${escAttr(cat)}" data-cat="${escAttr(cat)}">
-            <div class="group-header" onclick="toggleGroup('${escAttr(cat)}')">
-                <span class="group-arrow">▾</span>
-                <span class="category-badge ${badgeClass}" style="font-size:.75rem;">${escHtml(cat)}</span>
-                <span class="group-name"></span>
-                <span class="group-count">${rows.length} маппингов</span>
-                <span class="group-active-count">${activeCount} активных</span>
-            </div>
-            <div class="group-body">
-                <table class="table">
-                    <thead>
-                        <tr>
-                            <th>AI категория</th>
-                            <th>Использований</th>
-                            <th>Последнее</th>
-                            <th>Статус</th>
-                            <th>Действия</th>
-                        </tr>
-                    </thead>
-                    <tbody>${tableRows}</tbody>
-                </table>
-            </div>
-        </div>`;
-    }).join('');
-}
-
-function updateStats() {
-    document.getElementById('stat-total').textContent = mappings.length;
-    document.getElementById('stat-active').textContent = mappings.filter(m => m.is_active).length;
-    document.getElementById('stat-usage').textContent = mappings.reduce((s, m) => s + (m.usage_count || 0), 0);
-}
-
-function getCategoryBadgeClass(cat) {
-    const map = { Serbia: 'category-serbia', Tech: 'category-tech', Business: 'category-business', Science: 'category-science', Politics: 'category-politics', International: 'category-international', Other: 'category-other', AI: 'category-tech' };
-    return map[cat] || 'category-other';
-}
-
-function formatDate(d) {
-    if (!d) return '—';
-    return new Date(d).toLocaleDateString('ru-RU');
-}
-
-// ============================================================
-// Mapping CRUD
-// ============================================================
-function openCreateModal() {
-    editingMappingId = null;
-    document.getElementById('modal-title').textContent = 'Добавить маппинг';
-    document.getElementById('mapping-form').reset();
-    populateCategorySelects();
-    document.getElementById('mapping-modal').style.display = 'flex';
-}
-
-function editMapping(id) {
-    const m = mappings.find(x => x.id === id);
-    if (!m) return;
-    editingMappingId = id;
-    document.getElementById('modal-title').textContent = 'Редактировать маппинг';
-    document.getElementById('modal-ai-category').value = m.ai_category;
-    populateCategorySelects();
-    document.getElementById('modal-fixed-category').value = m.fixed_category;
-    document.getElementById('modal-description').value = m.description || '';
-    document.getElementById('mapping-modal').style.display = 'flex';
-}
-
-function closeModal() {
-    document.getElementById('mapping-modal').style.display = 'none';
-    editingMappingId = null;
-}
-
-document.getElementById('mapping-form').addEventListener('submit', async function(e) {
-    e.preventDefault();
-    const data = {
-        ai_category: document.getElementById('modal-ai-category').value,
-        fixed_category: document.getElementById('modal-fixed-category').value,
-        confidence_threshold: 0.7,
-        description: document.getElementById('modal-description').value || null
-    };
-
-    try {
-        const url = editingMappingId ? `/api/v1/category-mappings/${editingMappingId}` : '/api/v1/category-mappings';
-        const method = editingMappingId ? 'PUT' : 'POST';
-        const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-        if (!r.ok) { const err = await r.json(); throw new Error(err.detail || 'Ошибка сохранения'); }
-        closeModal();
-        await loadMappings();
-        await loadUnmapped();
-        showAlert(editingMappingId ? 'Маппинг обновлён' : 'Маппинг создан');
-    } catch (e) {
-        showAlert(e.message, 'error');
-    }
-});
-
-async function toggleMapping(id) {
-    try {
-        const r = await fetch(`/api/v1/category-mappings/${id}/toggle`, { method: 'POST' });
-        if (!r.ok) { const err = await r.json(); throw new Error(err.detail || 'Ошибка'); }
-        const d = await r.json();
-        await loadMappings();
-        await loadUnmapped();
-        showAlert(d.message);
-    } catch (e) {
-        showAlert(e.message, 'error');
-    }
-}
-
-async function deleteMapping(id) {
-    const m = mappings.find(x => x.id === id);
-    if (!confirm(`Удалить маппинг «${m?.ai_category}» → «${m?.fixed_category}»?`)) return;
-    try {
-        const r = await fetch(`/api/v1/category-mappings/${id}`, { method: 'DELETE' });
-        if (!r.ok) { const err = await r.json(); throw new Error(err.detail || 'Ошибка удаления'); }
-        await loadMappings();
-        await loadUnmapped();
-        showAlert('Маппинг удалён');
-    } catch (e) {
-        showAlert(e.message, 'error');
-    }
-}
-
-// ============================================================
-// AI Analysis
-// ============================================================
-async function startAIAnalysis() {
-    aiSelections.clear();
-    document.getElementById('ai-modal').style.display = 'flex';
-    document.getElementById('ai-loading').style.display = 'block';
-    document.getElementById('ai-results').style.display = 'none';
-    document.getElementById('ai-error').style.display = 'none';
-    document.getElementById('ai-apply-btn').style.display = 'none';
-
-    try {
-        const r = await fetch('/api/v1/categories/ai-category-analysis', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ limit: 30, include_examples: true, confidence_threshold: 0.7 })
-        });
-        if (!r.ok) { const err = await r.json(); throw new Error(err.detail || 'Ошибка AI'); }
-        const data = await r.json();
-
-        document.getElementById('ai-loading').style.display = 'none';
-
-        if (!data.suggestions?.length) {
-            document.getElementById('ai-error').style.display = 'block';
-            document.getElementById('ai-error-msg').textContent = 'Нет категорий для анализа — все уже сопоставлены.';
-            return;
-        }
-
-        document.getElementById('ai-summary').textContent =
-            `Проанализировано: ${data.total_analyzed} категорий за ${data.execution_time_seconds.toFixed(1)} сек. Выберите предложения для применения.`;
-
-        renderAISuggestions(data.suggestions);
-        document.getElementById('ai-results').style.display = 'block';
-    } catch (e) {
-        document.getElementById('ai-loading').style.display = 'none';
-        document.getElementById('ai-error').style.display = 'block';
-        document.getElementById('ai-error-msg').textContent = e.message;
-    }
-}
-
-function renderAISuggestions(suggestions) {
-    // Pre-select top suggestion for each
-    suggestions.forEach(s => {
-        const top = s.all_suggestions?.[0] || { category: s.suggested_fixed_category };
-        aiSelections.set(s.ai_category, top.category);
-    });
-    updateAISelectedCount();
-
-    document.getElementById('ai-suggestions-list').innerHTML = suggestions.map((s, i) => {
-        const allSugg = s.all_suggestions || [{ category: s.suggested_fixed_category, confidence: s.confidence, reasoning: s.reasoning }];
-        const optsHtml = allSugg.slice(0, 3).map((opt, j) => {
-            const pct = Math.round((opt.confidence || 0) * 100);
-            const confColor = pct >= 75 ? '#28a745' : pct >= 50 ? '#fd7e14' : '#dc3545';
-            return `
-                <label style="display:flex;align-items:flex-start;gap:.5rem;cursor:pointer;padding:.4rem .5rem;border-radius:5px;border:1px solid var(--border);margin-bottom:.4rem;background:${j===0?'var(--surface-hover)':'var(--surface)'}">
-                    <input type="radio" name="ai-sugg-${i}" value="${opt.category}"
-                           onchange="onAISelect('${s.ai_category.replace(/'/g,"\\'")}', '${opt.category.replace(/'/g,"\\'")}', ${i})"
-                           ${j===0?'checked':''} style="margin-top:.2rem;flex-shrink:0;">
-                    <div style="flex:1;min-width:0;">
-                        <div style="display:flex;align-items:center;gap:.5rem;">
-                            <strong style="color:var(--primary-color);">${escHtml(opt.category)}</strong>
-                            <span style="color:${confColor};font-weight:700;font-size:.8rem;">${pct}%</span>
-                            ${j===0?'<span class="top-badge">TOP</span>':''}
-                        </div>
-                        <div style="font-size:.78rem;color:var(--text-muted);margin-top:.15rem;">${escHtml(opt.reasoning||'')}</div>
-                    </div>
-                </label>
-            `;
-        }).join('');
-
-        const examples = (s.example_articles||[]).slice(0,3);
-        return `
-            <div class="ai-analysis-result">
-                <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.6rem;">
-                    <label style="display:flex;align-items:center;gap:.4rem;cursor:pointer;font-size:1rem;font-weight:600;">
-                        <input type="checkbox" id="ai-chk-${i}" checked onchange="onAICheckbox('${s.ai_category.replace(/'/g,"\\'")}', ${i}, this.checked)">
-                        ${escHtml(s.ai_category)}
-                    </label>
-                    <span style="font-size:.75rem;padding:.15rem .4rem;background:var(--surface-hover);border-radius:10px;color:var(--text-muted);">${s.usage_count} статей</span>
-                </div>
-                ${optsHtml}
-                ${examples.length ? `<details style="margin-top:.5rem;"><summary style="cursor:pointer;font-size:.8rem;color:var(--text-muted);">Примеры статей</summary><ul style="margin:.35rem 0 0 1rem;padding:0;">${examples.map(t=>`<li style="font-size:.8rem;color:var(--text-muted);">${escHtml(t)}</li>`).join('')}</ul></details>` : ''}
-            </div>
-        `;
-    }).join('');
-}
-
-function onAISelect(aiCat, fixedCat, idx) {
-    if (document.getElementById(`ai-chk-${idx}`)?.checked) {
-        aiSelections.set(aiCat, fixedCat);
-        updateAISelectedCount();
-    }
-}
-
-function onAICheckbox(aiCat, idx, checked) {
-    if (checked) {
-        const radio = document.querySelector(`input[name="ai-sugg-${idx}"]:checked`);
-        if (radio) aiSelections.set(aiCat, radio.value);
-    } else {
-        aiSelections.delete(aiCat);
-    }
-    updateAISelectedCount();
-}
-
-function updateAISelectedCount() {
-    const n = aiSelections.size;
-    document.getElementById('ai-selected-count').textContent = n;
-    document.getElementById('ai-apply-btn').style.display = n > 0 ? 'inline-block' : 'none';
-}
-
-async function applyAISuggestions() {
-    if (!aiSelections.size) return;
-    const btn = document.getElementById('ai-apply-btn');
-    btn.disabled = true;
-
-    // Copy and clear before closing so closeAIModal won't double-save
-    const toSave = new Map(aiSelections);
-    aiSelections.clear();
-    updateAISelectedCount();
-
-    let ok = 0, fail = 0;
-    for (const [aiCat, fixedCat] of toSave) {
-        try {
-            await saveMappingDirect(aiCat, fixedCat, 'AI-suggested mapping approved via admin panel');
-            ok++;
-        } catch { fail++; }
-    }
-
-    btn.disabled = false;
-    if (ok) showAlert(`Применено ${ok} маппингов`);
-    if (fail) showAlert(`Ошибок: ${fail}`, 'error');
-
-    closeAIModal();
-    await loadMappings();
-    await loadUnmapped();
-}
-
-async function closeAIModal() {
-    // Auto-save remaining selections when closing without "Применить"
-    if (aiSelections.size > 0) {
-        let ok = 0, fail = 0;
-        for (const [aiCat, fixedCat] of aiSelections) {
-            try {
-                await saveMappingDirect(aiCat, fixedCat, 'AI-suggested mapping (auto-saved)');
-                ok++;
-            } catch { fail++; }
-        }
-        if (ok) showAlert(`Автосохранено ${ok} маппингов`);
-        if (fail) showAlert(`Ошибок при сохранении: ${fail}`, 'error');
-        if (ok || fail) { await loadMappings(); await loadUnmapped(); }
-    }
-    document.getElementById('ai-modal').style.display = 'none';
-    aiSelections.clear();
-}
-
-// ============================================================
-// Categories CRUD
-// ============================================================
-async function loadCategoriesList() {
+async function loadCategories() {
     try {
         const r = await fetch('/api/v1/categories/');
-        const d = await r.json();
-        const tbody = document.getElementById('categories-tbody');
-        if (!d.categories?.length) {
-            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:1rem;color:var(--text-muted);">Категорий нет</td></tr>';
-            return;
-        }
-        tbody.innerHTML = d.categories.map(c => `
-            <tr>
-                <td><code>${escHtml(c.category)}</code></td>
-                <td>${escHtml(c.display_name||'')}</td>
-                <td>
-                    <span class="cat-color-dot" style="background:${escHtml(c.color||'#6c757d')};"></span>
-                    <span style="color:var(--text-muted);font-size:.8rem;">${escHtml(c.color||'')}</span>
-                </td>
-                <td><span style="color:var(--text-muted);">${c.count}</span></td>
-                <td>
-                    <button class="btn btn-sm btn-secondary"
-                        onclick="openEditCategoryModal(${c.id},'${escAttr(c.category)}','${escAttr(c.display_name||'')}','${escAttr(c.color||'#6c757d')}','${escAttr(c.description||'')}')"
-                        style="padding:.25rem .5rem;font-size:.8rem;">✏️ Изменить</button>
-                </td>
-            </tr>
-        `).join('');
+        const data = await r.json();
+        categories = data.categories || data || [];
+        fixedCategoryNames = categories.map(c => c.name);
+        renderCategories();
     } catch (e) {
-        console.error('loadCategoriesList:', e);
+        document.getElementById('categories-grid').innerHTML =
+            `<div style="color:var(--error-color);padding:1rem;">Ошибка: ${e.message}</div>`;
     }
 }
 
-document.getElementById('category-form').addEventListener('submit', async function(e) {
+function renderCategories() {
+    const grid = document.getElementById('categories-grid');
+    if (!categories.length) { grid.innerHTML = '<div style="color:var(--text-muted);padding:2rem;text-align:center;">Нет категорий</div>'; return; }
+
+    grid.innerHTML = categories.map(c => `
+        <div class="cat-card" style="--cat-color:${c.color || '#757575'}" onclick="openEditModal(${c.id}, '${esc(c.name)}', '${esc(c.display_name||'')}', '${c.color||'#757575'}', '${esc(c.description||'')}')">
+            <div class="cat-card-name">${esc(c.display_name || c.name)}</div>
+            <div class="cat-card-display">${esc(c.name)}</div>
+            <div class="cat-card-count">${c.articles_count || c.article_count || 0}</div>
+            <div class="cat-card-count-label">статей</div>
+        </div>
+    `).join('');
+}
+
+// ============================================================
+// Add category
+// ============================================================
+document.getElementById('add-category-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const payload = {
-        name: document.getElementById('cat-name').value.trim(),
-        display_name: document.getElementById('cat-display').value.trim(),
-        color: document.getElementById('cat-color').value,
-        description: document.getElementById('cat-desc').value.trim() || null,
-    };
+    const name = document.getElementById('new-cat-name').value.trim();
+    const display = document.getElementById('new-cat-display').value.trim();
+    const color = document.getElementById('new-cat-color').value;
+    if (!name || !display) return;
+
     try {
         const r = await fetch('/api/v1/categories/', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name, display_name: display, color})
         });
-        if (!r.ok) { const err = await r.json(); throw new Error(err.detail || 'Ошибка'); }
-        showAlert('Категория создана');
-        this.reset();
-        document.getElementById('cat-color').value = '#6c757d';
-        await loadFixedCategories();
-        await loadCategoriesList();
-    } catch (e) {
-        showAlert(e.message, 'error');
-    }
+        if (!r.ok) throw new Error((await r.json()).detail || 'Ошибка');
+        document.getElementById('new-cat-name').value = '';
+        document.getElementById('new-cat-display').value = '';
+        showAlert('Категория добавлена');
+        await loadCategories();
+    } catch (e) { showAlert(e.message, 'error'); }
 });
 
-function openEditCategoryModal(id, name, displayName, color, desc) {
-    document.getElementById('edit-cat-id').value = id;
-    document.getElementById('edit-cat-name').value = name;
-    document.getElementById('edit-cat-display').value = displayName;
-    document.getElementById('edit-cat-color').value = color;
-    document.getElementById('edit-cat-desc').value = desc;
-    document.getElementById('edit-category-modal').style.display = 'flex';
+// ============================================================
+// Edit modal
+// ============================================================
+function openEditModal(id, name, display, color, desc) {
+    document.getElementById('edit-id').value = id;
+    document.getElementById('edit-name').value = name;
+    document.getElementById('edit-display').value = display;
+    document.getElementById('edit-color').value = color;
+    document.getElementById('edit-desc').value = desc;
+    document.getElementById('edit-modal').style.display = 'flex';
 }
 
-function closeEditModal() {
-    document.getElementById('edit-category-modal').style.display = 'none';
-}
+function closeEditModal() { document.getElementById('edit-modal').style.display = 'none'; }
 
-document.getElementById('edit-category-form').addEventListener('submit', async function(e) {
+document.getElementById('edit-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const id = document.getElementById('edit-cat-id').value;
-    const payload = {
-        display_name: document.getElementById('edit-cat-display').value,
-        color: document.getElementById('edit-cat-color').value,
-        description: document.getElementById('edit-cat-desc').value || null
-    };
+    const id = document.getElementById('edit-id').value;
     try {
-        const r = await fetch(`/api/v1/categories/${id}`, {
-            method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+        const r = await fetch('/api/v1/categories/' + id, {
+            method: 'PUT', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                display_name: document.getElementById('edit-display').value.trim(),
+                color: document.getElementById('edit-color').value,
+                description: document.getElementById('edit-desc').value.trim()
+            })
         });
-        if (!r.ok) { const err = await r.json(); throw new Error(err.detail || 'Ошибка'); }
-        showAlert('Категория обновлена');
+        if (!r.ok) throw new Error((await r.json()).detail || 'Ошибка');
         closeEditModal();
-        await loadFixedCategories();
-        await loadCategoriesList();
-    } catch (e) {
-        showAlert(e.message, 'error');
-    }
+        showAlert('Категория обновлена');
+        await loadCategories();
+    } catch (e) { showAlert(e.message, 'error'); }
 });
 
 // ============================================================
-// Utils
+// Unmapped (rare — only when AI invents new category names)
 // ============================================================
-function escHtml(str) {
-    if (!str) return '';
-    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-function escAttr(str) {
-    if (!str) return '';
-    return String(str).replace(/'/g,"&#39;").replace(/"/g,'&quot;');
+async function loadUnmapped() {
+    try {
+        const r = await fetch('/api/v1/category-mappings/unmapped?limit=50');
+        const data = await r.json();
+        const unmapped = data.unmapped_categories || [];
+        const section = document.getElementById('unmapped-section');
+
+        if (!unmapped.length) { section.style.display = 'none'; return; }
+
+        section.style.display = '';
+        document.getElementById('unmapped-count').textContent = unmapped.length;
+
+        document.getElementById('unmapped-list').innerHTML = unmapped.map(u => `
+            <div class="unmapped-row" id="urow-${CSS.escape(u.ai_category)}">
+                <span class="unmapped-name">${esc(u.ai_category)}</span>
+                <span class="unmapped-usage">${u.usage_count} ст.</span>
+                <select class="unmapped-select" id="usel-${CSS.escape(u.ai_category)}">
+                    ${fixedCategoryNames.map(n => `<option value="${n}" ${n === (u.suggested_fixed_category || 'Other') ? 'selected' : ''}>${n}</option>`).join('')}
+                </select>
+                <button class="unmapped-apply" onclick="applyMapping('${esc(u.ai_category)}')">&#10003;</button>
+            </div>
+        `).join('');
+    } catch (e) { console.error('loadUnmapped:', e); }
 }
 
-// Close modals on backdrop click
-['mapping-modal','edit-category-modal','ai-modal'].forEach(id => {
-    document.getElementById(id).addEventListener('click', async function(e) {
-        if (e.target === this) {
-            if (id === 'ai-modal') {
-                await closeAIModal();
-            } else {
-                this.style.display = 'none';
-                if (id === 'mapping-modal') editingMappingId = null;
-            }
-        }
-    });
-});
+async function applyMapping(aiCategory) {
+    const sel = document.getElementById('usel-' + CSS.escape(aiCategory));
+    const target = sel ? sel.value : 'Other';
+    try {
+        const r = await fetch('/api/v1/category-mappings', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ai_category: aiCategory, fixed_category: target, confidence_threshold: 0.7})
+        });
+        if (!r.ok) throw new Error((await r.json()).detail || 'Ошибка');
+        const row = document.getElementById('urow-' + CSS.escape(aiCategory));
+        if (row) row.remove();
+
+        // Update count
+        const remaining = document.querySelectorAll('.unmapped-row').length;
+        document.getElementById('unmapped-count').textContent = remaining;
+        if (!remaining) document.getElementById('unmapped-section').style.display = 'none';
+
+        showAlert(`${aiCategory} → ${target}`);
+    } catch (e) { showAlert(e.message, 'error'); }
+}
+
+// ============================================================
+// Helpers
+// ============================================================
+function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+
+function showAlert(msg, type = 'success') {
+    const colors = {success: ['#d1fae5','#065f46'], error: ['#fee2e2','#dc2626']};
+    const [bg, fg] = colors[type] || colors.success;
+    const el = document.createElement('div');
+    el.style.cssText = `background:${bg};color:${fg};border:1px solid;padding:.6rem 1rem;border-radius:6px;font-size:.8rem;margin-bottom:.5rem;display:flex;align-items:center;gap:.4rem;`;
+    el.innerHTML = `<span>${type==='success'?'&#10003;':'&#10007;'}</span><span>${msg}</span><button onclick="this.parentElement.remove()" style="margin-left:auto;background:none;border:none;color:inherit;cursor:pointer;">&#215;</button>`;
+    document.getElementById('alert-container').prepend(el);
+    setTimeout(() => el.remove(), 5000);
+}
 </script>
 {% endblock %}

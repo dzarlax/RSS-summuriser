@@ -48,6 +48,11 @@ class Settings(BaseSettings):
     admin_password: Optional[str] = Field(default=None, alias="ADMIN_PASSWORD")
     jwt_secret: Optional[str] = Field(default=None, alias="JWT_SECRET")
     trust_forward_auth: bool = Field(default=False, alias="TRUST_FORWARD_AUTH")
+
+    # Local/regional category isolation
+    # When set, articles matching this category are isolated from other feeds
+    # (e.g., "Serbia" — local news won't pollute Business/Tech feeds for international readers)
+    local_category: Optional[str] = Field(default=None, alias="LOCAL_CATEGORY")
     ga_measurement_id: Optional[str] = Field(default=None, alias="GA_MEASUREMENT_ID")
     
     # Processing

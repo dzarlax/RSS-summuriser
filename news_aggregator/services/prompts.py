@@ -121,6 +121,21 @@ SUMMARIZATION REQUIREMENTS:
         # Get available categories from database
         available_categories = await NewsPrompts.get_available_categories()
         category_names = [cat.split(' (')[0] for cat in available_categories]
+
+        # Build local category isolation rule if configured
+        from ..config import settings
+        local_category_block = ""
+        if settings.local_category and settings.local_category in category_names:
+            lc = settings.local_category
+            local_category_block = f"""
+LOCAL CATEGORY RULE (CRITICAL):
+- If the article is specifically about {lc} (local events, government, economy, cities, daily life,
+  local companies, local people) — use ONLY "{lc}" as the category.
+- Do NOT combine "{lc}" with other categories like Business or Tech.
+  Local economic news = "{lc}", not "{lc} + Business".
+- This is important because some readers filter out "{lc}" — mixing it with other categories pollutes those feeds.
+- Exception: only add a second category if the article has GLOBAL significance beyond {lc}.
+"""
         
         # Limit content size for cost optimization
         content_preview = content[:3500] + ("..." if len(content) > 3500 else "")
@@ -166,12 +181,7 @@ CATEGORIZATION RULES:
 - "Other" is a LAST RESORT — only use if no other category fits at all. NEVER use "Other" as a second category.
 - Maximum 2 categories per article. If only 1 fits well, use 1.
 
-SERBIA RULE (CRITICAL):
-- If the article is specifically about Serbia (Serbian events, government, economy, cities, daily life,
-  Serbian companies, Serbian people) — use ONLY "Serbia" as the category.
-- Do NOT combine Serbia with other categories like Business or Tech. Serbian economic news = "Serbia", not "Serbia + Business".
-- This is important because readers from other countries filter out Serbia — mixing it with other categories pollutes those feeds.
-- Exception: only add a second category if the article has GLOBAL significance beyond Serbia (e.g., international sanctions affecting Serbia = Serbia + Politics).
+{local_category_block}
 
 ADVERTISEMENT vs BUSINESS:
 - Promotional posts with discounts, prices, "buy now", special offers → Marketing (NOT Business)
@@ -237,7 +247,7 @@ OUTPUT FORMAT (JSON):
 EXAMPLES:
 - Single category: "categories": ["Science"], "category_confidences": [0.95]
 - Two categories: "categories": ["Tech", "AI"], "category_confidences": [0.9, 0.85]
-- Serbian local news: "categories": ["Serbia"], "category_confidences": [0.95] — NOT ["Serbia", "Business"]
+{f'- Local news: "categories": ["{settings.local_category}"], "category_confidences": [0.95] — NOT ["{settings.local_category}", "Business"]' if settings.local_category else ''}
 - Promotional post: "categories": ["Marketing"], "category_confidences": [0.9], "is_advertisement": true
 
 Answer ONLY with valid JSON, no additional text."""
