@@ -62,7 +62,7 @@ class NewsPrompts:
                         examples[fixed_cat].append(ai_cat)
 
                 result = []
-                for name, display_name in categories:
+                for name, display_name, _is_local in categories:
                     cats = examples.get(name, [])
                     if cats:
                         result.append(f"{name} ({display_name}) — e.g.: {', '.join(cats)}")
