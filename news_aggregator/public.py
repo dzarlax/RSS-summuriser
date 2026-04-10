@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 templates = Jinja2Templates(directory="web/templates")
+templates.env.globals["config"] = get_settings()
 
 _FEED_CACHE_TTL_SECONDS = int(os.getenv("PUBLIC_FEED_CACHE_TTL_SECONDS", "30"))
 _FEED_CACHE_MAX_ENTRIES = int(os.getenv("PUBLIC_FEED_CACHE_MAX_ENTRIES", "200"))

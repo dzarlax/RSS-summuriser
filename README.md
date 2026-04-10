@@ -115,11 +115,13 @@ A web UI at `/admin` lets you manage everything without touching config files:
 
 ## Public feed
 
-In addition to the admin panel, the app exposes a public web interface (no login required):
+The app serves a public news reader at `/` (no login required):
 
-- `/feed` — live article feed with filters by category, source, and date
-- `/list` — compact list view of recent articles
-- `/search` — full-text search across collected articles
+- **List view** (`/`) — the only view, with sidebar filtering by category and source, sticky toolbar with search and time period filters
+- **Search** (`/search`) — full-text search across collected articles
+- **Article modal** — click any article to read its AI summary and full text in a modal
+
+Design follows the [dzarlax.dev](https://dzarlax.dev) brand system: warm ivory background, Georgia serif headings, dark graphite accents, full dark mode support. Mobile-optimized with compact cards and horizontal category chips.
 
 ---
 
@@ -196,8 +198,8 @@ This mounts your local code into the container so changes take effect without re
 The only things you need to get started:
 
 ```bash
-# Database
-DATABASE_URL=mysql+aiomysql://newsuser:pass@mariadb:3306/newsdb
+# Database (PostgreSQL)
+DATABASE_URL=postgresql+asyncpg://newsuser:pass@postgres:5432/newsdb
 
 # Google Gemini (for summarization and categorization)
 GEMINI_API_KEY=your_gemini_api_key

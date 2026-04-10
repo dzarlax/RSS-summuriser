@@ -2,8 +2,9 @@
 
 ## Key Facts
 
-- **Project path**: `/Users/dzarlax/Projects/Code/Personal/RSS-summuriser-1/v2`
+- **Project path**: `/Users/dzarlax/Projects/Code/Personal/RSS-summuriser-1/`
 - **Production URL**: https://news.dzarlax.dev
+- **Docker image**: `ghcr.io/dzarlax-ai/rss-summarizer:latest`
 - **Database**: PostgreSQL 16 (migrated from MariaDB)
 - **DB connection**: `postgresql+asyncpg://...` via SQLAlchemy async
 - **AI**: Google Gemini (direct API, not via OpenAI-compatible wrapper)
@@ -88,9 +89,20 @@ This means the more corrections you make in the admin UI, the better the AI cate
 - Both can be overridden via Admin UI at `/admin/telegram` — stored in `settings` table in DB
 - API: `GET/POST /api/v1/telegram/settings`, `POST /api/v1/telegram/test`
 
+## Design System
+
+Frontend uses **Book design system** (shared with dzarlax.dev, Book, Authentik):
+- **Design tokens** in `web/static/css/main.css` `:root` — both new (`--bg`, `--accent`, `--font-serif`) and legacy aliases (`--primary-color`, `--surface-color`)
+- **Dark mode** via `[dark-mode]` attribute on `<html>`, toggle in navbar, auto-detect `prefers-color-scheme`
+- **Typography**: Georgia serif for headings, system sans for body
+- **Colors**: ivory background `#FCFAF7`, graphite accent `#18181B`, no gradients
+- **Public templates**: `base.html` → `public/list.html` (only view, cards removed)
+- **Sidebar**: two sections (КАТЕГОРИИ/ИСТОЧНИКИ), uppercase headings, no tabs/emojis
+- **Mobile**: summary and action buttons hidden, 48px thumbnails, full-width titles (no clamp), single row of category chips, no page redirects on filter
+
 ## Admin Panel Pages
 
-All under `/admin/`, all extend `web/templates/admin/admin_base.html` (NOT `_sidebar.html`):
+All under `/admin/`, all extend `web/templates/admin/admin_base.html` (NOT `base.html`):
 - `dashboard`, `sources`, `summaries`, `schedule`, `stats`, `categories`, `backup`, `telegram`
 
 Navigation is in `admin_base.html` sidenav — add new pages there.
