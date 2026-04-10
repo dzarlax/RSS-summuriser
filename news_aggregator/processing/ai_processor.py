@@ -74,7 +74,13 @@ class AIProcessor:
             if should_extract:
                 if article_url and article_url.startswith(('http://', 'https://')):
                     # Skip URLs that are known to not have extractable content
-                    skip_domains = ['t.me', 'telegram.me', 'twitter.com', 'x.com', 'instagram.com']
+                    skip_domains = [
+                        't.me', 'telegram.me', 'twitter.com', 'x.com', 'instagram.com',
+                        # Non-article URLs (maps, app stores, etc.)
+                        'maps.app.goo.gl', 'maps.google.com', 'maps.google.ru',
+                        '2gis.ru', '2gis.com', 'waze.com',
+                        'play.google.com', 'apps.apple.com',
+                    ]
                     if not any(domain in article_url.lower() for domain in skip_domains):
                         try:
                             if "Metadata/low-quality content detected" in filter_reason or "needs extraction" in filter_reason:
@@ -258,7 +264,13 @@ class AIProcessor:
             logger.info(f"  🔍 Debug combined: content_too_short={content_too_short}, content_len={len(article_content.strip())}")
             if content_too_short and article_url and article_url.startswith(('http://', 'https://')):
                 # Skip URLs that are known to not have extractable content
-                skip_domains = ['t.me', 'telegram.me', 'twitter.com', 'x.com', 'instagram.com']
+                skip_domains = [
+                    't.me', 'telegram.me', 'twitter.com', 'x.com', 'instagram.com',
+                    # Non-article URLs (maps, app stores, etc.)
+                    'maps.app.goo.gl', 'maps.google.com', 'maps.google.ru',
+                    '2gis.ru', '2gis.com', 'waze.com',
+                    'play.google.com', 'apps.apple.com',
+                ]
                 if not any(domain in article_url.lower() for domain in skip_domains):
                     try:
                         logger.info(f"  🔍 Content empty/short ({len(article_content)} chars), trying content extraction: {article_url}")
