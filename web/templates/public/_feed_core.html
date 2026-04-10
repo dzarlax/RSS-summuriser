@@ -1,13 +1,8 @@
 <script>
-// Unified feed core: shared state, fetching, rendering, pagination
+// Feed core: state, fetching, rendering, pagination
 (function(){
-  // View mode: 'cards' | 'list'
-  const VIEW = (window.FEED_VIEW === 'list') ? 'list' : 'cards';
-
   // Elements
-  const listEl = document.getElementById('news-list');
-  const feedEl = document.getElementById('news-feed');
-  const container = listEl || feedEl;
+  const container = document.getElementById('news-list');
   // Ensure sentinel exists
   let sentinel = document.getElementById('feed-sentinel');
   if (!sentinel) {
@@ -96,16 +91,9 @@
       return `<div class="category-badge" style="background: ${bgColor}; color: ${textColor}; border: 1px solid ${bgColor};">${escapeHtml(c.display_name||c.name)}</div>`;
     }).join('');
     const ad = article.is_advertisement ? `<div class="ad-badge" title="Реклама">🚨 РЕКЛАМА</div>` : '';
-    if (VIEW==='list') {
-      const imgBlock = img? `<div class="news-list-image"><img src="${img}" alt="${escapeHtml(article.title)}" loading="lazy" ${highPrio?'fetchpriority="high"':''} decoding="async"></div>`: '';
-      const actionsBlock = `<div class="news-list-actions"><button class="btn-read-more" onclick="openArticleModal(${article.id})">📖 Читать больше</button><a href="${article.url}" target="_blank" rel="noopener" class="btn-original">🔗 Оригинал</a></div>`;
-      return `<article class="news-list-item" data-category="${category}">${imgBlock}<div class="news-list-content"><div class="news-list-badges">${categoriesBadges}${ad}</div><h2 class="news-list-title" onclick="openArticleModal(${article.id})" style="cursor: pointer;">${escapeHtml(article.title)}</h2>${summary?`<p class="news-list-summary">${escapeHtml(summary)}</p>`:''}<div class="news-list-meta"><span class="news-list-source">${escapeHtml(article.source_name||'')}</span><span class="news-list-date">${formatDate(article.published_at)}</span></div>${actionsBlock}</div></article>`;
-    }
-    // Image with badges inside for mobile
-    const imgBlock = img? `<div class="news-image"><img src="${img}" alt="${escapeHtml(article.title)}" loading="lazy" ${highPrio?'fetchpriority="high"':''} decoding="async"><div class="news-feed-badges news-feed-badges-overlay">${categoriesBadges}${ad}</div></div>`: '';
-    const actionsBlock = `<div class="news-actions"><button class="btn-read-more" onclick="openArticleModal(${article.id})">📖 Читать</button><a href="${article.url}" target="_blank" rel="noopener" class="btn-original">🔗 Оригинал</a></div>`;
-    // Desktop: Badges in content, Mobile: Badges in image (CSS controls visibility)
-    return `<article class="news-item" data-category="${category}">${imgBlock}<div class="news-content"><div class="news-feed-badges news-feed-badges-desktop">${categoriesBadges}</div><h2 class="news-title" onclick="openArticleModal(${article.id})" style="cursor: pointer;">${escapeHtml(article.title)}</h2>${summary?`<p class="news-summary">${escapeHtml(summary)}</p>`:''}<div class="news-meta"><span class="news-source">${escapeHtml(article.source_name||'')}</span><span class="news-date">${formatDate(article.published_at)}</span></div></div>${actionsBlock}</article>`;
+    const imgBlock = img? `<div class="news-list-image"><img src="${img}" alt="${escapeHtml(article.title)}" loading="lazy" ${highPrio?'fetchpriority="high"':''} decoding="async"></div>`: '';
+    const actionsBlock = `<div class="news-list-actions"><button class="btn-read-more" onclick="openArticleModal(${article.id})">📖 Читать больше</button><a href="${article.url}" target="_blank" rel="noopener" class="btn-original">🔗 Оригинал</a></div>`;
+    return `<article class="news-list-item" data-category="${category}">${imgBlock}<div class="news-list-content"><div class="news-list-badges">${categoriesBadges}${ad}</div><h2 class="news-list-title" onclick="openArticleModal(${article.id})" style="cursor: pointer;">${escapeHtml(article.title)}</h2>${summary?`<p class="news-list-summary">${escapeHtml(summary)}</p>`:''}<div class="news-list-meta"><span class="news-list-source">${escapeHtml(article.source_name||'')}</span><span class="news-list-date">${formatDate(article.published_at)}</span></div>${actionsBlock}</div></article>`;
   }
 
   // Load category configuration from API (with caching)

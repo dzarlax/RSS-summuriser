@@ -82,20 +82,16 @@ async def news_redirect():
     return RedirectResponse(url="/", status_code=301)
 
 
-@router.get("/feed", response_class=HTMLResponse)
-async def public_feed_alias(request: Request):
-    """Alternative feed endpoint."""
-    return templates.TemplateResponse(request, "public/feed.html", {
-        "title": "Новости"
-    })
+@router.get("/feed", response_class=RedirectResponse)
+async def public_feed_redirect():
+    """Redirect legacy /feed to root."""
+    return RedirectResponse(url="/", status_code=301)
 
 
-@router.get("/cards", response_class=HTMLResponse)
-async def public_cards_view(request: Request):
-    """Cards view for news feed."""
-    return templates.TemplateResponse(request, "public/feed.html", {
-        "title": "Новости"
-    })
+@router.get("/cards", response_class=RedirectResponse)
+async def public_cards_redirect():
+    """Redirect legacy /cards to root."""
+    return RedirectResponse(url="/", status_code=301)
 
 
 @router.get("/list", response_class=HTMLResponse)

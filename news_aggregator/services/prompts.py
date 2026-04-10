@@ -21,7 +21,6 @@ class NewsPrompts:
     # DYNAMIC CATEGORY METADATA
     # =============================================================================
 
-    @staticmethod
     _local_category_cache = None
 
     @staticmethod

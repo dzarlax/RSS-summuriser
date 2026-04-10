@@ -114,60 +114,6 @@
     max-width: 95vw;
 }
 
-/* View toggle removed - using only list view */
-
-.toggle-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-}
-
-.toggle-header h3 {
-    font-size: 1.2rem;
-    font-weight: 600;
-    color: #2c3e50;
-    margin: 0;
-}
-
-.view-buttons {
-    display: flex;
-    gap: 8px;
-}
-
-.view-btn {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 16px;
-    border: 2px solid #e9ecef;
-    background: white;
-    border-radius: 25px;
-    text-decoration: none;
-    font-size: 14px;
-    font-weight: 500;
-    color: #495057;
-    transition: all 0.3s ease;
-}
-
-.view-btn:hover {
-    border-color: #667eea;
-    color: #667eea;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
-}
-
-.view-btn.active {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    border-color: #667eea;
-    color: white;
-    transform: translateY(-2px);
-    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
-}
-
-.view-icon {
-    font-size: 16px;
-}
-
 /* News Filters */
 .news-filters {
     background: white;
@@ -1851,12 +1797,6 @@
         text-align: center;
     }
     
-    .toggle-header {
-        flex-direction: column;
-        gap: 15px;
-        text-align: center;
-    }
-    
     .modal-overlay {
         padding: 10px;
     }
@@ -1900,11 +1840,6 @@
         padding: 12px 15px; /* Добавляем боковые отступы только для настроек */
     }
     
-    .view-toggle {
-        margin: 15px 0 8px 0;
-        padding: 12px 15px; /* Добавляем боковые отступы только для настроек */
-    }
-    
     .news-list-item {
         padding: 15px; /* Ещё компактнее */
     }
@@ -1934,7 +1869,6 @@
 }
 </style>
 
-<script>window.FEED_VIEW = 'list';</script>
 {% include "public/_feed_core.html" %}
         </div>
     </div>
