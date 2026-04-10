@@ -1,103 +1,46 @@
-{# Shared sticky filters toolbar for list and cards views #}
 <div class="filters-sticky" id="filters-sticky" role="toolbar" aria-label="Фильтры новостей">
-  <!-- Mobile-first: Vertical Stack -->
+  <!-- Mobile: single row of scrollable chips -->
   <div class="filters-mobile-stack">
-
-    <!-- Row 1: Search Input (Full Width on Mobile) -->
-    <div class="search-row">
-      <div class="search-input-wrapper">
-        <span class="search-icon">🔍</span>
-        <input type="text"
-               class="search-input-mobile"
-               id="search-input-mobile"
-               placeholder="Поиск новостей..."
-               autocomplete="off"
-               spellcheck="false">
-      </div>
-    </div>
-
-    <!-- Row 1.5: Segmented Control (Categories | Sources) - Mobile only -->
-    <div class="segmented-control-row">
-      <div class="segmented-control">
-        <button class="segment segment-active" data-tab="categories" onclick="switchTab('categories')" aria-label="Фильтр по категориям">
-          Категории
-        </button>
-        <button class="segment" data-tab="sources" onclick="switchTab('sources')" aria-label="Фильтр по источникам">
-          Источники
-        </button>
-      </div>
-    </div>
-
-    <!-- Row 2: Horizontal Scrolling Chips (Dynamically changed based on active tab) -->
     <div class="chips-row">
       <div class="chips-container" id="chips-container">
-        <!-- Category chips (shown when Categories tab is active) -->
-        <div class="chips-group chips-categories" id="chips-categories" style="display: flex; gap: 8px;">
-          <button class="chip chip-active" data-category="all" onclick="filterByCategory('all')">
-            Все
-          </button>
-          <!-- More category chips will be injected here dynamically -->
+        <div class="chips-group chips-categories" id="chips-categories" style="display: flex; gap: 6px;">
+          <button class="chip chip-active" data-category="all" onclick="filterByCategory('all')">Все</button>
         </div>
-
-        <!-- Source chips (shown when Sources tab is active) -->
-        <div class="chips-group chips-sources" id="chips-sources" style="display: none; gap: 8px;">
-          <button class="chip chip-active" data-source="all" onclick="filterBySource('all')">
-            Все источники
-          </button>
-          <!-- Source chips will be injected here dynamically -->
+        <div class="chips-group chips-sources" id="chips-sources" style="display: none; gap: 6px;">
+          <button class="chip chip-active" data-source="all" onclick="filterBySource('all')">Все</button>
         </div>
       </div>
     </div>
-
   </div>
 
-  <!-- Desktop Fallback: Original horizontal layout (hidden on mobile) -->
+  <!-- Desktop -->
   <div class="filters-desktop-inline">
     <div class="filter-buttons" id="filter-buttons" aria-live="polite" style="display:none;"></div>
 
-    <div class="toolbar-group search-group" aria-label="Поиск">
+    <div class="toolbar-group search-group">
       <div class="search-container" id="search-container">
-        <!-- Collapsed state -->
-        <button class="qt-btn search-toggle" id="search-toggle" onclick="toggleSearch()" title="Поиск по новостям">
-          <span class="qt-ico">🔍</span><span class="btn-label">Поиск</span>
-        </button>
-
-        <!-- Expanded state -->
-        <div class="search-expanded" id="search-expanded" style="display: none;">
-          <input type="text"
-                 class="search-input"
-                 id="search-input"
-                 placeholder="Поиск по новостям..."
-                 autocomplete="off"
-                 spellcheck="false">
-          <button class="search-btn search-submit" onclick="performSearch()" title="Найти">
-            <span class="qt-ico">🔍</span>
-          </button>
-          <button class="search-btn search-close" onclick="closeSearch()" title="Закрыть">
-            <span class="qt-ico">✕</span>
-          </button>
+        <div class="search-inline">
+          <svg class="search-inline-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input type="text" class="search-input" id="search-input"
+                 placeholder="Поиск..." autocomplete="off" spellcheck="false">
         </div>
-
-        <!-- Search results dropdown -->
         <div class="search-results" id="search-results" style="display: none;">
-          <div class="search-results-content" id="search-results-content">
-            <!-- Results will be populated here -->
-          </div>
+          <div class="search-results-content" id="search-results-content"></div>
         </div>
       </div>
     </div>
 
     <div class="toolbar-group">
       <div class="since-controls" aria-label="Период">
-        <button class="since-btn" data-since="24" onclick="setSinceHours(24)" aria-pressed="false" title="за 24 часа">24ч</button>
-        <button class="since-btn" data-since="48" onclick="setSinceHours(48)" aria-pressed="false" title="за 48 часов">48ч</button>
-        <button class="since-btn" data-since="168" onclick="setSinceHours(168)" aria-pressed="false" title="за 7 дней">7д</button>
+        <button class="since-btn" data-since="24" onclick="setSinceHours(24)" aria-pressed="false">24ч</button>
+        <button class="since-btn" data-since="48" onclick="setSinceHours(48)" aria-pressed="false">48ч</button>
+        <button class="since-btn" data-since="168" onclick="setSinceHours(168)" aria-pressed="false">7д</button>
       </div>
     </div>
 
-    <div class="toolbar-group quick-toggles" aria-label="Быстрые настройки">
-      <button class="qt-btn" id="qt-hide-ads-desktop" onclick="toggleHideAds(!window.hideAds)" aria-pressed="true" title="Скрывать рекламу">
-        <span class="qt-ico">🧹</span><span class="btn-label">Без рекламы</span>
+    <div class="toolbar-group">
+      <button class="qt-btn" id="qt-hide-ads-desktop" onclick="toggleHideAds(!window.hideAds)" aria-pressed="true" title="Показать рекламные публикации">
+        <span class="btn-label">Без рекламы</span>
       </button>
     </div>
   </div>
@@ -378,45 +321,30 @@ document.addEventListener('DOMContentLoaded', function() {
   populateSourceChips();
 });
 
-// Category filter function (for chips)
+// Category filter function (for chips) — in-page, no redirect
 function filterByCategory(category) {
-  // Remove active class from all category chips
   document.querySelectorAll('.chip[data-category]').forEach(chip => {
     chip.classList.remove('chip-active');
   });
-
-  // Add active class to clicked chip
   const activeChip = document.querySelector(`.chip[data-category="${category}"]`);
-  if (activeChip) {
-    activeChip.classList.add('chip-active');
-  }
+  if (activeChip) activeChip.classList.add('chip-active');
 
-  // Apply filter (redirect with category param)
-  if (category === 'all') {
-    window.location.href = '/';
-  } else {
-    window.location.href = `/?category=${encodeURIComponent(category)}`;
+  // Use the same in-page filter as sidebar
+  if (typeof window.selectSingleCategory === 'function') {
+    window.selectSingleCategory(category);
   }
 }
 
-// Source filter function (for chips)
+// Source filter function (for chips) — in-page, no redirect
 function filterBySource(source) {
-  // Remove active class from all source chips
   document.querySelectorAll('.chip[data-source]').forEach(chip => {
     chip.classList.remove('chip-active');
   });
-
-  // Add active class to clicked chip
   const activeChip = document.querySelector(`.chip[data-source="${source}"]`);
-  if (activeChip) {
-    activeChip.classList.add('chip-active');
-  }
+  if (activeChip) activeChip.classList.add('chip-active');
 
-  // Apply filter (redirect with source param)
-  if (source === 'all') {
-    window.location.href = '/';
-  } else {
-    window.location.href = `/?source=${encodeURIComponent(source)}`;
+  if (typeof window.selectSingleSource === 'function') {
+    window.selectSingleSource(source);
   }
 }
 
@@ -517,27 +445,20 @@ async function populateSourceChips() {
 
 <style>
 /* ---- Search (Desktop) ---- */
-.search-container { position: relative; display: flex; align-items: center; min-width: 200px; }
-.search-container.search-active { min-width: 280px; }
-.search-expanded {
-    display: none; align-items: center; background: var(--surface);
+.search-container { position: relative; display: flex; align-items: center; }
+.search-inline {
+    display: flex; align-items: center; background: var(--surface);
     border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 4px; box-shadow: var(--shadow); min-width: 260px;
+    padding: 0 12px; width: 220px; transition: border-color var(--transition);
 }
+.search-inline:focus-within { border-color: var(--accent); }
+.search-inline-icon { color: var(--text-tertiary); flex-shrink: 0; }
 .search-input {
-    flex: 1; border: none; outline: none; padding: 8px 12px;
-    font-size: 0.9rem; background: transparent; color: var(--text);
-    font-family: var(--font); min-width: 180px;
+    flex: 1; border: none; outline: none; padding: 7px 8px;
+    font-size: 0.85rem; background: transparent; color: var(--text);
+    font-family: var(--font);
 }
 .search-input::placeholder { color: var(--text-tertiary); }
-.search-btn {
-    background: none; border: none; padding: 6px 8px; cursor: pointer;
-    border-radius: var(--radius-sm); color: var(--text-tertiary);
-    transition: all var(--transition); display: flex; align-items: center;
-    justify-content: center; font-size: 0.9rem;
-}
-.search-btn:hover { background: var(--surface-2); color: var(--text); }
-.search-btn .qt-ico { font-size: 0.9rem; }
 
 /* Search results dropdown */
 .search-results {
@@ -571,9 +492,8 @@ async function populateSourceChips() {
 
 /* ---- Mobile layout ---- */
 .filters-mobile-stack {
-    display: flex; flex-direction: column; gap: 10px;
-    padding: 12px 16px; background: var(--surface);
-    border-bottom: 1px solid var(--border);
+    display: flex; flex-direction: column; gap: 0;
+    padding: 8px 0; background: transparent;
 }
 .filters-desktop-inline { display: none; }
 .search-row { width: 100%; }
@@ -598,7 +518,7 @@ async function populateSourceChips() {
 
 /* Search input (mobile) */
 .search-input-wrapper { position: relative; width: 100%; display: flex; align-items: center; }
-.search-icon { position: absolute; left: 12px; font-size: 1rem; color: var(--text-tertiary); pointer-events: none; }
+.search-icon-svg { position: absolute; left: 12px; color: var(--text-tertiary); pointer-events: none; }
 .search-input-mobile {
     width: 100%; padding: 10px 12px 10px 40px;
     background: var(--surface-2); border: 1px solid var(--border);
@@ -625,9 +545,9 @@ async function populateSourceChips() {
 .chips-group { display: flex; gap: 8px; white-space: nowrap; width: 100%; }
 .chip {
     display: inline-flex; align-items: center;
-    padding: 6px 14px; background: var(--surface); border: 1px solid var(--border);
-    border-radius: 9999px; font-size: 0.85rem; font-weight: 500;
-    color: var(--text-secondary); cursor: pointer; font-family: var(--font);
+    padding: 5px 12px; background: transparent; border: 1px solid var(--border);
+    border-radius: 9999px; font-size: 0.8rem; font-weight: 500;
+    color: var(--text-tertiary); cursor: pointer; font-family: var(--font);
     transition: all var(--transition); flex-shrink: 0;
     -webkit-tap-highlight-color: transparent;
 }
@@ -647,8 +567,8 @@ async function populateSourceChips() {
 }
 @media (max-width: 768px) {
     .filters-sticky { padding: 0 !important; margin: 0 !important; width: 100% !important; }
-    .filters-mobile-stack { padding: 10px 0 !important; width: 100% !important; }
-    .search-row, .segmented-control-row, .chips-row { padding: 0 16px; }
+    .filters-mobile-stack { padding: 6px 0 !important; width: 100% !important; }
+    .chips-row { padding: 0 12px; }
 }
 @media (max-width: 480px) {
     .search-container.search-active {

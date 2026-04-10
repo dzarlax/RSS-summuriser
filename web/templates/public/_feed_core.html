@@ -90,10 +90,10 @@
       const textColor = isLightColor(bgColor) ? '#000000' : '#ffffff';
       return `<div class="category-badge" style="background: ${bgColor}; color: ${textColor}; border: 1px solid ${bgColor};">${escapeHtml(c.display_name||c.name)}</div>`;
     }).join('');
-    const ad = article.is_advertisement ? `<div class="ad-badge" title="Реклама">🚨 РЕКЛАМА</div>` : '';
+    const ad = article.is_advertisement ? `<div class="ad-badge" title="Реклама">AD</div>` : '';
     const imgBlock = img? `<div class="news-list-image"><img src="${img}" alt="${escapeHtml(article.title)}" loading="lazy" ${highPrio?'fetchpriority="high"':''} decoding="async"></div>`: '';
-    const actionsBlock = `<div class="news-list-actions"><button class="btn-read-more" onclick="openArticleModal(${article.id})">📖 Читать больше</button><a href="${article.url}" target="_blank" rel="noopener" class="btn-original">🔗 Оригинал</a></div>`;
-    return `<article class="news-list-item" data-category="${category}">${imgBlock}<div class="news-list-content"><div class="news-list-badges">${categoriesBadges}${ad}</div><h2 class="news-list-title" onclick="openArticleModal(${article.id})" style="cursor: pointer;">${escapeHtml(article.title)}</h2>${summary?`<p class="news-list-summary">${escapeHtml(summary)}</p>`:''}<div class="news-list-meta"><span class="news-list-source">${escapeHtml(article.source_name||'')}</span><span class="news-list-date">${formatDate(article.published_at)}</span></div>${actionsBlock}</div></article>`;
+    const actionsBlock = `<div class="news-list-actions"><button class="btn-read-more" onclick="openArticleModal(${article.id})">Читать</button><a href="${article.url}" target="_blank" rel="noopener" class="btn-original">Оригинал</a></div>`;
+    return `<article class="news-list-item" data-category="${category}" onclick="openArticleModal(${article.id})">${imgBlock}<div class="news-list-content"><div class="news-list-badges">${categoriesBadges}${ad}</div><h2 class="news-list-title">${escapeHtml(article.title)}</h2>${summary?`<p class="news-list-summary">${escapeHtml(summary)}</p>`:''}<div class="news-list-meta"><span class="news-list-source">${escapeHtml(article.source_name||'')}</span><span class="news-list-date">${formatDate(article.published_at)}</span></div>${actionsBlock}</div></article>`;
   }
 
   // Load category configuration from API (with caching)
@@ -150,15 +150,15 @@
     filterButtons.innerHTML = html;
   }
 
-  async function loadNews(reset=false){ if(isLoading) return; isLoading=true; if(reset){ currentPage=0; renderedImageCount=0; hasMore=true; if(container){ container.innerHTML=`<div class="loading-state"><div class="loading-spinner"></div><p>Загрузка новостей...</p></div>`; } }
+  async function loadNews(reset=false){ if(isLoading) return; isLoading=true; if(reset){ currentPage=0; renderedImageCount=0; hasMore=true; if(container){ container.style.minHeight = container.offsetHeight + 'px'; container.innerHTML=`<div class="loading-state"><div class="loading-spinner"></div><p>Загрузка новостей...</p></div>`; } }
     try{
       const limit=20, offset=currentPage*limit; let url=`/api/public/feed?limit=${limit}&offset=${offset}&hide_ads=${hideAds?'true':'false'}`; if(currentSinceHours) url+=`&since_hours=${currentSinceHours}`; if(selectedCategories.length>0) url+=`&category=${encodeURIComponent(selectedCategories.join(','))}`; else if(currentCategory && currentCategory!=='all') url+=`&category=${encodeURIComponent(currentCategory)}`; if(selectedSources.length>0) url+=`&source=${encodeURIComponent(selectedSources.join(','))}`; else if(currentSource && currentSource!=='all') url+=`&source=${encodeURIComponent(currentSource)}`;
       const r=await fetch(url); if(!r.ok) throw new Error('feed'); const data=await r.json(); let articles=data.articles||[];
       const html = articles.map(a=>{ const h=containerHtmlFor(a); if((a.primary_image||a.image_url)) renderedImageCount++; return h; }).join('');
-      if (reset) container.innerHTML=html; else container.insertAdjacentHTML('beforeend', html);
+      if (reset) { container.innerHTML=html; container.style.minHeight=''; } else container.insertAdjacentHTML('beforeend', html);
       const loadMoreBtn=document.getElementById('load-more-container'); hasMore = (articles.length===limit); if(loadMoreBtn) loadMoreBtn.style.display = hasMore?'block':'none'; currentPage++;
     }catch(e){
-      if(reset && container){ container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><h3>Не удалось загрузить ленту</h3></div>`; }
+      if(reset && container){ container.style.minHeight=''; container.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><h3>Не удалось загрузить ленту</h3></div>`; }
     }finally{ isLoading=false; }
   }
 

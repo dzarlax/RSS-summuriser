@@ -857,30 +857,10 @@ body {
         grid-template-columns: repeat(2, 1fr);
     }
     
-    /* Компактная навигация */
-    .nav-container {
-        height: 30px;
-        padding: 0 1rem;
-    }
-    
-    /* Компактная кнопка настроек */
     .settings-btn {
         padding: 0.5rem 1rem;
         font-size: 0.85rem;
         gap: 0.4rem;
-    }
-    
-    .nav-brand a {
-        font-size: 1rem;
-    }
-    
-    .nav-menu {
-        gap: 0.25rem;
-    }
-    
-    .nav-menu a {
-        padding: 0.5rem 1rem;
-        font-size: 0.875rem;
     }
     
     /* Компактный заголовок новостей */
@@ -1014,29 +994,12 @@ body {
         font-size: 1.75rem;
     }
     
-    /* Очень компактная навигация */
-    .nav-container {
-        height: 20px;
-        padding: 0 0.5rem;
-    }
-    
-    /* Мини кнопка настроек */
     .settings-btn {
         padding: 0.3rem 0.6rem;
         font-size: 0.7rem;
         gap: 0.25rem;
     }
-    
-    .nav-brand a {
-        font-size: 0.75rem;
-    }
-    
-    .nav-menu a {
-        padding: 0.3rem 0.5rem;
-        font-size: 0.7rem;
-    }
-    
-    /* Скрыть API ссылку на мобильных */
+
     .nav-menu a[href="/docs"] {
         display: none;
     }

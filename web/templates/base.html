@@ -20,11 +20,15 @@
         --primary-color: #F5F5F5; --primary-dark: #E0E0E0;
     }
     .theme-toggle {
-        background: none; border: 1px solid var(--border); border-radius: var(--radius-sm);
-        padding: 6px 10px; cursor: pointer; font-size: 1rem; line-height: 1;
-        color: var(--text-secondary); transition: all var(--transition);
+        background: none; border: none; padding: 6px; cursor: pointer;
+        font-size: 1rem; line-height: 1; color: var(--text-tertiary);
+        transition: color var(--transition); border-radius: var(--radius-sm);
     }
-    .theme-toggle:hover { background: var(--surface-2); color: var(--text); }
+    .theme-toggle:hover { color: var(--text); }
+    @media (max-width: 768px) {
+        .nav-hide-mobile { display: none; }
+        .nav-brand a { font-size: 1.1rem; }
+    }
     .footer { border-top: 1px solid var(--border); padding: 32px 0; margin-top: 60px; }
     .footer-content {
         max-width: 1200px; margin: 0 auto; padding: 0 24px;
@@ -56,7 +60,7 @@
         <div class="nav-container">
             <div class="nav-brand"><a href="/">Evening News</a></div>
             <div class="nav-menu">
-                <a href="/">Новости</a>
+                <a href="/" class="nav-hide-mobile">Новости</a>
                 <a href="/search">Поиск</a>
                 <button class="theme-toggle" onclick="toggleTheme()" title="Переключить тему">
                     <span class="theme-icon">☀️</span>
