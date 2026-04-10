@@ -71,9 +71,6 @@
                 <button id="summaries-button" class="btn btn-sm btn-info" onclick="generateSummaries()" data-tooltip="Создать дневные сводки">
                     📊 Создать сводки
                 </button>
-                <button id="cleanup-button" class="btn btn-sm btn-warning" onclick="cleanupOldData()" data-tooltip="Очистить старые данные">
-                    🧹 Очистить
-                </button>
             </div>
             <span class="control-bar-sync" id="last-sync-info">Загрузка...</span>
             <div id="sync-status" class="sync-status-inline" style="display: none;">
@@ -121,16 +118,6 @@
                         <div class="status-content">
                             <span class="status-title">База данных</span>
                             <span class="status-details">Проверка соединения...</span>
-                        </div>
-                    </div>
-                    <div class="status-item" id="fs-status">
-                        <div class="status-indicator-wrapper">
-                            <span class="status-indicator status-checking"></span>
-                            <div class="status-pulse"></div>
-                        </div>
-                        <div class="status-content">
-                            <span class="status-title">Файловая система</span>
-                            <span class="status-details">Проверка доступности...</span>
                         </div>
                     </div>
                     <div class="status-item" id="processing-status">
@@ -960,35 +947,42 @@ async function loadRecentNews() {
 async function checkSystemStatus() {
     const timestamp = document.getElementById('status-timestamp');
     timestamp.textContent = `Проверено: ${new Date().toLocaleString('ru-RU')}`;
-    
-    // Check database
+
+    // Check database — real check via stats endpoint
     await checkService('db-status', 'База данных', async () => {
-        const response = await apiRequest('/api/v1/stats/dashboard');
+        const response = await apiRequest('/api/v1/system/health/db');
+        if (response && response.status === 'healthy') {
+            return { status: 'ok', message: `Пул: ${response.pool_size || '?'} соед., ${response.checked_out || 0} активных` };
+        }
         return response ? { status: 'ok', message: 'Соединение установлено' } : null;
     });
-    
-    // Check filesystem
-    await checkService('fs-status', 'Файловая система', async () => {
-        // Simple check - if we can make API calls, filesystem is probably ok
-        return { status: 'ok', message: 'Доступна для записи' };
-    });
-    
-    // Check processing
+
+    // Check processing — real check via process status
     await checkService('processing-status', 'Обработка новостей', async () => {
-        const response = await apiRequest('/api/v1/sources');
-        return response ? { status: 'ok', message: 'Сервисы работают' } : null;
+        const response = await apiRequest('/api/v1/process/status');
+        if (response) {
+            const msg = response.is_running ? 'Обработка идёт...' : 'Готов к работе';
+            return { status: 'ok', message: msg };
+        }
+        return null;
     });
-    
-    // Check AI API
+
+    // Check AI API — check recent processing stats
     await checkService('api-status', 'AI API', async () => {
-        // This would need a specific health check endpoint
-        return { status: 'ok', message: 'Сервис доступен' };
+        const response = await apiRequest('/api/v1/stats/ai-usage');
+        if (response) {
+            return { status: 'ok', message: `Вызовов сегодня: ${response.calls_today || response.total_calls || '?'}` };
+        }
+        return { status: 'warning', message: 'Нет данных' };
     });
-    
-    // Check Telegram
+
+    // Check Telegram — use test endpoint info
     await checkService('telegram-status', 'Telegram бот', async () => {
-        // This would need a specific health check endpoint
-        return { status: 'ok', message: 'Бот подключен' };
+        const response = await apiRequest('/api/v1/telegram/settings');
+        if (response && response.token_configured) {
+            return { status: 'ok', message: `Чат: ${response.chat_id || 'не задан'}` };
+        }
+        return { status: 'warning', message: 'Токен не настроен' };
     });
 }
 
@@ -1006,6 +1000,9 @@ async function checkService(elementId, serviceName, checkFunction) {
         
         if (result && result.status === 'ok') {
             indicator.className = 'status-indicator status-ok';
+            details.textContent = result.message;
+        } else if (result && result.status === 'warning') {
+            indicator.className = 'status-indicator status-warning';
             details.textContent = result.message;
         } else {
             indicator.className = 'status-indicator status-error';
@@ -1115,39 +1112,6 @@ async function generateSummaries() {
     }
 }
 
-async function cleanupOldData() {
-    const button = document.getElementById('cleanup-button');
-    
-    if (!confirm('Вы уверены, что хотите очистить старые данные? Это действие нельзя отменить.')) {
-        return;
-    }
-    
-    button.classList.add('btn-loading');
-    button.disabled = true;
-    
-    try {
-        const response = await apiRequest('/api/v1/admin/cleanup', {
-            method: 'POST',
-            body: JSON.stringify({
-                days_to_keep: 30
-            })
-        });
-        
-        if (response.success) {
-            showNotification(`Очищено: ${response.deleted_articles || 0} статей, ${response.deleted_logs || 0} логов`, 'success');
-            loadDashboardData(); // Refresh stats
-        } else {
-            throw new Error(response.error || 'Неизвестная ошибка');
-        }
-        
-    } catch (error) {
-        console.error('Error cleaning up data:', error);
-        showNotification('Ошибка очистки данных', 'error');
-    } finally {
-        button.classList.remove('btn-loading');
-        button.disabled = false;
-    }
-}
 
 // Enhanced notification system
 function showNotification(message, type = 'info') {

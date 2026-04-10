@@ -60,15 +60,6 @@ async def admin_summaries(request: Request, admin_user: str = Depends(get_curren
     return _with_admin_cookie(response, admin_user)
 
 
-@router.get("/schedule", response_class=HTMLResponse)
-async def admin_schedule(request: Request, admin_user: str = Depends(get_current_admin_user)):
-    """Schedule settings page."""
-    response = templates.TemplateResponse(request, "admin/schedule.html", {
-        "title": "Расписание Задач",
-        "admin_user": admin_user,
-        "active_menu": "schedule"
-    })
-    return _with_admin_cookie(response, admin_user)
 
 
 @router.get("/stats", response_class=HTMLResponse)
@@ -104,12 +95,26 @@ async def admin_categories(request: Request, admin_user: str = Depends(get_curre
     return _with_admin_cookie(response, admin_user)
 
 
-@router.get("/telegram", response_class=HTMLResponse)
-async def admin_telegram(request: Request, admin_user: str = Depends(get_current_admin_user)):
-    """Telegram settings page."""
-    response = templates.TemplateResponse(request, "admin/telegram.html", {
-        "title": "Настройки Telegram",
+@router.get("/settings", response_class=HTMLResponse)
+async def admin_settings(request: Request, admin_user: str = Depends(get_current_admin_user)):
+    """Settings page (Telegram + Schedule)."""
+    response = templates.TemplateResponse(request, "admin/settings.html", {
+        "title": "Настройки",
         "admin_user": admin_user,
-        "active_menu": "telegram"
+        "active_menu": "settings"
     })
     return _with_admin_cookie(response, admin_user)
+
+
+@router.get("/telegram", response_class=HTMLResponse)
+async def admin_telegram(request: Request, admin_user: str = Depends(get_current_admin_user)):
+    """Telegram settings page (redirects to settings)."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/admin/settings", status_code=302)
+
+
+@router.get("/schedule", response_class=HTMLResponse)
+async def admin_schedule_redirect(request: Request, admin_user: str = Depends(get_current_admin_user)):
+    """Schedule page (redirects to settings)."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/admin/settings", status_code=302)
