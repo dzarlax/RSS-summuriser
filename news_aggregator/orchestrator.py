@@ -619,9 +619,13 @@ class NewsOrchestrator:
                 ai_category_name = cat_data.get('name', 'Other')
                 confidence = cat_data.get('confidence', 1.0)
 
-                display = await category_display_service.map_ai_category_to_display(ai_category_name)
-                display_name = (display.get('name') or display.get('display_name') or ai_category_name).lower()
-                category_id = categories_by_name.get(display_name) or other_id
+                # Fast path: if AI returned a known fixed category name, use it directly
+                category_id = categories_by_name.get(ai_category_name.lower())
+                if category_id is None:
+                    # Fallback: try mapping service for free-form AI categories
+                    display = await category_display_service.map_ai_category_to_display(ai_category_name)
+                    display_name = (display.get('name') or display.get('display_name') or ai_category_name).lower()
+                    category_id = categories_by_name.get(display_name) or other_id
 
                 if category_id is None:
                     logger.warning(f"  ⚠️ No category found for '{ai_category_name}', skipping")

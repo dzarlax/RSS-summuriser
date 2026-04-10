@@ -160,16 +160,23 @@ ANALYSIS TASKS:
 
 AVAILABLE CATEGORIES: {', '.join(available_categories)}
 
-CATEGORIZATION PROCESS:
-1. FIRST - Create 1-2 specific descriptive categories (your own words)
-2. THEN - Map to system categories: {', '.join(category_names)}
-3. Include both recommended AND your improved descriptive categories in original_categories
-
 CATEGORIZATION RULES:
-- Use descriptive categories like: "financial_news", "technology_innovation", "political_analysis", etc.
-- If you find better descriptive terms than standard ones, include them in original_categories
-- Consider multiple categories if content spans domains (e.g., "Tech + Business" for fintech)
-- Provide high confidence scores (0.8+) when categories match well
+- Pick 1-2 categories from AVAILABLE CATEGORIES above. Use EXACT names from the list.
+- Do NOT invent new category names. Only use: {', '.join(category_names)}
+- "Other" is a LAST RESORT — only use if no other category fits at all. NEVER use "Other" as a second category.
+- Maximum 2 categories per article. If only 1 fits well, use 1.
+
+SERBIA RULE (CRITICAL):
+- If the article is specifically about Serbia (Serbian events, government, economy, cities, daily life,
+  Serbian companies, Serbian people) — use ONLY "Serbia" as the category.
+- Do NOT combine Serbia with other categories like Business or Tech. Serbian economic news = "Serbia", not "Serbia + Business".
+- This is important because readers from other countries filter out Serbia — mixing it with other categories pollutes those feeds.
+- Exception: only add a second category if the article has GLOBAL significance beyond Serbia (e.g., international sanctions affecting Serbia = Serbia + Politics).
+
+ADVERTISEMENT vs BUSINESS:
+- Promotional posts with discounts, prices, "buy now", special offers → Marketing (NOT Business)
+- News about companies, economy, markets, finance → Business
+- If it's from a Telegram channel and reads like an ad → Marketing
 
 TITLE OPTIMIZATION RULES:
 - ALWAYS provide optimized_title in RUSSIAN, regardless of source language
@@ -215,7 +222,6 @@ Look for publication dates in content, ignore article dates.
 OUTPUT FORMAT (JSON):
 {{
     "optimized_title": "Краткий информативный заголовок новости",
-    "original_categories": ["financial_news", "banking_sector", "investment_strategy"],
     "categories": ["Business"],
     "category_confidences": [0.95],
     "summary": "Краткий пересказ 5-6 предложений...",
@@ -229,9 +235,10 @@ OUTPUT FORMAT (JSON):
 }}
 
 EXAMPLES:
-- Single category: "categories": ["Business"], "category_confidences": [0.95]
-- Multiple categories: "categories": ["Tech", "Business"], "category_confidences": [0.85, 0.75]  
-- Enhanced original_categories: ["financial_analysis", "fintech_innovation", "investment_strategy"]
+- Single category: "categories": ["Science"], "category_confidences": [0.95]
+- Two categories: "categories": ["Tech", "AI"], "category_confidences": [0.9, 0.85]
+- Serbian local news: "categories": ["Serbia"], "category_confidences": [0.95] — NOT ["Serbia", "Business"]
+- Promotional post: "categories": ["Marketing"], "category_confidences": [0.9], "is_advertisement": true
 
 Answer ONLY with valid JSON, no additional text."""
 

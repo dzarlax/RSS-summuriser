@@ -15,7 +15,7 @@
 
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
         <h2 style="margin:0;">Telegram</h2>
-        <div id="tg-connection-status" class="tg-status-badge tg-status-unknown">Загрузка...</div>
+        <div id="tg-connection-status" class="tg-status-badge tg-status-unknown"></div>
     </div>
 
     <div class="settings-card">
@@ -254,6 +254,9 @@ async function tgLoadSettings() {
     } catch (e) {
         document.getElementById('tg-status-body').innerHTML =
             `<div class="settings-result err">Ошибка: ${e.message}</div>`;
+        const badge = document.getElementById('tg-connection-status');
+        badge.textContent = 'Ошибка';
+        badge.className = 'tg-status-badge tg-status-error';
     }
 }
 
