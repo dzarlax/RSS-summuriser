@@ -328,11 +328,25 @@ class AIProcessor:
                 await self._save_article_fields(article_id, update_fields)
                 return {**article_data, **update_fields, 'success': True, 'skipped_reason': 'content_too_short'}
 
+            # For Telegram articles with non-article URLs (maps, app stores),
+            # the URL content is unreliable — use article content as-is
+            article_url = article_data.get('url') or ''
+            original_context = None
+
+            # If this is a Telegram post with an external (non-Telegram) URL,
+            # pass the Telegram content as original_context so AI can fall back to it
+            if source_type == 'telegram' and article_url:
+                from urllib.parse import urlparse
+                host = urlparse(article_url).netloc.lower()
+                if host and 't.me' not in host and 'telegram.me' not in host:
+                    original_context = article_content if len(article_content.strip()) >= 30 else None
+
             # Get combined analysis
             ai_result = await self.ai_client.analyze_article_complete(
                 title=article_title,
                 content=article_content,
-                url=article_data.get('url') or ''
+                url=article_url,
+                original_context=original_context,
             )
             
             elapsed_time = time.time() - start_time
