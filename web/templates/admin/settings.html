@@ -331,6 +331,13 @@ function tgShowResult(id, ok, msg) {
 // ============================================================
 let schSettings = [];
 
+const schTaskLabels = {
+    'news_digest': 'Новостной дайджест',
+    'news_processing': 'Синхронизация новостей',
+    'backup': 'Автоматический бэкап',
+};
+function schTaskLabel(name) { return schTaskLabels[name] || name; }
+
 async function schLoadAll() {
     try {
         const [settingsR, statusR] = await Promise.all([
@@ -370,7 +377,7 @@ function schRender() {
         return `
         <div class="sch-card" id="sch-${s.task_name}">
             <div class="sch-card-header">
-                <span class="sch-card-title">${s.task_name}</span>
+                <span class="sch-card-title">${schTaskLabel(s.task_name)}</span>
                 <label class="sch-card-toggle">
                     <input type="checkbox" ${s.enabled?'checked':''} onchange="schToggle('${s.task_name}', this.checked)">
                     <span class="slider"></span>
