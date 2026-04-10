@@ -3,19 +3,15 @@
 {% block title %}{{ title }}{% endblock %}
 
 {% block content %}
-<h1>Категории</h1>
-
-<!-- Alert container -->
-<div id="alert-container"></div>
-
-<!-- Categories grid -->
-<div class="cat-grid" id="categories-grid">
-    <div style="color:var(--text-muted);padding:2rem;text-align:center;">Загрузка...</div>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+    <h1 style="margin:0;">Категории</h1>
+    <button class="btn btn-primary" onclick="document.getElementById('add-section').style.display = document.getElementById('add-section').style.display === 'none' ? '' : 'none'">+ Добавить</button>
 </div>
 
-<!-- Add category -->
-<div class="cat-add-section">
-    <h3>Добавить категорию</h3>
+<div id="alert-container"></div>
+
+<!-- Add category (hidden by default) -->
+<div id="add-section" class="cat-add-section" style="display:none;">
     <form id="add-category-form" class="cat-add-form">
         <input type="text" id="new-cat-name" placeholder="Системное имя (EN)" class="cat-input" required>
         <input type="text" id="new-cat-display" placeholder="Отображаемое имя" class="cat-input" required>
@@ -24,13 +20,23 @@
     </form>
 </div>
 
-<!-- Unmapped section (usually empty) -->
-<div id="unmapped-section" style="display:none;">
-    <h3>Несопоставленные AI-категории <span class="cat-badge" id="unmapped-count">0</span></h3>
-    <p style="font-size:.8rem;color:var(--text-muted);margin-bottom:.75rem;">
-        AI вернул категории не из фиксированного списка. Выберите куда их отнести.
-    </p>
-    <div id="unmapped-list"></div>
+<!-- Categories table -->
+<div class="table-container">
+    <table class="table" id="categories-table">
+        <thead>
+            <tr>
+                <th style="width:4px;padding:0;"></th>
+                <th>Категория</th>
+                <th>Отображаемое имя</th>
+                <th style="text-align:center;">Локальная</th>
+                <th style="text-align:right;">Статей</th>
+                <th style="width:80px;"></th>
+            </tr>
+        </thead>
+        <tbody id="categories-tbody">
+            <tr><td colspan="5" style="text-align:center;padding:2rem;color:var(--text-muted);">Загрузка...</td></tr>
+        </tbody>
+    </table>
 </div>
 
 <!-- Edit modal -->
@@ -52,11 +58,18 @@
             </div>
             <div class="cat-form-group">
                 <label>Цвет</label>
-                <input type="color" id="edit-color" class="cat-color-input">
+                <input type="color" id="edit-color" class="cat-color-input" style="width:100%;height:40px;">
             </div>
             <div class="cat-form-group">
                 <label>Описание</label>
                 <textarea id="edit-desc" class="cat-input" style="height:60px;resize:vertical;"></textarea>
+            </div>
+            <div class="cat-form-group">
+                <label style="display:flex;align-items:center;gap:.5rem;cursor:pointer;">
+                    <input type="checkbox" id="edit-is-local">
+                    Локальная категория
+                </label>
+                <small style="color:var(--text-muted);font-size:.75rem;">Новости этой категории будут изолированы от других лент. Только одна категория может быть локальной.</small>
             </div>
             <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem;">
                 <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Отмена</button>
@@ -67,41 +80,13 @@
 </div>
 
 <style>
-.cat-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 12px;
-    margin-bottom: 2rem;
-}
-.cat-card {
-    background: var(--surface, #fff);
-    border: 1px solid var(--border, #e1e5e9);
-    border-radius: 8px;
-    padding: 16px;
-    position: relative;
-    overflow: hidden;
-    cursor: pointer;
-    transition: box-shadow .15s;
-}
-.cat-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.1); }
-.cat-card::before {
-    content: '';
-    position: absolute; top: 0; left: 0; right: 0; height: 4px;
-    background: var(--cat-color, #757575);
-}
-.cat-card-name { font-weight: 600; font-size: .95rem; margin-bottom: 2px; }
-.cat-card-display { font-size: .8rem; color: var(--text-muted); margin-bottom: 8px; }
-.cat-card-count { font-size: 1.5rem; font-weight: 700; color: var(--text-color); }
-.cat-card-count-label { font-size: .7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; }
-
 .cat-add-section {
     background: var(--surface-hover, #f8f9fa);
     border: 1px dashed var(--border, #e1e5e9);
     border-radius: 8px;
     padding: 16px;
-    margin-bottom: 2rem;
+    margin-bottom: 1rem;
 }
-.cat-add-section h3 { margin: 0 0 12px; font-size: .95rem; }
 .cat-add-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .cat-input {
     padding: 8px 12px; border: 1px solid var(--border, #ddd); border-radius: 5px;
@@ -112,71 +97,56 @@
 .cat-form-group label { display: block; font-size: .8rem; font-weight: 500; margin-bottom: 4px; color: var(--text-color); }
 .cat-form-group .cat-input { width: 100%; }
 
-.cat-badge {
-    display: inline-flex; align-items: center; justify-content: center;
-    background: var(--primary-color); color: white; border-radius: 12px;
-    font-size: .75rem; font-weight: 700; padding: .15rem .5rem; min-width: 1.5rem;
-}
-
 .cat-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,.5); display: flex; align-items: center; justify-content: center; z-index: 1000; }
 .cat-modal-content { background: var(--surface, #fff); border-radius: 8px; width: 90%; max-width: 440px; max-height: 90vh; overflow-y: auto; box-shadow: 0 4px 20px rgba(0,0,0,.15); }
 .cat-modal-header { display: flex; justify-content: space-between; align-items: center; padding: 1rem; border-bottom: 1px solid var(--border, #e0e0e0); }
 
-/* Unmapped row */
-.unmapped-row {
-    display: flex; align-items: center; gap: .75rem;
-    padding: .6rem .75rem; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 6px;
-    background: var(--surface);
-}
-.unmapped-name { font-weight: 600; font-size: .875rem; flex: 1; }
-.unmapped-usage { font-size: .75rem; color: var(--text-muted); white-space: nowrap; }
-.unmapped-select { padding: .35rem .5rem; border: 1px solid var(--border); border-radius: 5px; font-size: .8rem; background: var(--surface); color: var(--text-color); }
-.unmapped-apply { padding: .35rem .6rem; background: var(--success-color, #28a745); color: white; border: none; border-radius: 5px; cursor: pointer; font-size: .8rem; }
+.cat-color-dot { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: middle; }
+.cat-count { font-variant-numeric: tabular-nums; }
 </style>
 
 <script>
 let categories = [];
-let fixedCategoryNames = [];
 
-document.addEventListener('DOMContentLoaded', loadAll);
+document.addEventListener('DOMContentLoaded', loadCategories);
 
-async function loadAll() {
-    await Promise.all([loadCategories(), loadUnmapped()]);
-}
-
-// ============================================================
-// Categories
-// ============================================================
 async function loadCategories() {
     try {
         const r = await fetch('/api/v1/categories/');
+        if (!r.ok) throw new Error('HTTP ' + r.status);
         const data = await r.json();
-        categories = data.categories || data || [];
-        fixedCategoryNames = categories.map(c => c.name);
-        renderCategories();
+        categories = (data.categories || data || []).filter(c => c.category !== 'advertisements');
+        renderTable();
     } catch (e) {
-        document.getElementById('categories-grid').innerHTML =
-            `<div style="color:var(--error-color);padding:1rem;">Ошибка: ${e.message}</div>`;
+        document.getElementById('categories-tbody').innerHTML =
+            `<tr><td colspan="5" style="text-align:center;padding:2rem;color:var(--error-color);">Ошибка: ${e.message}</td></tr>`;
     }
 }
 
-function renderCategories() {
-    const grid = document.getElementById('categories-grid');
-    if (!categories.length) { grid.innerHTML = '<div style="color:var(--text-muted);padding:2rem;text-align:center;">Нет категорий</div>'; return; }
+function renderTable() {
+    const tbody = document.getElementById('categories-tbody');
+    if (!categories.length) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:2rem;color:var(--text-muted);">Нет категорий</td></tr>';
+        return;
+    }
 
-    grid.innerHTML = categories.map(c => `
-        <div class="cat-card" style="--cat-color:${c.color || '#757575'}" onclick="openEditModal(${c.id}, '${esc(c.name)}', '${esc(c.display_name||'')}', '${c.color||'#757575'}', '${esc(c.description||'')}')">
-            <div class="cat-card-name">${esc(c.display_name || c.name)}</div>
-            <div class="cat-card-display">${esc(c.name)}</div>
-            <div class="cat-card-count">${c.articles_count || c.article_count || 0}</div>
-            <div class="cat-card-count-label">статей</div>
-        </div>
-    `).join('');
+    tbody.innerHTML = categories.map(c => {
+        const name = c.category || c.name;
+        return `
+        <tr>
+            <td style="padding:0;width:4px;background:${c.color || '#757575'};"></td>
+            <td><strong>${esc(name)}</strong></td>
+            <td>${esc(c.display_name || name)}</td>
+            <td style="text-align:center;">${c.is_local ? '<span title="Изолирована от других лент">&#127760;</span>' : ''}</td>
+            <td style="text-align:right;" class="cat-count">${c.count || 0}</td>
+            <td>
+                <button class="btn btn-sm" onclick="openEditModal(${c.id}, '${esc(name)}', '${esc(c.display_name||'')}', '${c.color||'#757575'}', '${esc(c.description||'')}', ${!!c.is_local})" title="Редактировать" style="background:var(--primary-color);color:white;">&#9998;</button>
+            </td>
+        </tr>`;
+    }).join('');
 }
 
-// ============================================================
 // Add category
-// ============================================================
 document.getElementById('add-category-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const name = document.getElementById('new-cat-name').value.trim();
@@ -192,20 +162,20 @@ document.getElementById('add-category-form').addEventListener('submit', async (e
         if (!r.ok) throw new Error((await r.json()).detail || 'Ошибка');
         document.getElementById('new-cat-name').value = '';
         document.getElementById('new-cat-display').value = '';
+        document.getElementById('add-section').style.display = 'none';
         showAlert('Категория добавлена');
         await loadCategories();
     } catch (e) { showAlert(e.message, 'error'); }
 });
 
-// ============================================================
 // Edit modal
-// ============================================================
-function openEditModal(id, name, display, color, desc) {
+function openEditModal(id, name, display, color, desc, isLocal) {
     document.getElementById('edit-id').value = id;
     document.getElementById('edit-name').value = name;
     document.getElementById('edit-display').value = display;
     document.getElementById('edit-color').value = color;
     document.getElementById('edit-desc').value = desc;
+    document.getElementById('edit-is-local').checked = !!isLocal;
     document.getElementById('edit-modal').style.display = 'flex';
 }
 
@@ -220,7 +190,8 @@ document.getElementById('edit-form').addEventListener('submit', async (e) => {
             body: JSON.stringify({
                 display_name: document.getElementById('edit-display').value.trim(),
                 color: document.getElementById('edit-color').value,
-                description: document.getElementById('edit-desc').value.trim()
+                description: document.getElementById('edit-desc').value.trim(),
+                is_local: document.getElementById('edit-is-local').checked
             })
         });
         if (!r.ok) throw new Error((await r.json()).detail || 'Ошибка');
@@ -230,58 +201,7 @@ document.getElementById('edit-form').addEventListener('submit', async (e) => {
     } catch (e) { showAlert(e.message, 'error'); }
 });
 
-// ============================================================
-// Unmapped (rare — only when AI invents new category names)
-// ============================================================
-async function loadUnmapped() {
-    try {
-        const r = await fetch('/api/v1/category-mappings/unmapped?limit=50');
-        const data = await r.json();
-        const unmapped = data.unmapped_categories || [];
-        const section = document.getElementById('unmapped-section');
-
-        if (!unmapped.length) { section.style.display = 'none'; return; }
-
-        section.style.display = '';
-        document.getElementById('unmapped-count').textContent = unmapped.length;
-
-        document.getElementById('unmapped-list').innerHTML = unmapped.map(u => `
-            <div class="unmapped-row" id="urow-${CSS.escape(u.ai_category)}">
-                <span class="unmapped-name">${esc(u.ai_category)}</span>
-                <span class="unmapped-usage">${u.usage_count} ст.</span>
-                <select class="unmapped-select" id="usel-${CSS.escape(u.ai_category)}">
-                    ${fixedCategoryNames.map(n => `<option value="${n}" ${n === (u.suggested_fixed_category || 'Other') ? 'selected' : ''}>${n}</option>`).join('')}
-                </select>
-                <button class="unmapped-apply" onclick="applyMapping('${esc(u.ai_category)}')">&#10003;</button>
-            </div>
-        `).join('');
-    } catch (e) { console.error('loadUnmapped:', e); }
-}
-
-async function applyMapping(aiCategory) {
-    const sel = document.getElementById('usel-' + CSS.escape(aiCategory));
-    const target = sel ? sel.value : 'Other';
-    try {
-        const r = await fetch('/api/v1/category-mappings', {
-            method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ai_category: aiCategory, fixed_category: target, confidence_threshold: 0.7})
-        });
-        if (!r.ok) throw new Error((await r.json()).detail || 'Ошибка');
-        const row = document.getElementById('urow-' + CSS.escape(aiCategory));
-        if (row) row.remove();
-
-        // Update count
-        const remaining = document.querySelectorAll('.unmapped-row').length;
-        document.getElementById('unmapped-count').textContent = remaining;
-        if (!remaining) document.getElementById('unmapped-section').style.display = 'none';
-
-        showAlert(`${aiCategory} → ${target}`);
-    } catch (e) { showAlert(e.message, 'error'); }
-}
-
-// ============================================================
 // Helpers
-// ============================================================
 function esc(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 
 function showAlert(msg, type = 'success') {

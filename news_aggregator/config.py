@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     admin_password: Optional[str] = Field(default=None, alias="ADMIN_PASSWORD")
     jwt_secret: Optional[str] = Field(default=None, alias="JWT_SECRET")
     trust_forward_auth: bool = Field(default=False, alias="TRUST_FORWARD_AUTH")
+    scheduler_enabled: bool = Field(default=True, alias="SCHEDULER_ENABLED")
 
     # Local/regional category isolation
     # When set, articles matching this category are isolated from other feeds

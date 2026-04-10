@@ -137,6 +137,7 @@ class Category(Base):
     display_name = Column(String(100), nullable=False)
     description = Column(Text)
     color = Column(String(7), default='#6c757d')  # Hex color for UI
+    is_local = Column(Boolean, default=False, server_default='false')  # Local/regional category — isolated from other feeds
     created_at = Column(DateTime, default=func.now())
 
     # Relationships

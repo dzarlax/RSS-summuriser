@@ -86,11 +86,11 @@ async def admin_backup(request: Request, admin_user: str = Depends(get_current_a
 
 @router.get("/categories", response_class=HTMLResponse)
 async def admin_categories(request: Request, admin_user: str = Depends(get_current_admin_user)):
-    """Category mapping management page."""
+    """Category management page."""
     response = templates.TemplateResponse(request, "admin/categories.html", {
-        "title": "Маппинг Категорий",
+        "title": "Категории",
         "admin_user": admin_user,
-        "active_menu": "categories"
+        "active_menu": "categories",
     })
     return _with_admin_cookie(response, admin_user)
 

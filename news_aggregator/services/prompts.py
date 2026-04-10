@@ -22,6 +22,9 @@ class NewsPrompts:
     # =============================================================================
 
     @staticmethod
+    _local_category_cache = None
+
+    @staticmethod
     async def get_available_categories():
         """Get available categories from database, enriched with accumulated mapping examples."""
         global _categories_cache, _categories_cache_time
@@ -36,11 +39,18 @@ class NewsPrompts:
             from sqlalchemy import select
 
             async def _load_categories(session):
-                # Fetch categories
+                # Fetch categories (including is_local flag)
                 cat_result = await session.execute(
-                    select(Category.name, Category.display_name).order_by(Category.name)
+                    select(Category.name, Category.display_name, Category.is_local).order_by(Category.name)
                 )
                 categories = cat_result.all()
+
+                # Cache local category name
+                NewsPrompts._local_category_cache = None
+                for name, _, is_local in categories:
+                    if is_local:
+                        NewsPrompts._local_category_cache = name
+                        break
 
                 # Fetch top mappings per category (by usage_count desc), max 5 examples each
                 map_result = await session.execute(
@@ -122,11 +132,11 @@ SUMMARIZATION REQUIREMENTS:
         available_categories = await NewsPrompts.get_available_categories()
         category_names = [cat.split(' (')[0] for cat in available_categories]
 
-        # Build local category isolation rule if configured
+        # Build local category isolation rule if configured (from DB is_local flag or env fallback)
         from ..config import settings
+        lc = NewsPrompts._local_category_cache or settings.local_category
         local_category_block = ""
-        if settings.local_category and settings.local_category in category_names:
-            lc = settings.local_category
+        if lc and lc in category_names:
             local_category_block = f"""
 LOCAL CATEGORY RULE (CRITICAL):
 - If the article is specifically about {lc} (local events, government, economy, cities, daily life,

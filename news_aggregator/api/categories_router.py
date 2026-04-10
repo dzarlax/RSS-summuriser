@@ -43,6 +43,7 @@ class CategoryUpdateRequest(BaseModel):
     display_name: str
     color: Optional[str] = None
     description: Optional[str] = None
+    is_local: Optional[bool] = None
 
 
 # ============================================================================
@@ -97,23 +98,25 @@ async def get_categories(db: AsyncSession = Depends(get_db)):
             Category.display_name,
             Category.description,
             Category.color,
+            Category.is_local,
             func.count(ArticleCategory.article_id).label('count')
         )
         .outerjoin(ArticleCategory)
-        .group_by(Category.id, Category.name, Category.display_name, Category.description, Category.color)
+        .group_by(Category.id, Category.name, Category.display_name, Category.description, Category.color, Category.is_local)
         .order_by(func.count(ArticleCategory.article_id).desc())
     )
-    
+
     categories = []
     total_count = 0
-    
-    for id, name, display_name, description, color, count in result.all():
+
+    for id, name, display_name, description, color, is_local, count in result.all():
         categories.append({
             "id": id,
             "category": name,
             "display_name": display_name,
             "description": description,
             "color": color,
+            "is_local": bool(is_local),
             "count": count
         })
         total_count += count
@@ -196,6 +199,14 @@ async def update_category(
         category.color = payload.color
     if payload.description is not None:
         category.description = payload.description
+    if payload.is_local is not None:
+        # Only one category can be local — clear others first
+        if payload.is_local:
+            await db.execute(
+                text("UPDATE categories SET is_local = false WHERE is_local = true AND id != :id"),
+                {"id": category_id}
+            )
+        category.is_local = payload.is_local
     
     await db.commit()
     await db.refresh(category)

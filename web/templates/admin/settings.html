@@ -359,11 +359,12 @@ async function schLoadAll() {
 
 function schRenderStatus(status) {
     const el = document.getElementById('sch-status');
-    const running = status.is_running || status.running;
-    const count = (schSettings.settings || schSettings || []).length;
-    el.innerHTML = running
-        ? `<span style="color:var(--success-color);">&#9679;</span> Планировщик работает (${count} задач)`
-        : `<span style="color:var(--text-muted);">&#9679;</span> Планировщик остановлен`;
+    const enabled = status.enabled_tasks || 0;
+    const items = (schSettings.settings || schSettings || []);
+    const count = items.length || enabled;
+    el.innerHTML = count > 0
+        ? `<span style="color:var(--success-color);">&#9679;</span> ${count} задач активно`
+        : `<span style="color:var(--text-muted);">&#9679;</span> Нет активных задач`;
 }
 
 function schRender() {

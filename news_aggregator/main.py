@@ -88,16 +88,19 @@ async def lifespan(app: FastAPI):
         # Don't prevent app startup
     
     # Start task scheduler
-    from .services.scheduler import start_scheduler
-    try:
-        logger.info("🔄 Starting task scheduler...")
-        await start_scheduler()
-        logger.info("✅ Task scheduler started successfully")
-    except Exception as e:
-        logger.error(f"❌ Task scheduler startup error: {e}")
-        import traceback
-        traceback.print_exc()
-        # Don't prevent app startup on scheduler errors
+    if settings.scheduler_enabled:
+        from .services.scheduler import start_scheduler
+        try:
+            logger.info("🔄 Starting task scheduler...")
+            await start_scheduler()
+            logger.info("✅ Task scheduler started successfully")
+        except Exception as e:
+            logger.error(f"❌ Task scheduler startup error: {e}")
+            import traceback
+            traceback.print_exc()
+            # Don't prevent app startup on scheduler errors
+    else:
+        logger.info("⏸️ Task scheduler disabled (SCHEDULER_ENABLED=false)")
     
     # Start process monitor for browser health checks
     from .services.process_monitor import start_process_monitor

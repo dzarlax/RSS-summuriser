@@ -93,7 +93,7 @@ class SummaryGenerator:
             if title and content:
                 article_text = (
                     f"Заголовок: {title}\n"
-                    f"Содержание: {content[:500]}"
+                    f"Содержание: {content[:800]}"
                 )
                 articles_text.append(article_text)
 
@@ -142,20 +142,8 @@ class SummaryGenerator:
 
     def _create_summary_prompt(self, category: str, content: str) -> str:
         """Create AI prompt for category summary generation."""
-        return f"""Создай краткую сводку новостей для категории "{category}" на русском языке.
-
-Статьи:
-{content}
-
-Требования:
-- Максимум 3-4 предложения
-- Сосредоточься на главных событиях
-- Используй деловой стиль
-- Начинай с "В сфере {category.lower()}..."
-- Не повторяй одну и ту же информацию
-- Завершай мысль полностью
-- Не обрезай слова на середине
-- Избегай многоточия в конце текста"""
+        from .prompts import NewsPrompts
+        return NewsPrompts.category_summary(category, content)
 
     def _create_fallback_summary(
         self,

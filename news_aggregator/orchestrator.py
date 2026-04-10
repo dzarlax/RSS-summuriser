@@ -550,38 +550,33 @@ class NewsOrchestrator:
             return {'summaries_generated': 0, 'error': error_msg}
     
     async def _group_articles_by_category(self, db: AsyncSession, date) -> Dict[str, List[Article]]:
-        """Fetch today's articles and group them by mapped display category (best confidence per article)."""
-        from .models import ArticleCategory
-        from .services.category_display_service import get_category_display_service
+        """Fetch today's articles grouped by category (best confidence per article, excluding ads)."""
+        from .models import ArticleCategory, Category
 
+        # Join through category_id directly — no mapping service needed
         result = await db.execute(
-            select(Article, ArticleCategory.ai_category, ArticleCategory.confidence)
+            select(Article, Category.name, ArticleCategory.confidence)
             .join(ArticleCategory, Article.id == ArticleCategory.article_id)
+            .join(Category, Category.id == ArticleCategory.category_id)
             .where(func.date(Article.fetched_at) == date)
+            .where(Article.is_advertisement != True)  # Filter out ads
             .order_by(Article.fetched_at.desc())
         )
 
-        category_display_service = await get_category_display_service(db)
-        category_cache: Dict[str, str] = {}
+        # Keep only the best (highest confidence) category per article
         best_by_article: Dict[int, Dict] = {}
-
-        for article, ai_category, confidence in result.all():
+        for article, category_name, confidence in result.all():
             current = best_by_article.get(article.id)
             if current is None or (confidence or 0) > (current['confidence'] or 0):
                 best_by_article[article.id] = {
                     'article': article,
-                    'ai_category': ai_category or 'Other',
+                    'category': category_name or 'Other',
                     'confidence': confidence or 0,
                 }
 
         grouped: Dict[str, List[Article]] = {}
         for item in best_by_article.values():
-            article = item['article']
-            ai_key = (item['ai_category'] or 'Other').strip() or 'Other'
-            if ai_key not in category_cache:
-                display = await category_display_service.map_ai_category_to_display(ai_key)
-                category_cache[ai_key] = display.get('name') or display.get('display_name') or ai_key
-            grouped.setdefault(category_cache[ai_key], []).append(article)
+            grouped.setdefault(item['category'], []).append(item['article'])
 
         return grouped
 
