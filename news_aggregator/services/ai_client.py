@@ -52,13 +52,15 @@ class AIClient:
     # Note: get_article_summary() method was removed and replaced by analyze_article_complete()
     # which provides combined analysis (summarization + categorization + ad detection) in a single request.
     
-    async def get_article_summary_with_metadata(self, article_url: str) -> Dict[str, Optional[str]]:
+    async def get_article_summary_with_metadata(self, article_url: str,
+                                                    original_context: str = None) -> Dict[str, Optional[str]]:
         """
         Get AI summary with metadata for article URL.
-        
+
         Args:
             article_url: URL of the article to summarize
-            
+            original_context: Optional original text (from RSS feed or Telegram post) as fallback context
+
         Returns:
             Dictionary with 'summary', 'publication_date', and other metadata
         """
@@ -100,13 +102,25 @@ class AIClient:
                     'full_article_url': metadata_result.get('full_article_url')
                 }
 
-            # Detect bot-protection pages before wasting an AI call
+            # Detect bot-protection / consent / error pages before wasting an AI call
             _bot_content_markers = [
+                # Bot protection
                 'включить javascript и файлы cookie',
                 'проверки безопасности', 'является ли пользователь ботом',
                 'just a moment', 'checking if the site connection is secure',
                 'enable javascript and cookies', 'attention required',
                 'checking your browser before accessing',
+                # Cookie consent pages (Google, generic)
+                'before you continue to google',
+                'согласие на использование файлов cookie',
+                'consent to the use of cookies',
+                'we use cookies and data to',
+                'uses cookies to deliver its services',
+                'cookies help us deliver our services',
+                # Google Maps / non-article pages
+                'javascript is not available',
+                'javascript не доступен',
+                'требуется включить javascript',
             ]
             content_lower = content.lower()
             if len(content.strip()) < 500 and any(m in content_lower for m in _bot_content_markers):
@@ -126,7 +140,7 @@ class AIClient:
                 if lines:
                     title = lines[0].strip()[:200]  # Use first line as title, limit length
             
-            analysis_result = await self.analyze_article_complete(title, content, article_url)
+            analysis_result = await self.analyze_article_complete(title, content, article_url, original_context=original_context)
             summary = analysis_result.get('summary') if analysis_result else None
             optimized_title = analysis_result.get('optimized_title') if analysis_result else None
 
@@ -800,9 +814,10 @@ class AIClient:
         except Exception:
             return False
 
-    async def analyze_article_complete(self, title: str, content: str, url: str) -> Dict[str, Any]:
+    async def analyze_article_complete(self, title: str, content: str, url: str,
+                                       original_context: str = None) -> Dict[str, Any]:
         """
-        Complete article analysis with combined prompts - categorization, summarization, 
+        Complete article analysis with combined prompts - categorization, summarization,
         advertisement detection, and date extraction in one API call.
         
         Args:
@@ -830,7 +845,7 @@ class AIClient:
         for attempt in range(max_retries + 1):
             try:
                 # Build enhanced combined prompt with dynamic category metadata
-                prompt = await self._build_combined_analysis_prompt_enhanced(title, content, url)
+                prompt = await self._build_combined_analysis_prompt_enhanced(title, content, url, original_context=original_context)
                 logger.info(f"  🚀 Using enhanced prompt with category metadata")
                 retry_text = f" (attempt {attempt + 1}/{max_retries + 1})" if attempt > 0 else ""
                 logger.info(f"  🧠 Combined AI analysis for article{retry_text}...")
@@ -940,11 +955,12 @@ class AIClient:
         # Fallback if all retries failed
         return self._get_fallback_analysis()
     
-    async def _build_combined_analysis_prompt_enhanced(self, title: str, content: str, url: str) -> str:
+    async def _build_combined_analysis_prompt_enhanced(self, title: str, content: str, url: str,
+                                                       original_context: str = None) -> str:
         """Build enhanced combined prompt using dynamic category metadata."""
         from .prompts import NewsPrompts, PromptBuilder
         source_context = PromptBuilder.build_source_context(url)
-        return await NewsPrompts.unified_article_analysis_enhanced(title, content, url, source_context)
+        return await NewsPrompts.unified_article_analysis_enhanced(title, content, url, source_context, original_context=original_context)
     
     
     def _validate_analysis_result(self, result: Dict[str, Any], title: str = None, content: str = None, valid_categories = None) -> Dict[str, Any]:

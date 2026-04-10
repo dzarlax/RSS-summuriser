@@ -820,20 +820,31 @@ class AIProcessor:
             if source_type == 'rss':
                 rss_content = article.content or ''
                 # Try extracting from page first (may have richer content)
-                ai_result = await self.ai_client.get_article_summary_with_metadata(article.url)
+                # Pass RSS content as original_context so AI can fall back to it if page is junk
+                ai_result = await self.ai_client.get_article_summary_with_metadata(
+                    article.url,
+                    original_context=rss_content if len(rss_content.strip()) >= 50 else None,
+                )
                 stats['api_calls_made'] += 1
                 self._update_article_publication_date(article, ai_result.get('publication_date'), 'RSS')
 
                 summary = ai_result.get('summary')
                 optimized_title = ai_result.get('optimized_title')
 
-                # Detect bot-protection / error page summaries
+                # Detect bot-protection / consent / error page summaries
                 _bot_markers = [
+                    # Bot protection
                     'недоступен', 'защиты от ботов', 'проверки безопасности',
                     'является ли пользователь ботом', 'включить javascript',
                     'just a moment', 'access denied', 'cloudflare',
                     'enable javascript', 'checking your browser',
                     'temporarily unavailable', 'bot detection',
+                    # Cookie consent pages
+                    'согласие на использование файлов cookie',
+                    'consent to the use of cookies',
+                    'cookie policy', 'политика использования файлов cookie',
+                    'before you continue to google',
+                    'конфиденциальности и использование файлов cookie',
                 ]
                 if summary and any(m in summary.lower() for m in _bot_markers):
                     logger.warning(f"  ⚠️ Extracted summary looks like bot-protection page, discarding: {article.url}")
@@ -858,34 +869,66 @@ class AIProcessor:
                 )
 
             elif source_type == 'telegram':
+                from urllib.parse import urlparse
+
                 def _is_telegram_domain(url: str) -> bool:
                     try:
-                        from urllib.parse import urlparse
                         host = urlparse(url).netloc.lower()
                         return ('t.me' in host) or ('telegram.me' in host)
                     except Exception:
                         return False
 
+                def _is_non_article_url(url: str) -> bool:
+                    """Check if URL points to a non-article resource (maps, app stores, etc.)."""
+                    try:
+                        parsed = urlparse(url)
+                        host = parsed.netloc.lower()
+                        path = parsed.path.lower()
+                        _non_article_domains = (
+                            'maps.app.goo.gl', 'maps.google.com', 'maps.google.ru',
+                            'goo.gl/maps', 'yandex.ru/maps', 'yandex.com/maps',
+                            '2gis.ru', '2gis.com', 'waze.com',
+                            'play.google.com', 'apps.apple.com',
+                        )
+                        if any(d in host for d in _non_article_domains):
+                            return True
+                        if 'google.com' in host and '/maps' in path:
+                            return True
+                        if 'yandex' in host and '/maps' in path:
+                            return True
+                    except Exception:
+                        pass
+                    return False
+
                 # article.url is already the external URL (final_url = original_link or message_url)
                 # raw_data is not persisted to DB, so use article.url directly
                 external_url = article.url if not _is_telegram_domain(article.url) else None
+                telegram_content = article.content or article.title or ''
+
+                # Skip fetching non-article URLs (maps, app stores) — summarize Telegram content directly
+                if external_url and _is_non_article_url(external_url):
+                    logger.info(f"  🗺️ Non-article URL detected ({external_url}), using Telegram content")
+                    external_url = None
 
                 if external_url:
                     try:
-                        ai_result = await self.ai_client.get_article_summary_with_metadata(external_url)
+                        # Pass Telegram content as original_context so AI can fall back to it
+                        ai_result = await self.ai_client.get_article_summary_with_metadata(
+                            external_url,
+                            original_context=telegram_content if len(telegram_content.strip()) >= 30 else None,
+                        )
                         self._update_article_publication_date(article, ai_result.get('publication_date'), 'Telegram')
                         if ai_result.get('summary'):
                             return _make(ai_result['summary'], ai_result.get('optimized_title'))
                     except Exception as e:
                         logger.warning(f"  ⚠️ Skipping Telegram AI extraction (external link failed): {e}")
 
-                # No external link — summarize the Telegram message content directly
-                content = article.content or article.title or ''
-                if len(content.strip()) >= 30:
+                # No external link or extraction failed — summarize the Telegram message content directly
+                if len(telegram_content.strip()) >= 30:
                     try:
                         ai_result = await self.ai_client.analyze_article_complete(
                             title=article.title or '',
-                            content=content,
+                            content=telegram_content,
                             url=article.url or '',
                         )
                         stats['api_calls_made'] += 1
@@ -893,7 +936,7 @@ class AIProcessor:
                             return _make(ai_result['summary'], ai_result.get('optimized_title'))
                     except Exception as e:
                         logger.warning(f"  ⚠️ Telegram content summarization failed: {e}")
-                return _make(content or article.title)
+                return _make(telegram_content or article.title)
 
             elif source_type == 'custom':
                 ai_result = await self.ai_client.get_article_summary_with_metadata(article.url)

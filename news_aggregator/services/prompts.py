@@ -112,8 +112,9 @@ SUMMARIZATION REQUIREMENTS:
     # =============================================================================
     
     @staticmethod
-    async def unified_article_analysis_enhanced(title: str, content: str, url: str, 
-                                               source_context: str = "from an UNKNOWN source") -> str:
+    async def unified_article_analysis_enhanced(title: str, content: str, url: str,
+                                               source_context: str = "from an UNKNOWN source",
+                                               original_context: str = None) -> str:
         """
         Enhanced unified prompt that uses dynamic category list from database.
         """
@@ -123,7 +124,23 @@ SUMMARIZATION REQUIREMENTS:
         
         # Limit content size for cost optimization
         content_preview = content[:3500] + ("..." if len(content) > 3500 else "")
-        
+
+        # Build original context block if provided
+        original_context_block = ""
+        if original_context and original_context.strip():
+            original_preview = original_context[:2000] + ("..." if len(original_context) > 2000 else "")
+            original_context_block = f"""
+
+ORIGINAL SOURCE TEXT (from RSS feed or Telegram post):
+{original_preview}
+
+⚠️ IMPORTANT: The "Content" above was extracted from the URL. The "Original Source Text" is the text
+from the RSS feed or Telegram channel that linked to this URL. If the extracted content appears to be
+an error page, cookie consent page, privacy policy, login page, or is completely unrelated to the
+original source text — IGNORE the extracted content and base your analysis entirely on the Original
+Source Text instead. The Original Source Text is the reliable source of information about the actual news.
+"""
+
         return f"""Analyze this article and provide complete analysis in JSON format.
 
 🇷🇺 ВАЖНО: ВСЕ результаты анализа должны быть на РУССКОМ языке!
@@ -133,7 +150,7 @@ Title: {title}
 URL: {url}
 Source: {source_context}
 Content: {content_preview}
-
+{original_context_block}
 ANALYSIS TASKS:
 1. TITLE OPTIMIZATION: Create clear, informative headline (max 120 characters for Telegram)
 2. CATEGORIZATION: Choose from available categories below  
