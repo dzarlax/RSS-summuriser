@@ -38,8 +38,8 @@
         </div>
 
         <div class="form-actions">
-            <button class="btn btn-primary" onclick="saveSettings()">Сохранить</button>
-            <button class="btn btn-secondary" onclick="resetToEnv()">Сбросить (использовать .env)</button>
+            <button class="btn btn--primary" onclick="saveSettings()">Сохранить</button>
+            <button class="btn btn--secondary" onclick="resetToEnv()">Сбросить (использовать .env)</button>
         </div>
         <div id="save-result" class="result-msg" style="display:none;"></div>
     </div>
@@ -53,12 +53,12 @@
             <div class="action-item">
                 <div class="action-title">Тест подключения</div>
                 <div class="action-desc">Отправит тестовое сообщение в сервисный канал</div>
-                <button class="btn btn-secondary" onclick="testConnection()">Отправить тест</button>
+                <button class="btn btn--secondary" onclick="testConnection()">Отправить тест</button>
             </div>
             <div class="action-item">
                 <div class="action-title">Отправить дайджест</div>
                 <div class="action-desc">Сгенерирует и отправит дайджест прямо сейчас</div>
-                <button class="btn btn-primary" onclick="sendDigest()">Отправить дайджест</button>
+                <button class="btn btn--primary" onclick="sendDigest()">Отправить дайджест</button>
             </div>
         </div>
         <div id="action-result" class="result-msg" style="display:none;"></div>
@@ -143,10 +143,10 @@
     font-weight: 500;
     transition: background 0.2s;
 }
-.btn-primary { background: #007bff; color: #fff; }
-.btn-primary:hover { background: #0056b3; }
-.btn-secondary { background: #6c757d; color: #fff; }
-.btn-secondary:hover { background: #545b62; }
+.btn--primary { background: #007bff; color: #fff; }
+.btn--primary:hover { background: #0056b3; }
+.btn--secondary { background: #6c757d; color: #fff; }
+.btn--secondary:hover { background: #545b62; }
 .btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .badge {

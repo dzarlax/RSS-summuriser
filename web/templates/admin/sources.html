@@ -5,7 +5,7 @@
 {% block content %}
         <div class="sources-header flex justify-between items-center mb-6">
             <h1>Управление источниками RSS</h1>
-            <button class="btn btn-primary" onclick="showAddSourceModal()" data-tooltip="Добавить новый RSS источник">
+            <button class="btn btn--primary" onclick="showAddSourceModal()" data-tooltip="Добавить новый RSS источник">
                 <span>➕</span>
                 <span>Добавить источник</span>
             </button>
@@ -39,7 +39,7 @@
             </div>
 
             <div class="filter-actions flex items-end">
-                <button class="btn btn-ghost" onclick="refreshSources()" data-tooltip="Обновить список источников">
+                <button class="btn btn--ghost" onclick="refreshSources()" data-tooltip="Обновить список источников">
                     <span>🔄</span>
                     <span>Обновить</span>
                 </button>
@@ -107,8 +107,8 @@
             </div>
 
             <div class="modal-footer">
-                <button type="button" class="btn btn-ghost" onclick="hideAddSourceModal()">Отмена</button>
-                <button type="submit" class="btn btn-primary">Добавить источник</button>
+                <button type="button" class="btn btn--ghost" onclick="hideAddSourceModal()">Отмена</button>
+                <button type="submit" class="btn btn--primary">Добавить источник</button>
             </div>
         </form>
     </div>
@@ -155,8 +155,8 @@
             </div>
 
             <div class="modal-footer">
-                <button type="button" class="btn btn-ghost" onclick="hideEditSourceModal()">Отмена</button>
-                <button type="submit" class="btn btn-primary">Сохранить изменения</button>
+                <button type="button" class="btn btn--ghost" onclick="hideEditSourceModal()">Отмена</button>
+                <button type="submit" class="btn btn--primary">Сохранить изменения</button>
             </div>
         </form>
     </div>
@@ -184,8 +184,8 @@
         </div>
 
         <div class="modal-footer">
-            <button type="button" class="btn btn-ghost" onclick="hideDeleteSourceModal()">Отмена</button>
-            <button type="button" class="btn btn-danger" onclick="confirmDeleteSource()">Удалить навсегда</button>
+            <button type="button" class="btn btn--ghost" onclick="hideDeleteSourceModal()">Отмена</button>
+            <button type="button" class="btn btn--danger" onclick="confirmDeleteSource()">Удалить навсегда</button>
         </div>
     </div>
 </div>
@@ -250,7 +250,7 @@
         justify-content: center;
     }
 
-    .btn-small {
+    .btn--small {
         padding: 0.375rem 0.75rem;
         font-size: 0.75rem;
         border-radius: 0.25rem;
@@ -324,20 +324,7 @@
         border-top: 1px solid var(--border-color);
     }
 
-    /* Status indicators */
-    .status-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.25rem;
-        padding: 0.25rem 0.75rem;
-        border-radius: 9999px;
-        font-size: 0.75rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }
-
-    /* Source type badges */
+    /* Status indicators and source type badges */
     .badge {
         display: inline-flex;
         align-items: center;
@@ -370,17 +357,17 @@
         color: white;
     }
 
-    .status-badge.status-active {
+    .badge.badge--success {
         background: var(--success-color);
         color: white;
     }
 
-    .status-badge.status-inactive {
+    .badge.badge--neutral {
         background: var(--secondary-color);
         color: white;
     }
 
-    .status-badge.status-error {
+    .badge.badge--danger {
         background: var(--danger-color);
         color: white;
     }
@@ -541,7 +528,7 @@
                 </span>
             </td>
             <td>
-                <span class="status-badge status-${source.is_active ? 'active' : 'inactive'}">
+                <span class="badge badge--${source.is_active ? 'success' : 'neutral'}">
                     ${source.is_active ? 'Активен' : 'Неактивен'}
                 </span>
             </td>
@@ -553,15 +540,15 @@
             </td>
             <td onclick="event.stopPropagation()">
                 <div class="table-actions">
-                    <button class="btn btn-small btn-primary" onclick="editSource(${source.id})" data-tooltip="Редактировать источник">
+                    <button class="btn btn--small btn--primary" onclick="editSource(${source.id})" data-tooltip="Редактировать источник">
                         ✏️
                     </button>
-                    <button class="btn btn-small ${source.is_active ? 'btn-warning' : 'btn-success'}" 
+                    <button class="btn btn--small ${source.is_active ? 'btn--warning' : 'btn--success'}" 
                             onclick="toggleSource(${source.id})" 
                             data-tooltip="${source.is_active ? 'Деактивировать' : 'Активировать'} источник">
                         ${source.is_active ? '⏸️' : '▶️'}
                     </button>
-                    <button class="btn btn-small btn-danger" onclick="deleteSource(${source.id})" data-tooltip="Удалить источник">
+                    <button class="btn btn--small btn--danger" onclick="deleteSource(${source.id})" data-tooltip="Удалить источник">
                         🗑️
                     </button>
                 </div>
@@ -633,7 +620,7 @@
         }
 
         const submitButton = form.querySelector('button[type="submit"]');
-        submitButton.classList.add('btn-loading');
+        submitButton.classList.add('btn--loading');
         submitButton.disabled = true;
 
         try {
@@ -656,7 +643,7 @@
             console.error('Error adding source:', error);
             NewsAggregator.showNotification('Ошибка добавления источника: ' + error.message, 'error');
         } finally {
-            submitButton.classList.remove('btn-loading');
+            submitButton.classList.remove('btn--loading');
             submitButton.disabled = false;
         }
     }
@@ -730,7 +717,7 @@
         }
 
         const submitButton = form.querySelector('button[type="submit"]');
-        submitButton.classList.add('btn-loading');
+        submitButton.classList.add('btn--loading');
         submitButton.disabled = true;
 
         try {
@@ -752,7 +739,7 @@
             console.error('Error updating source:', error);
             NewsAggregator.showNotification('Ошибка обновления источника: ' + error.message, 'error');
         } finally {
-            submitButton.classList.remove('btn-loading');
+            submitButton.classList.remove('btn--loading');
             submitButton.disabled = false;
         }
     }
@@ -775,10 +762,10 @@
     async function confirmDeleteSource() {
         const sourceId = document.getElementById('delete-source-id').value;
         const deleteArticles = document.getElementById('delete-source-articles').checked;
-        const deleteBtn = document.querySelector('#delete-source-modal .btn-danger');
+        const deleteBtn = document.querySelector('#delete-source-modal .btn--danger');
 
         try {
-            deleteBtn.classList.add('btn-loading');
+            deleteBtn.classList.add('btn--loading');
             deleteBtn.disabled = true;
 
             const url = `/api/v1/sources/${sourceId}${deleteArticles ? '?delete_articles=true' : ''}`;
@@ -803,7 +790,7 @@
             console.error('Error deleting source:', error);
             NewsAggregator.showNotification('Ошибка удаления источника: ' + (error.detail || error.message), 'error');
         } finally {
-            deleteBtn.classList.remove('btn-loading');
+            deleteBtn.classList.remove('btn--loading');
             deleteBtn.disabled = false;
         }
     }

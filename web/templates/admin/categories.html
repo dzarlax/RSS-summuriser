@@ -5,7 +5,7 @@
 {% block content %}
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
     <h1 style="margin:0;">Категории</h1>
-    <button class="btn btn-primary" onclick="document.getElementById('add-section').style.display = document.getElementById('add-section').style.display === 'none' ? '' : 'none'">+ Добавить</button>
+    <button class="btn btn--primary" onclick="document.getElementById('add-section').style.display = document.getElementById('add-section').style.display === 'none' ? '' : 'none'">+ Добавить</button>
 </div>
 
 <div id="alert-container"></div>
@@ -16,7 +16,7 @@
         <input type="text" id="new-cat-name" placeholder="Системное имя (EN)" class="cat-input" required>
         <input type="text" id="new-cat-display" placeholder="Отображаемое имя" class="cat-input" required>
         <input type="color" id="new-cat-color" value="#6c757d" class="cat-color-input">
-        <button type="submit" class="btn btn-primary">Добавить</button>
+        <button type="submit" class="btn btn--primary">Добавить</button>
     </form>
 </div>
 
@@ -44,7 +44,7 @@
     <div class="cat-modal-content">
         <div class="cat-modal-header">
             <h3 style="margin:0;">Редактировать категорию</h3>
-            <button class="btn btn-ghost" onclick="closeEditModal()" style="padding:.5rem;">&#10005;</button>
+            <button class="btn btn--ghost" onclick="closeEditModal()" style="padding:.5rem;">&#10005;</button>
         </div>
         <form id="edit-form" style="padding:1rem;">
             <input type="hidden" id="edit-id">
@@ -72,8 +72,8 @@
                 <small style="color:var(--text-muted);font-size:.75rem;">Новости этой категории будут изолированы от других лент. Только одна категория может быть локальной.</small>
             </div>
             <div style="display:flex;gap:.5rem;justify-content:flex-end;margin-top:1rem;">
-                <button type="button" class="btn btn-secondary" onclick="closeEditModal()">Отмена</button>
-                <button type="submit" class="btn btn-primary">Сохранить</button>
+                <button type="button" class="btn btn--secondary" onclick="closeEditModal()">Отмена</button>
+                <button type="submit" class="btn btn--primary">Сохранить</button>
             </div>
         </form>
     </div>

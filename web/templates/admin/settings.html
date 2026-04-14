@@ -43,8 +43,8 @@
                 <small>Сюда отправляются ошибки и системные алерты</small>
             </div>
             <div style="display:flex;gap:10px;margin-top:16px;">
-                <button class="btn btn-primary" onclick="tgSaveSettings()">Сохранить</button>
-                <button class="btn btn-secondary" onclick="tgResetToEnv()">Сбросить (использовать .env)</button>
+                <button class="btn btn--primary" onclick="tgSaveSettings()">Сохранить</button>
+                <button class="btn btn--secondary" onclick="tgResetToEnv()">Сбросить (использовать .env)</button>
             </div>
             <div id="tg-save-result" class="settings-result" style="display:none;"></div>
         </div>
@@ -57,12 +57,12 @@
                 <div class="settings-action-item">
                     <strong>Тест подключения</strong>
                     <p>Отправит тестовое сообщение в сервисный канал</p>
-                    <button class="btn btn-secondary" onclick="tgTestConnection()">Отправить тест</button>
+                    <button class="btn btn--secondary" onclick="tgTestConnection()">Отправить тест</button>
                 </div>
                 <div class="settings-action-item">
                     <strong>Отправить дайджест</strong>
                     <p>Сгенерирует и отправит дайджест прямо сейчас</p>
-                    <button class="btn btn-primary" onclick="tgSendDigest()">Отправить дайджест</button>
+                    <button class="btn btn--primary" onclick="tgSendDigest()">Отправить дайджест</button>
                 </div>
             </div>
             <div id="tg-action-result" class="settings-result" style="display:none;"></div>
@@ -76,7 +76,7 @@
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
         <h2 style="margin:0;">Расписание задач</h2>
         <div style="display:flex;gap:12px;align-items:center;">
-            <button class="btn btn-primary" onclick="schShowCreateModal()">+ Создать</button>
+            <button class="btn btn--primary" onclick="schShowCreateModal()">+ Создать</button>
             <div id="sch-status" style="font-size:.875rem;color:var(--text-muted);"></div>
         </div>
     </div>
@@ -90,7 +90,7 @@
         <div class="settings-modal-content">
             <div class="settings-modal-header">
                 <h3 style="margin:0;">Создать расписание</h3>
-                <button class="btn btn-ghost" onclick="schCloseCreateModal()" style="padding:.5rem;">&#10005;</button>
+                <button class="btn btn--ghost" onclick="schCloseCreateModal()" style="padding:.5rem;">&#10005;</button>
             </div>
             <div style="padding:1rem;">
                 <div class="settings-form-group">
@@ -132,8 +132,8 @@
                     <label><input type="checkbox" id="sch-new-enabled" checked> Включено</label>
                 </div>
                 <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:1rem;">
-                    <button class="btn btn-secondary" onclick="schCloseCreateModal()">Отмена</button>
-                    <button class="btn btn-primary" onclick="schCreateSchedule()">Создать</button>
+                    <button class="btn btn--secondary" onclick="schCloseCreateModal()">Отмена</button>
+                    <button class="btn btn--primary" onclick="schCreateSchedule()">Создать</button>
                 </div>
             </div>
         </div>
@@ -415,8 +415,8 @@ function schRender() {
                 ${s.last_run ? ' &middot; Последний: ' + new Date(s.last_run).toLocaleString('ru-RU') : ''}
             </div>
             <div class="sch-card-actions">
-                <button class="btn btn-sm btn-primary" onclick="schSave('${s.task_name}')">Сохранить</button>
-                <button class="btn btn-sm btn-danger" onclick="schDelete('${s.task_name}')">Удалить</button>
+                <button class="btn btn-sm btn--primary" onclick="schSave('${s.task_name}')">Сохранить</button>
+                <button class="btn btn-sm btn--danger" onclick="schDelete('${s.task_name}')">Удалить</button>
             </div>
         </div>`;
     }).join('');

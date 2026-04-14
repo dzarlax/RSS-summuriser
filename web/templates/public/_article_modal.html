@@ -65,13 +65,13 @@
             </div>
             
             <div class="modal-actions">
-                <button id="modalRefreshBtn" class="btn btn-warning" onclick="refreshArticle()" style="display: none;" title="Обновить статью (только для админов)">
+                <button id="modalRefreshBtn" class="btn btn--warning" onclick="refreshArticle()" style="display: none;" title="Обновить статью (только для админов)">
                     🔄 Обновить статью
                 </button>
-                <button id="modalOriginalBtn" class="btn btn-primary" onclick="window.open('', '_blank')" style="display: none;">
+                <button id="modalOriginalBtn" class="btn btn--primary" onclick="window.open('', '_blank')" style="display: none;">
                     🔗 Читать оригинал
                 </button>
-                <button class="btn btn-secondary" onclick="closeArticleModal()">
+                <button class="btn btn--secondary" onclick="closeArticleModal()">
                     Закрыть
                 </button>
                 <button id="adminAccessBtn" class="btn-admin-access" onclick="toggleAdminAccess()" title="Вход в админ-режим">
@@ -240,13 +240,13 @@
     text-decoration: none; display: inline-flex; align-items: center; gap: 8px;
     transition: all var(--transition);
 }
-.btn-primary { background: var(--accent); color: var(--bg); }
-.btn-primary:hover { background: var(--accent-hover); }
-.btn-secondary { background: var(--surface-2); color: var(--text); }
-.btn-secondary:hover { background: var(--border); }
-.btn-warning { background: rgba(217,119,6,0.1); color: var(--warn); border: 1px solid var(--warn); }
-.btn-warning:hover { background: rgba(217,119,6,0.2); }
-.btn-warning:disabled { background: var(--surface-2); color: var(--text-tertiary); border-color: var(--border); cursor: not-allowed; }
+.btn--primary { background: var(--accent); color: var(--bg); }
+.btn--primary:hover { background: var(--accent-hover); }
+.btn--secondary { background: var(--surface-2); color: var(--text); }
+.btn--secondary:hover { background: var(--border); }
+.btn--warning { background: rgba(217,119,6,0.1); color: var(--warn); border: 1px solid var(--warn); }
+.btn--warning:hover { background: rgba(217,119,6,0.2); }
+.btn--warning:disabled { background: var(--surface-2); color: var(--text-tertiary); border-color: var(--border); cursor: not-allowed; }
 .btn-admin-access {
     background: none; border: none; font-size: 1rem; padding: 10px 12px;
     cursor: pointer; border-radius: var(--radius-sm); transition: all var(--transition);

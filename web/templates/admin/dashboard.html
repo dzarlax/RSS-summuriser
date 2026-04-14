@@ -62,10 +62,10 @@
         <div class="control-bar">
             <span class="control-bar-label">Управление:</span>
             <div class="control-bar-actions">
-                <button id="sync-button" class="btn btn-sm btn-primary" onclick="runManualSync()" data-tooltip="Синхронизировать все источники">
+                <button id="sync-button" class="btn btn-sm btn--primary" onclick="runManualSync()" data-tooltip="Синхронизировать все источники">
                     <span class="sync-icon">🔄</span> Синхронизировать
                 </button>
-                <button id="telegram-button" class="btn btn-sm btn-success" onclick="sendTelegramDigest()" data-tooltip="Отправить дайджест в Telegram">
+                <button id="telegram-button" class="btn btn-sm btn--success" onclick="sendTelegramDigest()" data-tooltip="Отправить дайджест в Telegram">
                     📱 Отправить дайджест
                 </button>
                 <button id="summaries-button" class="btn btn-sm btn-info" onclick="generateSummaries()" data-tooltip="Создать дневные сводки">
@@ -85,7 +85,7 @@
                     <h2>📰 Последние новости</h2>
                     <div>
                         <button class="btn btn-sm btn-outline" onclick="loadRecentNews()">🔄 Обновить</button>
-                        <button class="btn btn-sm btn-ghost" onclick="toggleSection('news-section')" title="Свернуть/развернуть">▾</button>
+                        <button class="btn btn-sm btn--ghost" onclick="toggleSection('news-section')" title="Свернуть/развернуть">▾</button>
                     </div>
                 </div>
                 
@@ -105,7 +105,7 @@
                     <h2>⚡ Статус системы</h2>
                     <div style="display:flex; gap:.5rem; align-items:center;">
                         <div class="status-timestamp" id="status-timestamp">Проверено: Загрузка...</div>
-                        <button class="btn btn-sm btn-ghost" onclick="toggleSection('status-section')" title="Свернуть/развернуть">▾</button>
+                        <button class="btn btn-sm btn--ghost" onclick="toggleSection('status-section')" title="Свернуть/развернуть">▾</button>
                     </div>
                 </div>
                 <div class="section-body">
@@ -1023,7 +1023,7 @@ async function runManualSync() {
     
     // Show sync status
     statusDiv.style.display = 'block';
-    button.classList.add('btn-loading');
+    button.classList.add('btn--loading');
     button.disabled = true;
     
     try {
@@ -1054,7 +1054,7 @@ async function runManualSync() {
         statusDiv.style.display = 'none';
         showNotification('Ошибка запуска синхронизации', 'error');
     } finally {
-        button.classList.remove('btn-loading');
+        button.classList.remove('btn--loading');
         button.disabled = false;
     }
 }
@@ -1062,7 +1062,7 @@ async function runManualSync() {
 async function sendTelegramDigest() {
     const button = document.getElementById('telegram-button');
     
-    button.classList.add('btn-loading');
+    button.classList.add('btn--loading');
     button.disabled = true;
     
     try {
@@ -1080,7 +1080,7 @@ async function sendTelegramDigest() {
         console.error('Error sending telegram digest:', error);
         showNotification('Ошибка отправки в Telegram', 'error');
     } finally {
-        button.classList.remove('btn-loading');
+        button.classList.remove('btn--loading');
         button.disabled = false;
     }
 }
@@ -1088,7 +1088,7 @@ async function sendTelegramDigest() {
 async function generateSummaries() {
     const button = document.getElementById('summaries-button');
     
-    button.classList.add('btn-loading');
+    button.classList.add('btn--loading');
     button.disabled = true;
     
     try {
@@ -1107,7 +1107,7 @@ async function generateSummaries() {
         console.error('Error generating summaries:', error);
         showNotification('Ошибка создания сводок', 'error');
     } finally {
-        button.classList.remove('btn-loading');
+        button.classList.remove('btn--loading');
         button.disabled = false;
     }
 }

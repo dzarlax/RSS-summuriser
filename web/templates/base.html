@@ -4,19 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Evening News{% endblock %}</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/dzarlax/design-system@main/dist/dzarlax.css">
     <link href="/static/css/main.css" rel="stylesheet">
     <style>
-    /* Dark mode overrides + public-only styles */
+    /* dark-mode bridge for legacy aliases used in main.css */
     [dark-mode] {
-        --bg: #1A1D21; --surface: #22252A; --surface-2: #2A2D32;
-        --text: #F5F5F5; --text-secondary: rgba(245,245,245,0.7); --text-tertiary: rgba(245,245,245,0.5);
-        --accent: #F5F5F5; --accent-hover: #E0E0E0;
-        --border: rgba(255,255,255,0.08); --border-color: rgba(255,255,255,0.08);
-        --shadow-sm: 0 1px 2px 0 rgba(0,0,0,0.2);
-        --shadow-md: 0 4px 6px -1px rgba(0,0,0,0.3);
-        --shadow-lg: 0 8px 30px rgba(0,0,0,0.4);
-        --background-color: #1A1D21; --surface-color: #22252A; --surface-hover: #2A2D32;
-        --text-color: #F5F5F5; --text-muted: rgba(245,245,245,0.7); --text-light: rgba(245,245,245,0.5);
+        --border-color: rgba(255,255,255,0.08);
+        --surface-color: #22252A; --surface-hover: #2A2D32;
+        --text-color: #F5F5F5; --text-muted: rgba(245,245,245,0.7);
         --primary-color: #F5F5F5; --primary-dark: #E0E0E0;
     }
     .theme-toggle {
@@ -25,14 +20,10 @@
         transition: color var(--transition); border-radius: var(--radius-sm);
     }
     .theme-toggle:hover { color: var(--text); }
-    @media (max-width: 768px) {
-        .nav-hide-mobile { display: none; }
-        .nav-brand a { font-size: 1.1rem; }
-    }
     .footer { border-top: 1px solid var(--border); padding: 32px 0; margin-top: 60px; }
     .footer-content {
         max-width: 1200px; margin: 0 auto; padding: 0 24px;
-        text-align: center; color: var(--text-tertiary); font-size: 0.85rem;
+        text-align: center; color: var(--text-tertiary); font-size: var(--text-sm);
     }
     </style>
     <script src="/static/js/main.js"></script>

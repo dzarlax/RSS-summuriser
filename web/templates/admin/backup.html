@@ -6,9 +6,9 @@
 <div class="section-header">
     <h1>Резервные копии</h1>
     <div class="backup-toolbar">
-        <button class="btn btn-sm btn-primary" onclick="createBackup()">💾 Создать</button>
-        <button class="btn btn-sm btn-ghost" onclick="showUploadModal()">📁 Загрузить</button>
-        <button class="btn btn-sm btn-ghost" onclick="refreshBackups()">🔄 Обновить</button>
+        <button class="btn btn-sm btn--primary" onclick="createBackup()">💾 Создать</button>
+        <button class="btn btn-sm btn--ghost" onclick="showUploadModal()">📁 Загрузить</button>
+        <button class="btn btn-sm btn--ghost" onclick="refreshBackups()">🔄 Обновить</button>
         <span id="op-status" class="op-status" style="display:none;"></span>
     </div>
 </div>
@@ -26,7 +26,7 @@
     <label class="schedule-field">
         Хранить: <input type="number" id="keep-days" value="30" min="1" max="365" class="schedule-input schedule-days"> дн.
     </label>
-    <button class="btn btn-sm btn-ghost" onclick="saveSchedule()">Сохранить</button>
+    <button class="btn btn-sm btn--ghost" onclick="saveSchedule()">Сохранить</button>
 </div>
 
 <!-- Backups List -->
@@ -63,8 +63,8 @@
             </div>
         </div>
         <div class="modal-footer">
-            <button class="btn btn-ghost" onclick="hideRestoreModal()">Отмена</button>
-            <button class="btn btn-danger" onclick="confirmRestore()" id="confirm-restore-btn" disabled>
+            <button class="btn btn--ghost" onclick="hideRestoreModal()">Отмена</button>
+            <button class="btn btn--danger" onclick="confirmRestore()" id="confirm-restore-btn" disabled>
                 Восстановить
             </button>
         </div>
@@ -95,8 +95,8 @@
             </div>
         </div>
         <div class="modal-footer">
-            <button class="btn btn-ghost" onclick="hideUploadModal()">Отмена</button>
-            <button class="btn btn-primary" onclick="uploadSelectedFile()" id="upload-btn" disabled>Загрузить</button>
+            <button class="btn btn--ghost" onclick="hideUploadModal()">Отмена</button>
+            <button class="btn btn--primary" onclick="uploadSelectedFile()" id="upload-btn" disabled>Загрузить</button>
         </div>
     </div>
 </div>
@@ -237,13 +237,13 @@
 }
 .close:hover { color: #475569; }
 
-.btn-danger {
+.btn--danger {
     background: #ef4444;
     color: white;
     border: none;
 }
-.btn-danger:hover { background: #dc2626; }
-.btn-danger:disabled { background: #fca5a5; cursor: not-allowed; }
+.btn--danger:hover { background: #dc2626; }
+.btn--danger:disabled { background: #fca5a5; cursor: not-allowed; }
 
 /* File drop zone */
 .file-drop-zone {
@@ -342,8 +342,8 @@ function displayBackups(backups) {
             <td>${new Date(b.created_at).toLocaleString('ru-RU')}</td>
             <td>
                 <div class="backup-action-cell">
-                    <a href="/api/v1/backup/download/${b.filename}" class="btn btn-sm btn-ghost" download="${b.filename}" title="Скачать">⬇️ Скачать</a>
-                    <button class="btn btn-sm btn-danger" onclick="showRestoreModal('${b.filepath}', '${b.filename}')">🔄 Восстановить</button>
+                    <a href="/api/v1/backup/download/${b.filename}" class="btn btn-sm btn--ghost" download="${b.filename}" title="Скачать">⬇️ Скачать</a>
+                    <button class="btn btn-sm btn--danger" onclick="showRestoreModal('${b.filepath}', '${b.filename}')">🔄 Восстановить</button>
                 </div>
             </td>
         </tr>
